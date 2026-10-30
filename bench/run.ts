@@ -97,7 +97,8 @@ const Answer = t.object({
 
 async function solveWithModel(work: string, taskId: string, prompt: string, modelId: string) {
   const ai = createAI({ providers: providerFor(modelId) });
-  const files = (await listFiles(path.join(work, "src"))).map((f) => path.join("src", f));
+  const files = [];
+  for (const dir of ["src", "migrations"]) if (existsSync(path.join(work, dir))) files.push(...(await listFiles(path.join(work, dir))).map((f) => path.join(dir, f)));
   const sources = await Promise.all(files.map(async (f) => `--- ${f}\n${await readFile(path.join(work, f), "utf8")}`));
   const agents = await readFile(path.join(work, "AGENTS.md"), "utf8");
   const { object, usage } = await ai.generate({

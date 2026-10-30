@@ -73,7 +73,7 @@ function literal(value: unknown): string {
   return `'${String(typeof value === "object" ? JSON.stringify(value) : value).replace(/'/g, "''")}'`;
 }
 
-function columnDefinition(model: AnyModel, field: string, schema: AnySchema, forAlter = false): string {
+export function columnDefinition(model: AnyModel, field: string, schema: AnySchema, forAlter = false): string {
   const d = schema.def;
   let sql = `${q(columnName(field))} ${columnType(schema)}`;
   if (d.hasDefault && typeof d.defaultValue !== "function") sql += ` DEFAULT ${literal(d.defaultValue)}${isJson(schema) ? "::jsonb" : ""}`;
@@ -87,24 +87,40 @@ function columnDefinition(model: AnyModel, field: string, schema: AnySchema, for
   return sql;
 }
 
+export const SYSTEM_COLUMNS: [column: string, definition: string][] = [
+  ["id", `"id" uuid PRIMARY KEY`],
+  ["created_at", `"created_at" timestamptz NOT NULL DEFAULT now()`],
+  ["updated_at", `"updated_at" timestamptz NOT NULL DEFAULT now()`],
+];
+
 export function createTableSql(model: AnyModel): string[] {
-  const cols = [`"id" uuid PRIMARY KEY`, `"created_at" timestamptz NOT NULL DEFAULT now()`, `"updated_at" timestamptz NOT NULL DEFAULT now()`];
+  const cols = SYSTEM_COLUMNS.map(([, definition]) => definition);
   for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) cols.push(columnDefinition(model, field, schema));
   return [`CREATE TABLE IF NOT EXISTS ${q(model.name)} (\n  ${cols.join(",\n  ")}\n)`, ...indexSql(model)];
 }
 
 function indexSql(model: AnyModel): string[] {
-  const out: string[] = [];
+  return modelIndexes(model).map(([, sql]) => sql);
+}
+
+/** [index name, CREATE INDEX statement] for every unique, indexed or ref field. */
+export function modelIndexes(model: AnyModel): [name: string, sql: string][] {
+  const out: [string, string][] = [];
   for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
     const col = columnName(field);
-    if (schema.def.unique) out.push(`CREATE UNIQUE INDEX IF NOT EXISTS ${q(`${model.name}_${col}_key`)} ON ${q(model.name)} (${q(col)})`);
-    else if (schema.def.index || schema.def.kind === "ref") out.push(`CREATE INDEX IF NOT EXISTS ${q(`${model.name}_${col}_idx`)} ON ${q(model.name)} (${q(col)})`);
+    if (schema.def.unique) {
+      const name = `${model.name}_${col}_key`;
+      out.push([name, `CREATE UNIQUE INDEX IF NOT EXISTS ${q(name)} ON ${q(model.name)} (${q(col)})`]);
+    } else if (schema.def.index || schema.def.kind === "ref") {
+      const name = `${model.name}_${col}_idx`;
+      out.push([name, `CREATE INDEX IF NOT EXISTS ${q(name)} ON ${q(model.name)} (${q(col)})`]);
+    }
   }
   return out;
 }
 
 /** Order models so referenced tables are created first. */
-function sortByReferences(models: AnyModel[]): AnyModel[] {
+export function sortByReferences(models: AnyModel[]): AnyModel[] {
   const byName = new Map(models.map((m) => [m.name, m]));
   const out: AnyModel[] = [];
   const seen = new Set<string>();

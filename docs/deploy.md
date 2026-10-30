@@ -6,7 +6,7 @@ A Kairo app is a standard `fetch(Request) => Response` handler, so it runs anywh
 
 ```bash
 npm ci --omit=dev
-DATABASE_URL=postgres://... npx kairo db push
+DATABASE_URL=postgres://... npx kairo db migrate --apply   # or kairo db push if you do not use migrations
 DATABASE_URL=postgres://... PORT=3000 node src/server.ts
 ```
 

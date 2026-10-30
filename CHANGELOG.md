@@ -4,6 +4,7 @@ All notable changes are listed here. Kairo follows [semantic versioning](https:/
 
 ## Unreleased
 
+- `kairo db migrate [name]` writes versioned SQL migration files (`migrations/NNNN_name.sql`) for new tables, columns and indexes, tracked with `migrations/snapshot.json`; `kairo db migrate --apply` runs pending files in transactions and records them in `kairo_migrations`. Also available as `planMigration()` and `applyMigrations()`. Drops and column changes are refused for now (KR4013); new required columns without a default raise KR4014. New codes KR4015 and KR4016.
 - The npm package is `@kairojs/core` (import from "@kairojs/core", "@kairojs/core/postgres", "@kairojs/core/testing"). `kairo new` installs it from npm.
 
 ## 0.1.0 - 2026-10-30

@@ -138,6 +138,18 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### KR7002
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
+### KR4013
+**Migration change not supported yet.** `kairo db migrate` only generates new tables, columns and indexes. Your models drop a table, column or index, or change an existing column (type, required, default, enum values, reference). `details.changes` lists them. Undo the model change, or write the SQL yourself in a new migration file.
+
+### KR4014
+**New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
+
+### KR4015
+**Invalid migration snapshot.** `migrations/snapshot.json` is not the file written by `kairo db migrate`. Restore it from version control; do not edit it by hand.
+
+### KR4016
+**Invalid or duplicate migration name.** Migration names use letters, digits, `_` and `-` and must be unique, e.g. `0002_add_due_dates`.
+
 ## CLI (8xxx)
 
 ### KR8000
@@ -150,7 +162,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Entry file does not export an app.** Add `export const app = createApp({ ... })`.
 
 ### KR8003
-**Unknown db command.** Use `kairo db push`.
+**Unknown db command.** Use `kairo db push` or `kairo db migrate`.
 
 ### KR8004
 **Missing project directory** for `kairo new`.

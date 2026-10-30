@@ -34,7 +34,7 @@ Do not finish until `kairo check` passes.
 4. **Check ownership.** Fetch with `db.x.get(id)` (throws 404) and compare `ownerId` to `user.id`; throw `notFound()` when it does not match, so other users' ids are not revealed.
 5. **Never write raw SQL with string concatenation.** Use the table methods. If you really need SQL, use `db.$sql(text, params)` with `$1` placeholders.
 6. **Model ids, timestamps:** every model already has `id`, `createdAt`, `updatedAt`. Never define them or send them as input.
-7. **New field?** Add it to the model in `src/models.ts`, then run `npx kairo db push`. Use `.optional()` or `.default()` for new fields on existing tables.
+7. **New field?** Add it to the model in `src/models.ts`, then run `npx kairo db push` in development, or `npx kairo db migrate <name>` to write a migration file for production (applied with `npx kairo db migrate --apply`). Use `.optional()` or `.default()` for new fields on existing tables. Never edit `migrations/snapshot.json`.
 8. **New resource?** `npx kairo add resource <plural_name>` generates the model and CRUD routes. Then edit them.
 9. **AI calls** use aliases from `src/app.ts` (`model: "fast"`), never hard-coded provider model ids in routes. Use `output: schema` for structured data and `for: user.id` so usage is tracked per user.
 10. **Errors:** throw `notFound()`, `forbidden()`, `badRequest()` or `httpError(status, message)`. Every Kairo error has a code (KRxxxx), a fix and a docs link: read the fix before changing code.

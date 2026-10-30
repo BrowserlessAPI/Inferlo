@@ -84,13 +84,13 @@ npm install @kairojs/core
 
 - **Routing:** `route.get/post/put/patch/delete`, typed path params, query coercion, CORS, middleware, body limits
 - **Schemas:** `t.string()`, `t.email()`, `t.enum()`, `t.ref()`, ... with `.optional()`, `.default()`, `.pick()`, `.partial()`, JSON Schema output
-- **Database:** typed tables (`db.tickets.findMany(...)`), PostgreSQL and in-memory adapters, `kairo db push`, transactions, unique and foreign keys
+- **Database:** typed tables (`db.tickets.findMany(...)`), PostgreSQL and in-memory adapters, `kairo db push`, versioned migrations (`kairo db migrate`), transactions, unique and foreign keys
 - **Auth:** `auth.resolve(req)`, `bearer()` API keys, roles, password hashing with Web Crypto
 - **AI:** Anthropic, OpenAI, Gemini, Ollama and any OpenAI-compatible server; aliases with fallback; structured output with automatic repair; streaming to SSE; embeddings; per-user usage and cost tracking; budgets
 - **MCP:** routes with `tool: true` become MCP tools at `/mcp`, with the same auth as HTTP
 - **OpenAPI 3.1** at `/openapi.json`
 - **Testing:** `app.request(path, { json, as: user })`, `mockProvider()`, `memory()`
-- **CLI:** `new`, `dev`, `describe`, `check`, `db push`, `openapi`, `add resource`
+- **CLI:** `new`, `dev`, `describe`, `check`, `db push`, `db migrate`, `openapi`, `add resource`
 
 ## Documentation
 
@@ -366,7 +366,29 @@ kairo db push --dry-run   # show the SQL
 kairo db push             # create missing tables, columns and indexes
 ```
 
-`db push` only adds things; it never drops or renames columns. New columns on existing tables should be `.optional()` or have a `.default()`.
+`db push` only adds things; it never drops or renames columns. New columns on existing tables should be `.optional()` or have a `.default()`. Use it for development and prototypes; use migrations in production.
+
+## Migrations
+
+```bash
+kairo db migrate add_due_dates   # write migrations/0002_add_due_dates.sql for your model changes
+kairo db migrate --dry-run       # print the SQL without writing anything
+kairo db migrate --apply         # run pending migration files against DATABASE_URL
+```
+
+- `kairo db migrate [name]` compares your models with `migrations/snapshot.json` (your models as of the last generated migration), writes the SQL for the difference to the next numbered file and updates the snapshot. With no changes it writes nothing. Commit both files.
+- Review the generated SQL before applying it. You may edit a file until it has been applied anywhere; after that, add a new migration instead.
+- `--apply` runs every file not yet recorded in the `kairo_migrations` table, in file name order, each in its own transaction, and records it. It is safe to run on every deploy and from several instances at once. Do not put `BEGIN` or `COMMIT` in migration files.
+- Generated statements use `IF NOT EXISTS`, so the first migration also works on a database created with `db push`.
+- Only additive changes are generated for now: new tables, columns and indexes. Dropped tables, columns or indexes and changed columns raise KR4013 and nothing is written. A new required column on an existing table raises KR4014: give it a fixed `.default(value)` or make it `.optional()`.
+
+To apply migrations from code, for example at startup in a serverless function:
+
+```ts
+import { applyMigrations } from "@kairojs/core";
+
+await applyMigrations(app.db, [{ name: "0001_init", sql: initSql }]);   // returns the names it applied
+```
 
 ## Transactions and raw SQL (Postgres)
 
@@ -681,6 +703,8 @@ kairo dev                    Run src/server.ts and restart on changes
 kairo describe [--json]      App map: models, routes, auth, AI
 kairo check [--json]         Typecheck, load the app, run tests
 kairo db push [--dry-run]    Create missing tables, columns and indexes
+kairo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview)
+kairo db migrate --apply     Run pending migration files
 kairo openapi [--out file]   Print or write the OpenAPI document
 kairo add resource <name>    Generate a model and CRUD routes
 kairo version
@@ -704,6 +728,14 @@ The app entry is `src/app.ts` by default. Change it with `"kairo": { "entry": ".
 ```
 
 Agents should run this after every change and not stop until `ok` is `true`.
+
+## kairo db migrate --json
+
+```json
+{ "ok": true, "dryRun": false, "file": "migrations/0002_add_due_dates.sql", "statements": ["ALTER TABLE \"tasks\" ADD COLUMN IF NOT EXISTS \"due_at\" timestamptz"] }
+```
+
+`file` is `null` when nothing changed or with `--dry-run`. `kairo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"] }`. See [Migrations](database.md#migrations).
 
 ## kairo add resource invoices
 
@@ -752,7 +784,7 @@ A Kairo app is a standard `fetch(Request) => Response` handler, so it runs anywh
 
 ```bash
 npm ci --omit=dev
-DATABASE_URL=postgres://... npx kairo db push
+DATABASE_URL=postgres://... npx kairo db migrate --apply   # or kairo db push if you do not use migrations
 DATABASE_URL=postgres://... PORT=3000 node src/server.ts
 ```
 
@@ -933,6 +965,18 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### KR7002
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
+### KR4013
+**Migration change not supported yet.** `kairo db migrate` only generates new tables, columns and indexes. Your models drop a table, column or index, or change an existing column (type, required, default, enum values, reference). `details.changes` lists them. Undo the model change, or write the SQL yourself in a new migration file.
+
+### KR4014
+**New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
+
+### KR4015
+**Invalid migration snapshot.** `migrations/snapshot.json` is not the file written by `kairo db migrate`. Restore it from version control; do not edit it by hand.
+
+### KR4016
+**Invalid or duplicate migration name.** Migration names use letters, digits, `_` and `-` and must be unique, e.g. `0002_add_due_dates`.
+
 ## CLI (8xxx)
 
 ### KR8000
@@ -945,7 +989,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Entry file does not export an app.** Add `export const app = createApp({ ... })`.
 
 ### KR8003
-**Unknown db command.** Use `kairo db push`.
+**Unknown db command.** Use `kairo db push` or `kairo db migrate`.
 
 ### KR8004
 **Missing project directory** for `kairo new`.

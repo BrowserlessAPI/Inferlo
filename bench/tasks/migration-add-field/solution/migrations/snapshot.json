@@ -1,0 +1,46 @@
+{
+  "kairo": 1,
+  "tables": {
+    "users": {
+      "columns": {
+        "id": "\"id\" uuid PRIMARY KEY",
+        "created_at": "\"created_at\" timestamptz NOT NULL DEFAULT now()",
+        "updated_at": "\"updated_at\" timestamptz NOT NULL DEFAULT now()",
+        "email": "\"email\" text NOT NULL",
+        "name": "\"name\" varchar(80) NOT NULL",
+        "role": "\"role\" text DEFAULT 'member' NOT NULL CHECK (\"role\" IN ('member', 'admin'))"
+      },
+      "indexes": {
+        "users_email_key": "CREATE UNIQUE INDEX IF NOT EXISTS \"users_email_key\" ON \"users\" (\"email\")"
+      }
+    },
+    "api_keys": {
+      "columns": {
+        "id": "\"id\" uuid PRIMARY KEY",
+        "created_at": "\"created_at\" timestamptz NOT NULL DEFAULT now()",
+        "updated_at": "\"updated_at\" timestamptz NOT NULL DEFAULT now()",
+        "user_id": "\"user_id\" uuid NOT NULL REFERENCES \"users\"(\"id\") ON DELETE CASCADE",
+        "hash": "\"hash\" varchar(64) NOT NULL",
+        "label": "\"label\" varchar(80) DEFAULT 'default' NOT NULL"
+      },
+      "indexes": {
+        "api_keys_user_id_idx": "CREATE INDEX IF NOT EXISTS \"api_keys_user_id_idx\" ON \"api_keys\" (\"user_id\")",
+        "api_keys_hash_key": "CREATE UNIQUE INDEX IF NOT EXISTS \"api_keys_hash_key\" ON \"api_keys\" (\"hash\")"
+      }
+    },
+    "notes": {
+      "columns": {
+        "id": "\"id\" uuid PRIMARY KEY",
+        "created_at": "\"created_at\" timestamptz NOT NULL DEFAULT now()",
+        "updated_at": "\"updated_at\" timestamptz NOT NULL DEFAULT now()",
+        "title": "\"title\" varchar(200) NOT NULL",
+        "body": "\"body\" text DEFAULT '' NOT NULL",
+        "archived": "\"archived\" boolean DEFAULT false NOT NULL",
+        "owner_id": "\"owner_id\" uuid NOT NULL REFERENCES \"users\"(\"id\") ON DELETE CASCADE"
+      },
+      "indexes": {
+        "notes_owner_id_idx": "CREATE INDEX IF NOT EXISTS \"notes_owner_id_idx\" ON \"notes\" (\"owner_id\")"
+      }
+    }
+  }
+}

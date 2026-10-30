@@ -78,13 +78,13 @@ npm install @kairojs/core
 
 - **Routing:** `route.get/post/put/patch/delete`, typed path params, query coercion, CORS, middleware, body limits
 - **Schemas:** `t.string()`, `t.email()`, `t.enum()`, `t.ref()`, ... with `.optional()`, `.default()`, `.pick()`, `.partial()`, JSON Schema output
-- **Database:** typed tables (`db.tickets.findMany(...)`), PostgreSQL and in-memory adapters, `kairo db push`, transactions, unique and foreign keys
+- **Database:** typed tables (`db.tickets.findMany(...)`), PostgreSQL and in-memory adapters, `kairo db push`, versioned migrations (`kairo db migrate`), transactions, unique and foreign keys
 - **Auth:** `auth.resolve(req)`, `bearer()` API keys, roles, password hashing with Web Crypto
 - **AI:** Anthropic, OpenAI, Gemini, Ollama and any OpenAI-compatible server; aliases with fallback; structured output with automatic repair; streaming to SSE; embeddings; per-user usage and cost tracking; budgets
 - **MCP:** routes with `tool: true` become MCP tools at `/mcp`, with the same auth as HTTP
 - **OpenAPI 3.1** at `/openapi.json`
 - **Testing:** `app.request(path, { json, as: user })`, `mockProvider()`, `memory()`
-- **CLI:** `new`, `dev`, `describe`, `check`, `db push`, `openapi`, `add resource`
+- **CLI:** `new`, `dev`, `describe`, `check`, `db push`, `db migrate`, `openapi`, `add resource`
 
 ## Documentation
 

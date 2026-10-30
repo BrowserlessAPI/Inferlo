@@ -13,6 +13,7 @@
     "check": "kairo check",
     "describe": "kairo describe",
     "db:push": "kairo db push",
+    "db:migrate": "kairo db migrate",
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
