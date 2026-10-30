@@ -43,7 +43,7 @@ export interface AppDescription {
   ai: { configured: boolean; aliases: Record<string, string[]> };
 }
 
-export const KAIRO_VERSION = "0.1.0";
+export const KAIRO_VERSION = "0.2.0";
 
 function field(name: string, schema: AnySchema): FieldDescription {
   const d = schema.def;
