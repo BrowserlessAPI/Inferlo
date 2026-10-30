@@ -1,0 +1,114 @@
+# Kairo
+
+**The TypeScript backend framework AI models write best.**
+
+Kairo is a batteries-included TypeScript backend framework: routing, validation, database, auth, AI and an MCP server in one package with zero runtime dependencies. It is designed so AI coding agents (Claude Code, Cursor, Codex, NeonCodex and others) write correct code on the first try: one obvious way to do each thing, no hidden behaviour, types end to end, and error messages that say exactly how to fix the problem.
+
+```ts
+import { model, route, t } from "kairojs";
+
+export const Ticket = model("tickets", {
+  title: t.string().min(3).max(200),
+  body: t.text(),
+  priority: t.enum(["low", "normal", "urgent"]).default("normal"),
+  ownerId: t.ref("users"),
+});
+
+export const createTicket = route
+  .post("/tickets", { body: Ticket.pick("title", "body"), tool: true })
+  .handle(({ body, user, db }) => db.tickets.insert({ ...body, ownerId: user.id }));
+
+export const triageTicket = route
+  .post("/tickets/:id/triage", { params: t.object({ id: t.uuid() }), auth: "agent" })
+  .handle(async ({ params, db, ai, user }) => {
+    const ticket = await db.tickets.get(params.id);
+    const { object } = await ai.generate({
+      model: "fast",
+      prompt: ticket.body,
+      output: t.object({ priority: Ticket.fields.priority, summary: t.string().max(300) }),
+      for: user.id,
+    });
+    return db.tickets.update(ticket.id, object);
+  });
+```
+
+That one model definition gives you the database table, insert and update validation, TypeScript types, OpenAPI docs, an MCP tool and the AI output schema.
+
+## Why Kairo
+
+| | NestJS | Hono | AdonisJS | Express | **Kairo** |
+|---|---|---|---|---|---|
+| Batteries included (DB, validation, auth) | Partial | No | Yes | No | **Yes** |
+| Runs on Node, Bun, Deno and edge | No | Yes | No | No | **Yes** |
+| One schema for DB, validation, API docs and AI | No | No | No | No | **Yes** |
+| AI providers, fallback, structured output, streaming in core | No | No | No | No | **Yes** |
+| Built-in MCP server from your routes | No | No | No | No | **Yes** |
+| Token usage tracking and budgets | No | No | No | No | **Yes** |
+| Private routes by default | No | No | No | No | **Yes** |
+| Errors with codes, fixes and docs links | No | No | Partial | No | **Yes** |
+| Zero runtime dependencies | No | Yes | No | No | **Yes** |
+
+## Built for AI coding agents
+
+- **Familiar shapes.** Hono-style routes and Zod-style schemas: patterns models already know.
+- **One way to do things.** One route API, one schema API, one query API, one AI API.
+- **No hidden behaviour.** No decorators, no dependency injection, no global registration. Everything a handler needs is in its file.
+- **Types catch invented code.** Misspelled fields, missing tables and wrong types fail at compile time. At runtime, unknown fields are rejected with "Did you mean ...?".
+- **Errors that explain the fix.** Every error has a stable code (`KR1001`), the cause, the fix and a docs link.
+- **Tools for agents.** `kairo describe --json` returns the whole app map. `kairo check --json` returns typecheck, load and test results as JSON. `kairo add resource` generates correct CRUD code.
+- **Docs for machines.** [`llms.txt`](llms.txt), [`llms-full.txt`](llms-full.txt), and every new project ships with `AGENTS.md` and `CLAUDE.md`.
+- **Secure by default.** Routes require a signed-in user unless marked public, every query is parameterised, and every insert is validated, so AI-written code stays safe even with light review.
+
+## Quick start
+
+Requires Node.js 22.18+ or Bun 1.2+. TypeScript runs directly with no build step.
+
+```bash
+npx github:BrowserlessAPI/kairo new my-app
+cd my-app && npm install && npm run dev
+```
+
+Or add it to an existing project:
+
+```bash
+npm install github:BrowserlessAPI/kairo
+```
+
+## Features
+
+- **Routing:** `route.get/post/put/patch/delete`, typed path params, query coercion, CORS, middleware, body limits
+- **Schemas:** `t.string()`, `t.email()`, `t.enum()`, `t.ref()`, ... with `.optional()`, `.default()`, `.pick()`, `.partial()`, JSON Schema output
+- **Database:** typed tables (`db.tickets.findMany(...)`), PostgreSQL and in-memory adapters, `kairo db push`, transactions, unique and foreign keys
+- **Auth:** `auth.resolve(req)`, `bearer()` API keys, roles, password hashing with Web Crypto
+- **AI:** Anthropic, OpenAI, Gemini, Ollama and any OpenAI-compatible server; aliases with fallback; structured output with automatic repair; streaming to SSE; embeddings; per-user usage and cost tracking; budgets
+- **MCP:** routes with `tool: true` become MCP tools at `/mcp`, with the same auth as HTTP
+- **OpenAPI 3.1** at `/openapi.json`
+- **Testing:** `app.request(path, { json, as: user })`, `mockProvider()`, `memory()`
+- **CLI:** `new`, `dev`, `describe`, `check`, `db push`, `openapi`, `add resource`
+
+## Documentation
+
+- [Getting started](docs/getting-started.md)
+- [Schemas](docs/schema.md)
+- [Models and database](docs/database.md)
+- [Routes](docs/routes.md)
+- [Auth](docs/auth.md)
+- [AI](docs/ai.md)
+- [MCP, OpenAPI and describe](docs/mcp.md)
+- [CLI](docs/cli.md)
+- [Testing](docs/testing.md)
+- [Deployment](docs/deploy.md)
+- [Error codes](docs/errors.md)
+- [Example: helpdesk with AI triage](examples/helpdesk)
+
+## Status
+
+Kairo is at **v0.1**. The core API is usable and tested on Node and Bun with PostgreSQL. See [ROADMAP.md](ROADMAP.md) for what is next and [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). AI agents working on this repository: read [AGENTS.md](AGENTS.md).
+
+## License
+
+[MIT](LICENSE)

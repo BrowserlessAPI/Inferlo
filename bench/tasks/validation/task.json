@@ -1,0 +1,4 @@
+{
+  "title": "Tighten validation",
+  "prompt": "Note titles that contain only whitespace (for example \"   \") must be rejected with a validation error, on create and on update."
+}

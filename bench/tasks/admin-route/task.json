@@ -1,0 +1,4 @@
+{
+  "title": "Admin-only route",
+  "prompt": "Add GET /admin/users that returns all users ordered by email. Only users with the \"admin\" role may call it. Put it in a new file src/routes/admin.ts and register it in src/app.ts."
+}

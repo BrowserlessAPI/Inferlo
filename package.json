@@ -1,0 +1,81 @@
+{
+  "name": "kairojs",
+  "version": "0.1.0",
+  "description": "The TypeScript backend framework AI models write best. Routing, database, validation, auth and AI built in, with one schema for everything.",
+  "type": "module",
+  "license": "MIT",
+  "author": "BrowserlessAPI",
+  "homepage": "https://github.com/BrowserlessAPI/kairo#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BrowserlessAPI/kairo.git"
+  },
+  "bugs": "https://github.com/BrowserlessAPI/kairo/issues",
+  "keywords": [
+    "typescript",
+    "backend",
+    "framework",
+    "api",
+    "rest",
+    "orm",
+    "validation",
+    "ai",
+    "llm",
+    "mcp",
+    "ai-agents",
+    "bun",
+    "deno",
+    "edge"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./postgres": {
+      "types": "./dist/db/postgres.d.ts",
+      "default": "./dist/db/postgres.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
+  },
+  "bin": {
+    "kairo": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE",
+    "llms.txt"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\" \"examples/*/test/*.test.ts\"",
+    "test:bun": "bun test test/",
+    "llms": "node scripts/build-llms.ts",
+    "check": "npm run typecheck && npm test && node scripts/build-llms.ts --check",
+    "bench": "node bench/run.ts"
+  },
+  "peerDependencies": {
+    "pg": ">=8"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/pg": "^8.15.0",
+    "pg": "^8.16.0",
+    "typescript": "^5.9.3"
+  }
+}

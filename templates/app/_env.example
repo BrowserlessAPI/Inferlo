@@ -1,0 +1,5 @@
+# Leave DATABASE_URL empty to use the in-memory database (data resets on restart).
+DATABASE_URL=
+PORT=3000
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=

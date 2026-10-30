@@ -1,0 +1,46 @@
+# Deployment
+
+A Kairo app is a standard `fetch(Request) => Response` handler, so it runs anywhere.
+
+## Linux server (Node.js)
+
+```bash
+npm ci --omit=dev
+DATABASE_URL=postgres://... npx kairo db push
+DATABASE_URL=postgres://... PORT=3000 node src/server.ts
+```
+
+Run it under systemd or pm2 behind Nginx:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;   # needed for AI streaming responses
+}
+```
+
+## Bun
+
+```bash
+bun src/server.ts
+```
+
+`app.listen()` uses `Bun.serve` automatically.
+
+## Deno
+
+```ts
+Deno.serve(app.fetch);
+```
+
+## Cloudflare Workers and other edge runtimes
+
+```ts
+import { app } from "./app.ts";
+export default app;   // app.fetch is the Worker handler
+```
+
+Use a Postgres driver that supports your edge runtime, or `memory()` for stateless services.

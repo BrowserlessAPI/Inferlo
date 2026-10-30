@@ -1,0 +1,4 @@
+{
+  "title": "Fix a security bug",
+  "prompt": "Users report that they can edit notes that belong to other users. Find and fix the bug. Other users' notes must look like they do not exist (404)."
+}

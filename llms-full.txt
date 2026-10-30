@@ -1,0 +1,962 @@
+# Kairo: full documentation
+
+Generated from README.md and docs/. Source: https://github.com/BrowserlessAPI/kairo
+
+---
+
+# Kairo
+
+**The TypeScript backend framework AI models write best.**
+
+Kairo is a batteries-included TypeScript backend framework: routing, validation, database, auth, AI and an MCP server in one package with zero runtime dependencies. It is designed so AI coding agents (Claude Code, Cursor, Codex, NeonCodex and others) write correct code on the first try: one obvious way to do each thing, no hidden behaviour, types end to end, and error messages that say exactly how to fix the problem.
+
+```ts
+import { model, route, t } from "kairojs";
+
+export const Ticket = model("tickets", {
+  title: t.string().min(3).max(200),
+  body: t.text(),
+  priority: t.enum(["low", "normal", "urgent"]).default("normal"),
+  ownerId: t.ref("users"),
+});
+
+export const createTicket = route
+  .post("/tickets", { body: Ticket.pick("title", "body"), tool: true })
+  .handle(({ body, user, db }) => db.tickets.insert({ ...body, ownerId: user.id }));
+
+export const triageTicket = route
+  .post("/tickets/:id/triage", { params: t.object({ id: t.uuid() }), auth: "agent" })
+  .handle(async ({ params, db, ai, user }) => {
+    const ticket = await db.tickets.get(params.id);
+    const { object } = await ai.generate({
+      model: "fast",
+      prompt: ticket.body,
+      output: t.object({ priority: Ticket.fields.priority, summary: t.string().max(300) }),
+      for: user.id,
+    });
+    return db.tickets.update(ticket.id, object);
+  });
+```
+
+That one model definition gives you the database table, insert and update validation, TypeScript types, OpenAPI docs, an MCP tool and the AI output schema.
+
+## Why Kairo
+
+| | NestJS | Hono | AdonisJS | Express | **Kairo** |
+|---|---|---|---|---|---|
+| Batteries included (DB, validation, auth) | Partial | No | Yes | No | **Yes** |
+| Runs on Node, Bun, Deno and edge | No | Yes | No | No | **Yes** |
+| One schema for DB, validation, API docs and AI | No | No | No | No | **Yes** |
+| AI providers, fallback, structured output, streaming in core | No | No | No | No | **Yes** |
+| Built-in MCP server from your routes | No | No | No | No | **Yes** |
+| Token usage tracking and budgets | No | No | No | No | **Yes** |
+| Private routes by default | No | No | No | No | **Yes** |
+| Errors with codes, fixes and docs links | No | No | Partial | No | **Yes** |
+| Zero runtime dependencies | No | Yes | No | No | **Yes** |
+
+## Built for AI coding agents
+
+- **Familiar shapes.** Hono-style routes and Zod-style schemas: patterns models already know.
+- **One way to do things.** One route API, one schema API, one query API, one AI API.
+- **No hidden behaviour.** No decorators, no dependency injection, no global registration. Everything a handler needs is in its file.
+- **Types catch invented code.** Misspelled fields, missing tables and wrong types fail at compile time. At runtime, unknown fields are rejected with "Did you mean ...?".
+- **Errors that explain the fix.** Every error has a stable code (`KR1001`), the cause, the fix and a docs link.
+- **Tools for agents.** `kairo describe --json` returns the whole app map. `kairo check --json` returns typecheck, load and test results as JSON. `kairo add resource` generates correct CRUD code.
+- **Docs for machines.** [`llms.txt`](llms.txt), [`llms-full.txt`](llms-full.txt), and every new project ships with `AGENTS.md` and `CLAUDE.md`.
+- **Secure by default.** Routes require a signed-in user unless marked public, every query is parameterised, and every insert is validated, so AI-written code stays safe even with light review.
+
+## Quick start
+
+Requires Node.js 22.18+ or Bun 1.2+. TypeScript runs directly with no build step.
+
+```bash
+npx github:BrowserlessAPI/kairo new my-app
+cd my-app && npm install && npm run dev
+```
+
+Or add it to an existing project:
+
+```bash
+npm install github:BrowserlessAPI/kairo
+```
+
+## Features
+
+- **Routing:** `route.get/post/put/patch/delete`, typed path params, query coercion, CORS, middleware, body limits
+- **Schemas:** `t.string()`, `t.email()`, `t.enum()`, `t.ref()`, ... with `.optional()`, `.default()`, `.pick()`, `.partial()`, JSON Schema output
+- **Database:** typed tables (`db.tickets.findMany(...)`), PostgreSQL and in-memory adapters, `kairo db push`, transactions, unique and foreign keys
+- **Auth:** `auth.resolve(req)`, `bearer()` API keys, roles, password hashing with Web Crypto
+- **AI:** Anthropic, OpenAI, Gemini, Ollama and any OpenAI-compatible server; aliases with fallback; structured output with automatic repair; streaming to SSE; embeddings; per-user usage and cost tracking; budgets
+- **MCP:** routes with `tool: true` become MCP tools at `/mcp`, with the same auth as HTTP
+- **OpenAPI 3.1** at `/openapi.json`
+- **Testing:** `app.request(path, { json, as: user })`, `mockProvider()`, `memory()`
+- **CLI:** `new`, `dev`, `describe`, `check`, `db push`, `openapi`, `add resource`
+
+## Documentation
+
+- [Getting started](docs/getting-started.md)
+- [Schemas](docs/schema.md)
+- [Models and database](docs/database.md)
+- [Routes](docs/routes.md)
+- [Auth](docs/auth.md)
+- [AI](docs/ai.md)
+- [MCP, OpenAPI and describe](docs/mcp.md)
+- [CLI](docs/cli.md)
+- [Testing](docs/testing.md)
+- [Deployment](docs/deploy.md)
+- [Error codes](docs/errors.md)
+- [Example: helpdesk with AI triage](examples/helpdesk)
+
+## Status
+
+Kairo is at **v0.1**. The core API is usable and tested on Node and Bun with PostgreSQL. See [ROADMAP.md](ROADMAP.md) for what is next and [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). AI agents working on this repository: read [AGENTS.md](AGENTS.md).
+
+## License
+
+[MIT](LICENSE)
+
+---
+
+# Getting started
+
+Kairo needs Node.js 22.18 or newer (or Bun 1.2+). TypeScript runs directly, with no build step.
+
+## Create a project
+
+```bash
+npx github:BrowserlessAPI/kairo new my-app
+cd my-app
+npm install
+npm run dev
+```
+
+`npm run dev` starts the server on http://localhost:3000 with an in-memory database and prints a dev API key:
+
+```bash
+curl -X POST http://localhost:3000/notes \
+  -H "Authorization: Bearer dev_..." \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Hello"}'
+```
+
+## Project layout
+
+```
+src/
+  models.ts        every model and the models array
+  routes/notes.ts  routes for one feature
+  app.ts           createApp({ models, routes, db, auth, ai })
+  server.ts        starts the HTTP server
+test/notes.test.ts
+AGENTS.md          rules for AI coding agents
+```
+
+## The whole framework in one file
+
+```ts
+import { createApp, model, route, t, bearer } from "kairojs";
+
+export const User = model("users", {
+  email: t.email().unique(),
+  name: t.string().max(80),
+});
+
+export const Todo = model("todos", {
+  title: t.string().min(1).max(200),
+  done: t.boolean().default(false),
+  ownerId: t.ref("users"),
+});
+
+export const models = [User, Todo] as const;
+
+// Register once so ctx.db and ctx.user are typed in every handler.
+declare module "kairojs" {
+  interface Register {
+    models: typeof models;
+    user: { id: string };
+  }
+}
+
+export const listTodos = route
+  .get("/todos", { query: t.object({ done: t.boolean().optional() }) })
+  .handle(({ query, user, db }) => db.todos.findMany({ where: { ownerId: user.id, done: query.done } }));
+
+export const createTodo = route
+  .post("/todos", { body: Todo.pick("title") })
+  .handle(({ body, user, db }) => db.todos.insert({ ...body, ownerId: user.id }));
+
+export const app = createApp({
+  models,
+  routes: [{ listTodos, createTodo }],
+  // Look up the user for the token. See docs/auth.md for API keys stored as hashes.
+  auth: bearer(async (token) => (token === process.env.DEMO_TOKEN ? { id: "00000000-0000-4000-8000-000000000001" } : null)),
+});
+```
+
+## Next steps
+
+- [Schemas](schema.md): `t.*` types and validation
+- [Models and database](database.md)
+- [Routes](routes.md)
+- [Auth](auth.md)
+- [AI](ai.md)
+- [MCP, OpenAPI and describe](mcp.md)
+- [CLI](cli.md)
+- [Testing](testing.md)
+- [Deployment](deploy.md)
+- [Error codes](errors.md)
+
+---
+
+# Schemas
+
+`t` builds schemas. One schema gives you runtime validation, a TypeScript type, JSON Schema (for OpenAPI, MCP tools and AI structured output) and a database column.
+
+```ts
+import { t, type Infer } from "kairojs";
+
+const Signup = t.object({
+  email: t.email(),
+  name: t.string().min(1).max(80),
+  plan: t.enum(["free", "pro"]).default("free"),
+  referral: t.string().optional(),
+});
+
+type Signup = Infer<typeof Signup>;
+// { email: string; name: string; plan: "free" | "pro"; referral?: string }
+```
+
+## Types
+
+| Builder | TypeScript | Postgres column |
+|---|---|---|
+| `t.string()` | `string` | `text`, or `varchar(n)` with `.max(n)` |
+| `t.text()` | `string` | `text` |
+| `t.email()` | `string` | `text` |
+| `t.url()` | `string` (http/https only) | `text` |
+| `t.uuid()` | `string` | `uuid` |
+| `t.ref("users")` | `string` (id of a row) | `uuid` + foreign key + index |
+| `t.int()` | `number` (whole) | `integer` |
+| `t.number()` | `number` | `double precision` |
+| `t.boolean()` | `boolean` | `boolean` |
+| `t.date()` | `Date` (accepts ISO strings) | `timestamptz` |
+| `t.enum(["a", "b"])` | `"a" \| "b"` | `text` + check constraint |
+| `t.literal("x")` | `"x"` | `text` |
+| `t.array(t.string())` | `string[]` | `jsonb` |
+| `t.object({...})` | object | `jsonb` |
+| `t.json<T>()` | `T` | `jsonb` |
+| `t.any()` | `unknown` | `jsonb` |
+
+## Modifiers
+
+| Modifier | Effect |
+|---|---|
+| `.optional()` | May be left out |
+| `.nullable()` | May be `null` |
+| `.default(value)` | Used when left out. Pass a function for fresh values: `.default(() => [])` |
+| `.min(n)` / `.max(n)` | Length for strings and arrays, value for numbers |
+| `.regex(/.../)` | Strings must match |
+| `.describe("...")` | Shown in OpenAPI, MCP tools and AI prompts |
+| `.unique()` / `.index()` | Database unique index / index |
+
+Object schemas also have `.pick(...)`, `.omit(...)`, `.partial()`, `.extend({...})` and `.strip()`.
+
+## Unknown keys are rejected
+
+Objects reject fields that are not in the schema, with a hint:
+
+```
+Unknown field "titel". Did you mean "title"?
+```
+
+This catches typos and invented fields early. Call `.strip()` to drop unknown keys silently instead. Query strings always ignore unknown keys.
+
+## Validating
+
+```ts
+Signup.parse(input);        // returns typed data or throws ValidationError (KR1001, HTTP 422)
+Signup.safeParse(input);    // { ok: true, value } or { ok: false, issues }
+Signup.toJSONSchema();      // JSON Schema object
+```
+
+Pass `{ coerce: true }` to convert strings to numbers, booleans and arrays (Kairo does this automatically for query strings and path parameters).
+
+---
+
+# Models and database
+
+## Models
+
+```ts
+import { model, t, type Row } from "kairojs";
+
+export const Ticket = model("tickets", {
+  title: t.string().min(3).max(200),
+  priority: t.enum(["low", "normal", "urgent"]).default("normal"),
+  status: t.enum(["open", "closed"]).default("open").index(),
+  ownerId: t.ref("users", { onDelete: "cascade" }),
+});
+
+type Ticket = Row<typeof Ticket>;
+```
+
+- The first argument is the table name and the property on `db` (`db.tickets`). Lowercase with underscores.
+- Every model gets `id` (uuid), `createdAt` and `updatedAt`. Do not define them.
+- Fields are camelCase in code and snake_case in the database (`ownerId` is `owner_id`).
+- `Ticket.create` is the insert schema, `Ticket.update` the update schema, `Ticket.pick(...)` / `Ticket.omit(...)` give route body schemas.
+
+## Register your models once
+
+```ts
+// src/models.ts
+export const models = [User, Ticket] as const;
+
+declare module "kairojs" {
+  interface Register {
+    models: typeof models;
+    user: AppUser;
+  }
+}
+```
+
+After this, `ctx.db` in every handler is fully typed.
+
+## Queries
+
+```ts
+await db.tickets.insert({ title: "Down", ownerId: user.id });          // validated, returns the row
+await db.tickets.find(id);                                              // row or null
+await db.tickets.get(id);                                               // row, or throws KR4001 (404)
+await db.tickets.findOne({ ownerId: user.id, status: "open" });
+await db.tickets.findMany({
+  where: { status: "open", priority: { in: ["normal", "urgent"] }, createdAt: { gte: since } },
+  orderBy: { createdAt: "desc" },
+  limit: 20,      // default 100, max 1000
+  offset: 0,
+});
+await db.tickets.count({ status: "open" });
+await db.tickets.update(id, { status: "closed" });                      // validated, throws 404 if missing
+await db.tickets.updateMany({ ownerId: user.id }, { status: "closed" });
+await db.tickets.delete(id);                                            // true if deleted
+await db.tickets.deleteMany({ status: "closed" });                      // a filter is required
+```
+
+Where operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `like`, `ilike`, `isNull`. A plain value means `eq`; `null` means `isNull: true`; `undefined` is ignored, so optional filters can be passed directly.
+
+Unknown fields or operators raise KR4003 with a "Did you mean" hint.
+
+## Adapters
+
+```ts
+import { memory } from "kairojs";
+import { postgres } from "kairojs/postgres";
+
+createApp({ db: memory() });                                  // tests and prototypes
+createApp({ db: postgres({ url: env("DATABASE_URL") }) });    // production (npm install pg)
+```
+
+## Schema changes
+
+```bash
+kairo db push --dry-run   # show the SQL
+kairo db push             # create missing tables, columns and indexes
+```
+
+`db push` only adds things; it never drops or renames columns. New columns on existing tables should be `.optional()` or have a `.default()`.
+
+## Transactions and raw SQL (Postgres)
+
+```ts
+await db.$transaction(async (tx) => {
+  const order = await tx.orders.insert({ ... });
+  await tx.order_items.insertMany(items.map((i) => ({ ...i, orderId: order.id })));
+});
+
+await db.$sql("select count(*) from tickets where owner_id = $1", [user.id]);   // always use $1 placeholders
+```
+
+---
+
+# Routes
+
+```ts
+import { route, t, notFound } from "kairojs";
+
+export const getTicket = route
+  .get("/tickets/:id", {
+    params: t.object({ id: t.uuid() }),
+    summary: "Get one ticket",
+    tool: true,
+  })
+  .handle(async ({ params, user, db }) => {
+    const ticket = await db.tickets.get(params.id);
+    if (ticket.ownerId !== user.id) throw notFound();
+    return ticket;
+  });
+```
+
+Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. HEAD is answered by GET routes.
+
+## Options
+
+| Option | Purpose |
+|---|---|
+| `auth` | `"user"` (default, signed in), `"public"`, or a role name such as `"admin"` |
+| `body` | Request body schema (JSON or form-encoded) |
+| `query` | Query string schema. Values are converted to numbers and booleans; unknown keys ignored |
+| `params` | Path parameter schema. Without it, params are strings |
+| `response` | Response schema for OpenAPI |
+| `summary`, `description`, `tags` | Documentation for OpenAPI, describe and MCP |
+| `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
+
+Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
+
+## The handler context
+
+| Property | |
+|---|---|
+| `body`, `query`, `params` | Validated, typed input |
+| `user` | The signed-in user (`null` only on public routes without a session) |
+| `db` | Typed tables |
+| `ai` | `generate`, `stream`, `embed` |
+| `req`, `url`, `headers` | The raw request |
+| `status(code)` | Set the status code |
+| `header(name, value)` | Set a response header |
+| `state` | Per-request values from middleware |
+| `waitUntil(promise)` | Work that continues after the response |
+
+## Return values
+
+- Any value is sent as JSON with status 200 (or the code from `status()`).
+- `undefined` sends 204 No Content.
+- A `Response` is sent as is (files, redirects, streams, `ai.stream(...).toResponse()`).
+
+## Errors
+
+```ts
+import { notFound, forbidden, badRequest, httpError } from "kairojs";
+
+throw notFound("Ticket not found");
+throw forbidden();
+throw badRequest("Pick a future date");
+throw httpError(409, "Already paid", { code: "PAYMENT_DONE" });
+```
+
+## Registering routes
+
+Export each route as a `const`, then pass the modules:
+
+```ts
+import * as tickets from "./routes/tickets.ts";
+import * as users from "./routes/users.ts";
+
+createApp({ routes: [tickets, users] });
+```
+
+The export name (`getTicket`) becomes the route name used by MCP tools, OpenAPI `operationId` and `kairo describe`.
+
+## Middleware
+
+```ts
+createApp({
+  middleware: [
+    async ({ req, state }, next) => {
+      const started = Date.now();
+      const res = await next();
+      res.headers.set("x-response-time", `${Date.now() - started}ms`);
+      return res;
+    },
+  ],
+});
+```
+
+## CORS
+
+```ts
+createApp({ cors: { origin: ["https://app.example.com"], credentials: true } });
+```
+
+---
+
+# Auth
+
+Routes are private by default. Kairo does not force a login system on you: you give `createApp` an `auth.resolve(req)` that returns the user, and Kairo enforces route access.
+
+```ts
+createApp({
+  auth: {
+    async resolve(req, { db }) {
+      // return the user, or null
+    },
+    roles: (user) => user.roles,   // optional, default user.roles ?? []
+  },
+});
+```
+
+If any route is private and no `auth` is configured, `createApp` throws KR3003 at startup, so a missing auth setup can never silently expose routes.
+
+## Route access
+
+```ts
+route.get("/health", { auth: "public" })     // anyone
+route.get("/me")                              // any signed-in user (default)
+route.delete("/users/:id", { auth: "admin" }) // users whose roles include "admin"
+```
+
+## API keys with bearer()
+
+```ts
+import { bearer, hashToken, createToken } from "kairojs";
+
+createApp({
+  auth: bearer(async (token, { db }) => {
+    const key = await db.api_keys.findOne({ hash: await hashToken(token) });
+    if (!key) return null;
+    const user = await db.users.find(key.userId);
+    return user && { id: user.id, email: user.email, name: user.name, roles: [user.role] };
+  }),
+});
+
+// Issuing a key: show the token once, store only the hash.
+const token = createToken("live");
+await db.api_keys.insert({ userId, hash: await hashToken(token) });
+```
+
+`bearer()` reads `Authorization: Bearer <token>` and falls back to an `x-api-key` header.
+
+## Passwords
+
+```ts
+import { hashPassword, verifyPassword } from "kairojs";
+
+const stored = await hashPassword(password);      // PBKDF2-SHA256, 210,000 iterations
+const ok = await verifyPassword(password, stored);
+```
+
+These use Web Crypto, so they run on Node, Bun, Deno and edge runtimes.
+
+## The user type
+
+Declare your user type once (see [database](database.md#register-your-models-once)) and `ctx.user` is typed in every handler.
+
+---
+
+# AI
+
+Kairo's AI module gives every route one API for every model provider, with aliases, automatic fallback, typed structured output, streaming, embeddings, usage tracking and budgets.
+
+## Configure
+
+```ts
+import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "kairojs";
+
+createApp({
+  ai: {
+    providers: {
+      anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }),
+      openai: openai({ apiKey: env("OPENAI_API_KEY") }),
+      local: ollama(),
+      deepseek: openaiCompatible({ name: "deepseek", baseURL: "https://api.deepseek.com/v1", apiKey: env("DEEPSEEK_API_KEY") }),
+    },
+    // Aliases: routes use "fast" and "smart", never provider model ids.
+    // A list is a fallback order: if the first fails with a timeout, 429 or 5xx, the next is tried.
+    models: {
+      fast: ["anthropic:claude-haiku-4-5", "openai:gpt-5-mini"],
+      smart: ["anthropic:claude-sonnet-4-5", "openai:gpt-5"],
+      embed: "openai:text-embedding-3-small",
+    },
+    // Optional: USD per million tokens, for cost tracking. Kairo ships no prices because they change.
+    pricing: { "anthropic:claude-haiku-4-5": { input: 1, output: 5 } },
+    onUsage: (usage) => console.log(usage),
+    allow: async ({ for: userId }) => (await credits(userId)) > 0,
+  },
+});
+```
+
+`openaiCompatible()` works with any Chat Completions server: OpenAI, DeepSeek, Qwen (DashScope), Groq, Together, OpenRouter, vLLM, LM Studio and others.
+
+## Generate text
+
+```ts
+const { text, usage } = await ai.generate({
+  model: "fast",
+  system: "You are a support assistant.",
+  prompt: "Reply to: my order is late",
+  for: user.id,
+});
+```
+
+## Structured output
+
+Pass a schema and get typed, validated data back:
+
+```ts
+const Triage = t.object({
+  priority: t.enum(["low", "normal", "urgent"]),
+  summary: t.string().max(300).describe("One sentence for the agent"),
+});
+
+const { object } = await ai.generate({ model: "fast", prompt: ticket.body, output: Triage });
+object.priority; // "low" | "normal" | "urgent"
+```
+
+Kairo sends the JSON Schema to the model, extracts the JSON (tolerating code fences), validates it, and if it does not match, asks the model once to fix it, quoting the exact problems. If it still fails you get KR5002. Model fields can be reused directly: `priority: Ticket.fields.priority`.
+
+## Streaming
+
+```ts
+export const chat = route
+  .post("/chat", { body: t.object({ message: t.string().max(4000) }) })
+  .handle(({ body, ai, user }) => ai.stream({ model: "fast", prompt: body.message, for: user.id }).toResponse());
+```
+
+`toResponse()` sends server-sent events: `text` events with JSON-encoded chunks, then a `done` event with usage. You can also iterate: `for await (const chunk of ai.stream(...))`, or `await stream.text()`.
+
+## Embeddings
+
+```ts
+const { embeddings } = await ai.embed({ input: ["first text", "second text"] });   // uses the "embed" alias
+cosineSimilarity(embeddings[0], embeddings[1]);
+```
+
+## Usage and budgets
+
+Every call reports a `Usage` record (`requested`, `model` that answered, `inputTokens`, `outputTokens`, `cost`, `for`, `kind`, `durationMs`) to `onUsage`. Store it to bill customers. When `for` is set, `allow` is called first; returning false raises KR5004 (HTTP 402).
+
+## Testing
+
+```ts
+import { mockProvider } from "kairojs";
+
+ai: { providers: { mock: mockProvider({ respond: () => '{"priority":"urgent","summary":"Down"}' }) }, models: { fast: "mock:test" } }
+```
+
+---
+
+# MCP, OpenAPI and describe
+
+Kairo apps describe themselves to humans, tools and AI agents from the same route and model definitions.
+
+## MCP server
+
+Add `tool: true` to a route and it becomes a tool on the app's built-in MCP server at `/mcp` (Streamable HTTP transport):
+
+```ts
+export const createTicket = route
+  .post("/tickets", { body: Ticket.pick("title", "body"), summary: "Open a support ticket", tool: true })
+  .handle(...);
+```
+
+- The tool name is the export name (`createTicket`), or `tool: { name, description }`.
+- The input schema merges path params, query and body.
+- Tool calls go through the normal router with the caller's `Authorization` header, so auth, roles and validation are exactly the same as over HTTP.
+
+Connect from an MCP client, e.g. Claude Code:
+
+```bash
+claude mcp add --transport http my-app https://api.example.com/mcp --header "Authorization: Bearer <key>"
+```
+
+Set `createApp({ mcp: false })` to disable it, or `mcp: "/custom-path"` to move it.
+
+## OpenAPI
+
+`GET /openapi.json` returns an OpenAPI 3.1 document with every route, schema, auth requirement and error format. Write it to a file with `kairo openapi --out openapi.json`, or disable with `createApp({ openapi: false })`.
+
+## describe
+
+`app.describe()` (or `kairo describe --json`) returns a map of the whole app: models with every field, type, default, reference and database column; routes with method, path, auth, tool name and JSON schemas; AI aliases; and endpoints. AI coding agents read this instead of searching through files.
+
+---
+
+# CLI
+
+```
+kairo new <dir>              Create a project
+kairo dev                    Run src/server.ts and restart on changes
+kairo describe [--json]      App map: models, routes, auth, AI
+kairo check [--json]         Typecheck, load the app, run tests
+kairo db push [--dry-run]    Create missing tables, columns and indexes
+kairo openapi [--out file]   Print or write the OpenAPI document
+kairo add resource <name>    Generate a model and CRUD routes
+kairo version
+```
+
+Every command accepts `--json` and exits non-zero on failure.
+
+The app entry is `src/app.ts` by default. Change it with `"kairo": { "entry": "...", "server": "..." }` in package.json or `--entry <file>`.
+
+## kairo check --json
+
+```json
+{
+  "ok": false,
+  "steps": [
+    { "name": "typecheck", "ok": false, "errors": [{ "file": "src/routes/notes.ts", "line": 14, "code": "TS2339", "message": "Property 'titel' does not exist..." }] },
+    { "name": "load", "ok": true, "errors": [] },
+    { "name": "test", "ok": true, "errors": [] }
+  ]
+}
+```
+
+Agents should run this after every change and not stop until `ok` is `true`.
+
+## kairo add resource invoices
+
+Adds an `Invoice` model to `src/models.ts`, creates `src/routes/invoices.ts` with list, get, create, update and delete routes that check ownership, and registers the routes in `src/app.ts`. It edits files only at the `// kairo:models` and `// kairo:routes` markers; without them it prints what to add.
+
+---
+
+# Testing
+
+Tests call the app in-process with `app.request`, so there is no server or port.
+
+```ts
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createApp, memory, mockProvider } from "kairojs";
+import { readJson } from "kairojs/testing";
+import { models } from "../src/models.ts";
+import * as notes from "../src/routes/notes.ts";
+
+test("creates a note", async () => {
+  const app = createApp({ models, routes: [notes], db: memory(), auth: { resolve: () => null } });
+  const owner = await app.db.users.insert({ email: "a@example.com", name: "A" });
+  const user = { id: owner.id, email: owner.email, name: owner.name, roles: [] };
+
+  const res = await app.request("/notes", { method: "POST", json: { title: "Hi" }, as: user });
+  const note = await readJson(res, 201);
+  assert.equal(note.title, "Hi");
+});
+```
+
+- `as: user` runs the request as that user and skips `auth.resolve`. It only works through `app.request`, never over HTTP.
+- `readJson(res, status)` checks the status and includes the body in the failure message.
+- `memory()` gives every test a fresh database.
+- `mockProvider({ respond })` makes AI calls deterministic.
+- `readEvents(res)` parses streaming (SSE) responses.
+
+Run with `node --test` or `bun test`.
+
+---
+
+# Deployment
+
+A Kairo app is a standard `fetch(Request) => Response` handler, so it runs anywhere.
+
+## Linux server (Node.js)
+
+```bash
+npm ci --omit=dev
+DATABASE_URL=postgres://... npx kairo db push
+DATABASE_URL=postgres://... PORT=3000 node src/server.ts
+```
+
+Run it under systemd or pm2 behind Nginx:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;   # needed for AI streaming responses
+}
+```
+
+## Bun
+
+```bash
+bun src/server.ts
+```
+
+`app.listen()` uses `Bun.serve` automatically.
+
+## Deno
+
+```ts
+Deno.serve(app.fetch);
+```
+
+## Cloudflare Workers and other edge runtimes
+
+```ts
+import { app } from "./app.ts";
+export default app;   // app.fetch is the Worker handler
+```
+
+Use a Postgres driver that supports your edge runtime, or `memory()` for stateless services.
+
+---
+
+# Error codes
+
+Every Kairo error has a stable code. A code never changes meaning once released. API responses look like this:
+
+```json
+{
+  "error": {
+    "code": "KR1001",
+    "message": "Invalid request body. title: Required.",
+    "fix": "Send data that matches the schema. Each entry in details names the exact path and problem.",
+    "details": [{ "path": ["title"], "code": "required", "message": "Required." }],
+    "docs": "https://github.com/BrowserlessAPI/kairo/blob/main/docs/errors.md#kr1001"
+  }
+}
+```
+
+Errors with status 500 or higher hide their message from API clients ("Internal server error") and log the full error on the server.
+
+## Validation (1xxx)
+
+### KR1001
+**Invalid input (422).** A body, query string, path parameter, insert or update did not match its schema. `details` lists each problem with its `path` and an issue `code`: `required`, `invalid_type`, `too_short`, `too_long`, `too_small`, `too_big`, `invalid_enum`, `invalid_email`, `invalid_url`, `invalid_uuid`, `invalid_date`, `invalid_format`, `unknown_key`, `read_only`. `unknown_key` and `invalid_enum` include a "Did you mean" hint.
+
+### KR1003
+**pick() named a field that does not exist.** Check the spelling against the model.
+
+## Routing (2xxx)
+
+### KR2001
+**No route matches (404).** The message names the closest route path.
+
+### KR2002
+**Method not allowed (405).** The path exists with other methods, listed in the `Allow` header.
+
+### KR2003
+**Request body is not valid JSON (400).** Send JSON with `Content-Type: application/json`.
+
+### KR2004
+**Request body too large (413).** Raise `createApp({ maxBodySize })` if needed.
+
+## Auth (3xxx)
+
+### KR3001
+**Sign in required (401).** The route is private (the default) and `auth.resolve` returned no user.
+
+### KR3002
+**Forbidden (403).** The user lacks the role the route requires (`auth: "admin"`), or a handler threw `forbidden()`.
+
+### KR3003
+**Private routes but no auth configured.** Raised by `createApp` at startup. Either add `auth: "public"` to routes anyone may call, or pass `createApp({ auth })`.
+
+## Database (4xxx)
+
+### KR4001
+**Record not found (404).** Raised by `db.<table>.get(id)`, `update(id)` and `notFound()`.
+
+### KR4002
+**Unknown table.** `db.<name>` is not a registered model. Add the model to `createApp({ models })`.
+
+### KR4003
+**Unknown field or operator in a query.** The message suggests the closest field. Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `like`, `ilike`, `isNull`.
+
+### KR4004
+**Unique value already exists (409).** A field marked `.unique()` already has this value.
+
+### KR4005
+**Invalid table or field name.** Tables: lowercase letters, digits and underscores. Fields: camelCase.
+
+### KR4006
+**Model defines id, createdAt or updatedAt.** Kairo adds these automatically. Remove them.
+
+### KR4007
+**deleteMany() without a filter.** Pass a `where` filter to avoid deleting every row by accident.
+
+### KR4008
+**Raw SQL not supported by this adapter.** Use `postgres()`.
+
+### KR4009
+**postgres() has no connection URL.** Pass `postgres({ url: env("DATABASE_URL") })`.
+
+### KR4010
+**The pg package is not installed.** Run `npm install pg`.
+
+### KR4011
+**Foreign key violation (409).** The referenced row does not exist, or the row is still referenced elsewhere.
+
+### KR4012
+**Table missing.** Run `kairo db push`.
+
+## AI (5xxx)
+
+### KR5001
+**AI not configured, or unknown model alias or provider.** Configure `createApp({ ai: { providers, models } })`. The message suggests the closest alias.
+
+### KR5002
+**Structured output did not match the schema (502).** Kairo asked the model to repair its answer and it still failed. Simplify the schema, add `.describe()` hints, or use a stronger model.
+
+### KR5003
+**Every model in the fallback list failed (502).** `details` (server log) lists each failure.
+
+### KR5004
+**AI usage blocked (402).** `ai.allow` returned false for this `for` id, for example because credits ran out.
+
+### KR5005
+**Provider does not support this operation** (streaming or embeddings).
+
+### KR5006
+**Provider HTTP error.** 401/403 means a bad API key. Timeouts, 429 and 5xx are retried on the next fallback model.
+
+### KR5007
+**No prompt.** Pass `prompt` or `messages`.
+
+### KR5008
+**A stream was read twice.** Call `ai.stream()` again.
+
+## App configuration (6xxx)
+
+### KR6001
+**Duplicate route.** The same method and path (ignoring parameter names) is defined twice.
+
+### KR6003
+**Route path must start with "/".**
+
+### KR6004
+**Two models share a name.**
+
+### KR6005
+**t.ref() points to a model that is not registered.**
+
+### KR6006
+**Two route exports share a name.** Names are used for MCP tools and `describe`.
+
+## Environment (7xxx)
+
+### KR7001
+**Environment variable not set.** Set it, or pass a default: `env("NAME", { default: "..." })`.
+
+### KR7002
+**Environment variable has the wrong format** (for `env.int` or `env.bool`).
+
+## CLI (8xxx)
+
+### KR8000
+**Unknown command.** Run `kairo help`.
+
+### KR8001
+**App entry or server file not found.** Default entry is `src/app.ts`; set `"kairo": { "entry": "..." }` in package.json or pass `--entry`.
+
+### KR8002
+**Entry file does not export an app.** Add `export const app = createApp({ ... })`.
+
+### KR8003
+**Unknown db command.** Use `kairo db push`.
+
+### KR8004
+**Missing project directory** for `kairo new`.
+
+### KR8005
+**Target already exists.**
+
+### KR8006
+**Unknown generator.** Use `kairo add resource <plural_name>`.
+
+## Internal (9xxx)
+
+### KR9000
+**Unexpected error (500).** Something threw that was not a Kairo error. The full error is logged on the server; set `createApp({ exposeErrors: true })` in development to include the message in responses.

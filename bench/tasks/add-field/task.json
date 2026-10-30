@@ -1,0 +1,4 @@
+{
+  "title": "Add a field and a filter",
+  "prompt": "Add a `pinned` boolean field to notes (default false). Let clients set it when creating and updating a note. Add an optional `pinned` query parameter to GET /notes that filters by it."
+}

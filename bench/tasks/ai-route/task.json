@@ -1,0 +1,4 @@
+{
+  "title": "AI structured output route",
+  "prompt": "Add POST /notes/:id/tags-suggest. It uses the \"fast\" AI model alias to suggest up to 5 short tags for the note and returns { \"tags\": string[] }. Only the note's owner may call it; track usage for the user."
+}
