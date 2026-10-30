@@ -63,3 +63,12 @@ If you change docs, run `npm run llms` to regenerate `llms-full.txt`.
 4. Update the docs page for the feature, `docs/errors.md` for new error codes, `templates/app` if the default project should use it, and `CHANGELOG.md` under "Unreleased".
 5. Run every check above.
 6. Tick the ROADMAP item and commit with a clear message: `feat: ...`, `fix: ...`, `docs: ...`, `test: ...`, `perf: ...`, `refactor: ...`.
+
+## Releases
+
+Releases are published to npm by `.github/workflows/release.yml` when a tag `vX.Y.Z` is pushed. Release at most once a week, and only when the latest CI run on main is green and CHANGELOG.md has entries under "Unreleased":
+
+1. Choose the version: before 1.0, bump the minor version (0.2.0) if anything under "Unreleased" adds features or is breaking, otherwise the patch version (0.1.1).
+2. Set it in `package.json` and `src/describe.ts` (`KAIRO_VERSION`), move the "Unreleased" entries under `## X.Y.Z - YYYY-MM-DD`, leave an empty "Unreleased" heading, and run all checks.
+3. Commit as `release: vX.Y.Z`, push to main, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. Check that the Release workflow succeeded. Never delete or move a tag that has been pushed; if a release fails, fix it and release the next patch version.

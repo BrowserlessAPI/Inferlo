@@ -42,5 +42,6 @@ The scheduled maintainer works through this list top to bottom. Each item should
 
 ## Release
 
-- [ ] Publish to npm as `kairojs` (needs the owner's npm account) and switch `kairo new` to the npm version
-- [ ] Release workflow: tag `v*` builds and publishes with provenance
+- [x] Release workflow: tag `v*` runs every check and publishes to npm with provenance (needs the NPM_TOKEN secret)
+- [ ] After the first npm release: switch `kairo new` and the docs from `github:BrowserlessAPI/kairo` to `kairojs` from npm
+- [ ] Before January 2027: move publishing to npm trusted publishing (OIDC), because npm is removing direct publish from bypass-2FA tokens (needs the owner to configure it on npmjs.com)
