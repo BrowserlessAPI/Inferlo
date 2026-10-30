@@ -1,4 +1,4 @@
-import { model, t } from "kairojs";
+import { model, t } from "@kairojs/core";
 
 export const User = model("users", {
   email: t.email().unique(),
@@ -24,7 +24,7 @@ export const models = [User, ApiKey, Note] as const;
 
 export type AppUser = { id: string; email: string; name: string; roles: string[] };
 
-declare module "kairojs" {
+declare module "@kairojs/core" {
   interface Register {
     models: typeof models;
     user: AppUser;

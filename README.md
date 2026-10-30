@@ -5,7 +5,7 @@
 Kairo is a batteries-included TypeScript backend framework: routing, validation, database, auth, AI and an MCP server in one package with zero runtime dependencies. It is designed so AI coding agents (Claude Code, Cursor, Codex, NeonCodex and others) write correct code on the first try: one obvious way to do each thing, no hidden behaviour, types end to end, and error messages that say exactly how to fix the problem.
 
 ```ts
-import { model, route, t } from "kairojs";
+import { model, route, t } from "@kairojs/core";
 
 export const Ticket = model("tickets", {
   title: t.string().min(3).max(200),
@@ -64,14 +64,14 @@ That one model definition gives you the database table, insert and update valida
 Requires Node.js 22.18+ or Bun 1.2+. TypeScript runs directly with no build step.
 
 ```bash
-npx github:BrowserlessAPI/kairo new my-app
+npx @kairojs/core new my-app
 cd my-app && npm install && npm run dev
 ```
 
 Or add it to an existing project:
 
 ```bash
-npm install github:BrowserlessAPI/kairo
+npm install @kairojs/core
 ```
 
 ## Features

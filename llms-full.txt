@@ -11,7 +11,7 @@ Generated from README.md and docs/. Source: https://github.com/BrowserlessAPI/ka
 Kairo is a batteries-included TypeScript backend framework: routing, validation, database, auth, AI and an MCP server in one package with zero runtime dependencies. It is designed so AI coding agents (Claude Code, Cursor, Codex, NeonCodex and others) write correct code on the first try: one obvious way to do each thing, no hidden behaviour, types end to end, and error messages that say exactly how to fix the problem.
 
 ```ts
-import { model, route, t } from "kairojs";
+import { model, route, t } from "@kairojs/core";
 
 export const Ticket = model("tickets", {
   title: t.string().min(3).max(200),
@@ -70,14 +70,14 @@ That one model definition gives you the database table, insert and update valida
 Requires Node.js 22.18+ or Bun 1.2+. TypeScript runs directly with no build step.
 
 ```bash
-npx github:BrowserlessAPI/kairo new my-app
+npx @kairojs/core new my-app
 cd my-app && npm install && npm run dev
 ```
 
 Or add it to an existing project:
 
 ```bash
-npm install github:BrowserlessAPI/kairo
+npm install @kairojs/core
 ```
 
 ## Features
@@ -128,7 +128,7 @@ Kairo needs Node.js 22.18 or newer (or Bun 1.2+). TypeScript runs directly, with
 ## Create a project
 
 ```bash
-npx github:BrowserlessAPI/kairo new my-app
+npx @kairojs/core new my-app
 cd my-app
 npm install
 npm run dev
@@ -158,7 +158,7 @@ AGENTS.md          rules for AI coding agents
 ## The whole framework in one file
 
 ```ts
-import { createApp, model, route, t, bearer } from "kairojs";
+import { createApp, model, route, t, bearer } from "@kairojs/core";
 
 export const User = model("users", {
   email: t.email().unique(),
@@ -174,7 +174,7 @@ export const Todo = model("todos", {
 export const models = [User, Todo] as const;
 
 // Register once so ctx.db and ctx.user are typed in every handler.
-declare module "kairojs" {
+declare module "@kairojs/core" {
   interface Register {
     models: typeof models;
     user: { id: string };
@@ -217,7 +217,7 @@ export const app = createApp({
 `t` builds schemas. One schema gives you runtime validation, a TypeScript type, JSON Schema (for OpenAPI, MCP tools and AI structured output) and a database column.
 
 ```ts
-import { t, type Infer } from "kairojs";
+import { t, type Infer } from "@kairojs/core";
 
 const Signup = t.object({
   email: t.email(),
@@ -292,7 +292,7 @@ Pass `{ coerce: true }` to convert strings to numbers, booleans and arrays (Kair
 ## Models
 
 ```ts
-import { model, t, type Row } from "kairojs";
+import { model, t, type Row } from "@kairojs/core";
 
 export const Ticket = model("tickets", {
   title: t.string().min(3).max(200),
@@ -315,7 +315,7 @@ type Ticket = Row<typeof Ticket>;
 // src/models.ts
 export const models = [User, Ticket] as const;
 
-declare module "kairojs" {
+declare module "@kairojs/core" {
   interface Register {
     models: typeof models;
     user: AppUser;
@@ -352,8 +352,8 @@ Unknown fields or operators raise KR4003 with a "Did you mean" hint.
 ## Adapters
 
 ```ts
-import { memory } from "kairojs";
-import { postgres } from "kairojs/postgres";
+import { memory } from "@kairojs/core";
+import { postgres } from "@kairojs/core/postgres";
 
 createApp({ db: memory() });                                  // tests and prototypes
 createApp({ db: postgres({ url: env("DATABASE_URL") }) });    // production (npm install pg)
@@ -384,7 +384,7 @@ await db.$sql("select count(*) from tickets where owner_id = $1", [user.id]);   
 # Routes
 
 ```ts
-import { route, t, notFound } from "kairojs";
+import { route, t, notFound } from "@kairojs/core";
 
 export const getTicket = route
   .get("/tickets/:id", {
@@ -438,7 +438,7 @@ Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
 ## Errors
 
 ```ts
-import { notFound, forbidden, badRequest, httpError } from "kairojs";
+import { notFound, forbidden, badRequest, httpError } from "@kairojs/core";
 
 throw notFound("Ticket not found");
 throw forbidden();
@@ -510,7 +510,7 @@ route.delete("/users/:id", { auth: "admin" }) // users whose roles include "admi
 ## API keys with bearer()
 
 ```ts
-import { bearer, hashToken, createToken } from "kairojs";
+import { bearer, hashToken, createToken } from "@kairojs/core";
 
 createApp({
   auth: bearer(async (token, { db }) => {
@@ -531,7 +531,7 @@ await db.api_keys.insert({ userId, hash: await hashToken(token) });
 ## Passwords
 
 ```ts
-import { hashPassword, verifyPassword } from "kairojs";
+import { hashPassword, verifyPassword } from "@kairojs/core";
 
 const stored = await hashPassword(password);      // PBKDF2-SHA256, 210,000 iterations
 const ok = await verifyPassword(password, stored);
@@ -552,7 +552,7 @@ Kairo's AI module gives every route one API for every model provider, with alias
 ## Configure
 
 ```ts
-import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "kairojs";
+import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "@kairojs/core";
 
 createApp({
   ai: {
@@ -630,7 +630,7 @@ Every call reports a `Usage` record (`requested`, `model` that answered, `inputT
 ## Testing
 
 ```ts
-import { mockProvider } from "kairojs";
+import { mockProvider } from "@kairojs/core";
 
 ai: { providers: { mock: mockProvider({ respond: () => '{"priority":"urgent","summary":"Down"}' }) }, models: { fast: "mock:test" } }
 ```
@@ -718,8 +718,8 @@ Tests call the app in-process with `app.request`, so there is no server or port.
 ```ts
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createApp, memory, mockProvider } from "kairojs";
-import { readJson } from "kairojs/testing";
+import { createApp, memory, mockProvider } from "@kairojs/core";
+import { readJson } from "@kairojs/core/testing";
 import { models } from "../src/models.ts";
 import * as notes from "../src/routes/notes.ts";
 

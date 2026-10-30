@@ -207,7 +207,7 @@ export function createDb<const Models extends readonly AnyModel[]>(models: Model
       $sync: (options) => current.sync([...models], options),
       $transaction: async (fn) => (current.transaction ? current.transaction((tx) => fn(build(tx))) : fn(build(current))),
       $sql: async (text, params) => {
-        if (!current.sql) throw new KairoError("KR4008", `Raw SQL is not supported by the ${current.dialect} adapter.`, { fix: "Use postgres() from kairojs/postgres." });
+        if (!current.sql) throw new KairoError("KR4008", `Raw SQL is not supported by the ${current.dialect} adapter.`, { fix: "Use postgres() from @kairojs/core/postgres." });
         return current.sql(text, params);
       },
       $close: async () => current.close?.(),

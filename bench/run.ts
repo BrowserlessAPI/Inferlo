@@ -69,7 +69,8 @@ async function prepare(taskId: string): Promise<string> {
   const setup = path.join(tasksDir, taskId, "setup");
   if (existsSync(setup)) await cp(setup, work, { recursive: true });
   await mkdir(path.join(work, "node_modules", "@types"), { recursive: true });
-  await symlink(repo, path.join(work, "node_modules", "kairojs"), "dir");
+  await mkdir(path.join(work, "node_modules", "@kairojs"), { recursive: true });
+  await symlink(repo, path.join(work, "node_modules", "@kairojs", "core"), "dir");
   await symlink(path.join(repo, "node_modules", "@types", "node"), path.join(work, "node_modules", "@types", "node"), "dir");
   return work;
 }

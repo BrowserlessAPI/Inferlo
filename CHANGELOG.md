@@ -4,6 +4,8 @@ All notable changes are listed here. Kairo follows [semantic versioning](https:/
 
 ## Unreleased
 
+- The npm package is `@kairojs/core` (import from "@kairojs/core", "@kairojs/core/postgres", "@kairojs/core/testing"). `kairo new` installs it from npm.
+
 ## 0.1.0 - 2026-10-30
 
 First release.

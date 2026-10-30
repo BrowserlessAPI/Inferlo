@@ -1,6 +1,6 @@
 # Kairo
 
-> Kairo is a batteries-included TypeScript backend framework designed for AI coding agents: routes, schemas, database (PostgreSQL and in-memory), auth, AI providers with structured output and streaming, an MCP server and OpenAPI, with zero runtime dependencies. Runs on Node.js 22.18+, Bun, Deno and edge runtimes. Package: kairojs.
+> Kairo is a batteries-included TypeScript backend framework designed for AI coding agents: routes, schemas, database (PostgreSQL and in-memory), auth, AI providers with structured output and streaming, an MCP server and OpenAPI, with zero runtime dependencies. Runs on Node.js 22.18+, Bun, Deno and edge runtimes. Package: @kairojs/core.
 
 Key rules: routes are private unless `auth: "public"`; validate input with `t.*` schemas; use `db.<table>` methods (never string-built SQL); every model has id, createdAt, updatedAt automatically; relative imports end in `.ts`; run `kairo describe --json` to see an app and `kairo check --json` after changes.
 

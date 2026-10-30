@@ -5,7 +5,7 @@ Kairo needs Node.js 22.18 or newer (or Bun 1.2+). TypeScript runs directly, with
 ## Create a project
 
 ```bash
-npx github:BrowserlessAPI/kairo new my-app
+npx @kairojs/core new my-app
 cd my-app
 npm install
 npm run dev
@@ -35,7 +35,7 @@ AGENTS.md          rules for AI coding agents
 ## The whole framework in one file
 
 ```ts
-import { createApp, model, route, t, bearer } from "kairojs";
+import { createApp, model, route, t, bearer } from "@kairojs/core";
 
 export const User = model("users", {
   email: t.email().unique(),
@@ -51,7 +51,7 @@ export const Todo = model("todos", {
 export const models = [User, Todo] as const;
 
 // Register once so ctx.db and ctx.user are typed in every handler.
-declare module "kairojs" {
+declare module "@kairojs/core" {
   interface Register {
     models: typeof models;
     user: { id: string };

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createApp, memory, mockProvider } from "kairojs";
-import { readJson } from "kairojs/testing";
+import { createApp, memory, mockProvider } from "@kairojs/core";
+import { readJson } from "@kairojs/core/testing";
 import { models } from "../src/models.ts";
 import * as notes from "../src/routes/notes.ts";
 

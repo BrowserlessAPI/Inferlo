@@ -20,7 +20,7 @@
     "node": ">=22.18"
   },
   "dependencies": {
-    "kairojs": "{{kairoDependency}}",
+    "@kairojs/core": "{{kairoDependency}}",
     "pg": "^8.16.0"
   },
   "devDependencies": {

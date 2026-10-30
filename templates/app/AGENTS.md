@@ -45,7 +45,7 @@ Do not finish until `kairo check` passes.
 
 ```ts
 const res = await app.request("/notes", { method: "POST", json: { title: "Hi" }, as: user });
-const note = await readJson(res, 201);   // from "kairojs/testing"
+const note = await readJson(res, 201);   // from "@kairojs/core/testing"
 ```
 
 Use `memory()` for the database and `mockProvider()` for AI in tests.

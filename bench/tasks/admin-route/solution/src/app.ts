@@ -1,5 +1,5 @@
-import { anthropic, bearer, createApp, env, hashToken, memory, openai } from "kairojs";
-import { postgres } from "kairojs/postgres";
+import { anthropic, bearer, createApp, env, hashToken, memory, openai } from "@kairojs/core";
+import { postgres } from "@kairojs/core/postgres";
 import { models } from "./models.ts";
 import * as health from "./routes/health.ts";
 import * as notes from "./routes/notes.ts";

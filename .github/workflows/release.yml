@@ -1,8 +1,8 @@
 name: Release
 
-# Publishes kairojs to npm when a version tag (v1.2.3) is pushed.
+# Publishes @kairojs/core to npm when a version tag (v1.2.3) is pushed.
 # Needs the repository secret NPM_TOKEN: an npm granular access token with
-# read and write access to kairojs and "Bypass two-factor authentication" enabled.
+# read and write access to @kairojs/core and "Bypass two-factor authentication" enabled.
 
 on:
   push:
@@ -52,7 +52,7 @@ jobs:
         id: exists
         run: |
           version="$(node -p "require('./package.json').version")"
-          if npm view "kairojs@$version" version >/dev/null 2>&1; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
+          if npm view "@kairojs/core@$version" version >/dev/null 2>&1; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
       - name: Check npm token
         if: steps.exists.outputs.skip != 'true'
         env:

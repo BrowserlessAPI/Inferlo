@@ -252,7 +252,7 @@ async function cmdNew(args: Args) {
   if (existsSync(target) && (await readdir(target)).length) throw new KairoError("KR8005", `${dir} already exists and is not empty.`);
   const name = path.basename(target).toLowerCase().replace(/[^a-z0-9-]/g, "-");
   const created: string[] = [];
-  await copyTemplate(path.join(templatesDir, "app"), target, { name, kairoVersion: KAIRO_VERSION, kairoDependency: "github:BrowserlessAPI/kairo" }, created);
+  await copyTemplate(path.join(templatesDir, "app"), target, { name, kairoVersion: KAIRO_VERSION, kairoDependency: `^${KAIRO_VERSION}` }, created);
   print({ ok: true, dir, files: created.map((f) => path.relative(cwd, f)) }, Boolean(args.flags.json), () =>
     [`Created ${dir}`, "", "Next:", `  cd ${dir}`, "  npm install", "  npm run dev", "", "AGENTS.md explains the conventions to AI coding agents."].join("\n"),
   );
@@ -291,7 +291,7 @@ async function cmdAdd(args: Args) {
     } else manual.push(`Add to src/models.ts:\n${modelCode}\nand add ${Model} to the models array.`);
   } else manual.push(`Create the ${Model} model:\n${modelCode}`);
 
-  const routeCode = `import { route, t, notFound } from "kairojs";
+  const routeCode = `import { route, t, notFound } from "@kairojs/core";
 import { ${Model} } from "../models.ts";
 
 const IdParams = t.object({ id: t.uuid() });

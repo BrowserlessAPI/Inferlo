@@ -1,4 +1,4 @@
-import { notFound, route, t } from "kairojs";
+import { notFound, route, t } from "@kairojs/core";
 import { Note } from "../models.ts";
 
 const IdParams = t.object({ id: t.uuid() });

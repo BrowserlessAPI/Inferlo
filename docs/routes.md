@@ -1,7 +1,7 @@
 # Routes
 
 ```ts
-import { route, t, notFound } from "kairojs";
+import { route, t, notFound } from "@kairojs/core";
 
 export const getTicket = route
   .get("/tickets/:id", {
@@ -55,7 +55,7 @@ Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
 ## Errors
 
 ```ts
-import { notFound, forbidden, badRequest, httpError } from "kairojs";
+import { notFound, forbidden, badRequest, httpError } from "@kairojs/core";
 
 throw notFound("Ticket not found");
 throw forbidden();

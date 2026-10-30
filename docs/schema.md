@@ -3,7 +3,7 @@
 `t` builds schemas. One schema gives you runtime validation, a TypeScript type, JSON Schema (for OpenAPI, MCP tools and AI structured output) and a database column.
 
 ```ts
-import { t, type Infer } from "kairojs";
+import { t, type Infer } from "@kairojs/core";
 
 const Signup = t.object({
   email: t.email(),
