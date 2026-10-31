@@ -1,8 +1,8 @@
 # Kairo
 
-**The TypeScript backend framework AI models write best.**
+**The TypeScript backend framework with built-in AI model support.**
 
-Kairo is a batteries-included TypeScript backend framework: routing, validation, database, auth, AI and an MCP server in one package with zero runtime dependencies. It is designed so AI coding agents (Claude Code, Cursor, Codex, NeonCodex and others) write correct code on the first try: one obvious way to do each thing, no hidden behaviour, types end to end, and error messages that say exactly how to fix the problem.
+Kairo is a batteries-included TypeScript backend framework with AI models built into its core. Connect Anthropic, OpenAI, Gemini, DeepSeek, Qwen, local models through Ollama or any OpenAI-compatible server, and call them from any route with one API: automatic fallback between models, typed structured output, streaming, embeddings, and per-user usage and cost tracking. Routing, validation, database, auth, OpenAPI and an MCP server come in the same package, with zero runtime dependencies.
 
 ```ts
 import { model, route, t } from "@browserlessapi/kairo";
@@ -34,6 +34,16 @@ export const triageTicket = route
 
 That one model definition gives you the database table, insert and update validation, TypeScript types, OpenAPI docs, an MCP tool and the AI output schema.
 
+## AI models built in
+
+- **Every major provider, one API.** Anthropic, OpenAI, Gemini, Ollama and any OpenAI-compatible server (DeepSeek, Qwen, Groq, OpenRouter, vLLM and more).
+- **Model aliases with fallback.** Routes ask for `"fast"` or `"smart"`; if the first model is down or rate limited, Kairo tries the next one.
+- **Typed structured output.** Pass a schema and get validated, typed data back. Invalid answers are repaired automatically.
+- **Streaming.** Send model output to the browser as it is generated with one call.
+- **Embeddings** for search and recommendations.
+- **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
+- **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
+
 ## Why Kairo
 
 | | NestJS | Hono | AdonisJS | Express | **Kairo** |
@@ -48,7 +58,10 @@ That one model definition gives you the database table, insert and update valida
 | Errors with codes, fixes and docs links | No | No | Partial | No | **Yes** |
 | Zero runtime dependencies | No | Yes | No | No | **Yes** |
 
-## Built for AI coding agents
+## Easy to build with AI coding tools
+
+Kairo is also designed so AI coding tools (Claude Code, Cursor, Codex, NeonCodex and others) write correct Kairo code on the first try:
+
 
 - **Familiar shapes.** Hono-style routes and Zod-style schemas: patterns models already know.
 - **One way to do things.** One route API, one schema API, one query API, one AI API.

@@ -4,7 +4,7 @@ This file is for AI agents and contributors changing the framework in this repos
 
 ## Goal
 
-Kairo is the TypeScript backend framework AI models write best. Every change must make it easier for an AI model to write correct, secure code with Kairo, or make Kairo more capable without making it harder to use. When in doubt, choose the option a model would guess correctly without reading docs.
+Kairo is the TypeScript backend framework with built-in AI model support. Its core promise is first-class support for AI models (providers, fallback, structured output, streaming, embeddings, usage tracking, MCP). It is also designed so AI coding tools write correct Kairo code easily. Every change must keep AI model support strong and simple, and must not make Kairo harder to use for people or for AI coding tools. When in doubt, choose the option a model would guess correctly without reading docs.
 
 ## Design rules (do not break these)
 

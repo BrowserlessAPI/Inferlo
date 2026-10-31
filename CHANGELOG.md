@@ -4,6 +4,8 @@ All notable changes are listed here. Kairo follows [semantic versioning](https:/
 
 ## Unreleased
 
+- Docs: Kairo is now described as "the TypeScript backend framework with built-in AI model support", with a new "AI models built in" section in the README.
+
 ## 0.2.0 - 2026-10-30
 
 - `kairo db migrate [name]` writes versioned SQL migration files (`migrations/NNNN_name.sql`) for new tables, columns and indexes, tracked with `migrations/snapshot.json`; `kairo db migrate --apply` runs pending files in transactions and records them in `kairo_migrations`. Also available as `planMigration()` and `applyMigrations()`. Drops and column changes are refused for now (KR4013); new required columns without a default raise KR4014. New codes KR4015 and KR4016.

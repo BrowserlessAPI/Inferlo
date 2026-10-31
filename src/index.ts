@@ -1,5 +1,5 @@
 /**
- * Kairo: the TypeScript backend framework AI models write best.
+ * Kairo: the TypeScript backend framework with built-in AI model support.
  * https://github.com/BrowserlessAPI/kairo
  */
 export { createApp } from "./app.ts";
