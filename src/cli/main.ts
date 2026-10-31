@@ -344,7 +344,7 @@ async function cmdAdd(args: Args) {
     } else manual.push(`Add to src/models.ts:\n${modelCode}\nand add ${Model} to the models array.`);
   } else manual.push(`Create the ${Model} model:\n${modelCode}`);
 
-  const routeCode = `import { route, t, notFound } from "@kairojs/core";
+  const routeCode = `import { route, t, notFound } from "@browserlessapi/kairo";
 import { ${Model} } from "../models.ts";
 
 const IdParams = t.object({ id: t.uuid() });

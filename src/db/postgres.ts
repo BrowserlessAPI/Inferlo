@@ -1,7 +1,7 @@
 /**
  * PostgreSQL adapter (uses the `pg` package: npm install pg).
  *
- *   import { postgres } from "@kairojs/core/postgres"
+ *   import { postgres } from "@browserlessapi/kairo/postgres"
  *   createApp({ db: postgres({ url: env("DATABASE_URL") }), ... })
  *
  * Every value is sent as a query parameter. Identifiers come only from model definitions,

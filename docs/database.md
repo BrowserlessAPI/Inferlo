@@ -3,7 +3,7 @@
 ## Models
 
 ```ts
-import { model, t, type Row } from "@kairojs/core";
+import { model, t, type Row } from "@browserlessapi/kairo";
 
 export const Ticket = model("tickets", {
   title: t.string().min(3).max(200),
@@ -26,7 +26,7 @@ type Ticket = Row<typeof Ticket>;
 // src/models.ts
 export const models = [User, Ticket] as const;
 
-declare module "@kairojs/core" {
+declare module "@browserlessapi/kairo" {
   interface Register {
     models: typeof models;
     user: AppUser;
@@ -63,8 +63,8 @@ Unknown fields or operators raise KR4003 with a "Did you mean" hint.
 ## Adapters
 
 ```ts
-import { memory } from "@kairojs/core";
-import { postgres } from "@kairojs/core/postgres";
+import { memory } from "@browserlessapi/kairo";
+import { postgres } from "@browserlessapi/kairo/postgres";
 
 createApp({ db: memory() });                                  // tests and prototypes
 createApp({ db: postgres({ url: env("DATABASE_URL") }) });    // production (npm install pg)
@@ -96,7 +96,7 @@ kairo db migrate --apply         # run pending migration files against DATABASE_
 To apply migrations from code, for example at startup in a serverless function:
 
 ```ts
-import { applyMigrations } from "@kairojs/core";
+import { applyMigrations } from "@browserlessapi/kairo";
 
 await applyMigrations(app.db, [{ name: "0001_init", sql: initSql }]);   // returns the names it applied
 ```

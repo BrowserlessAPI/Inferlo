@@ -11,7 +11,7 @@ Generated from README.md and docs/. Source: https://github.com/BrowserlessAPI/ka
 Kairo is a batteries-included TypeScript backend framework: routing, validation, database, auth, AI and an MCP server in one package with zero runtime dependencies. It is designed so AI coding agents (Claude Code, Cursor, Codex, NeonCodex and others) write correct code on the first try: one obvious way to do each thing, no hidden behaviour, types end to end, and error messages that say exactly how to fix the problem.
 
 ```ts
-import { model, route, t } from "@kairojs/core";
+import { model, route, t } from "@browserlessapi/kairo";
 
 export const Ticket = model("tickets", {
   title: t.string().min(3).max(200),
@@ -70,14 +70,14 @@ That one model definition gives you the database table, insert and update valida
 Requires Node.js 22.18+ or Bun 1.2+. TypeScript runs directly with no build step.
 
 ```bash
-npx @kairojs/core new my-app
+npx @browserlessapi/kairo new my-app
 cd my-app && npm install && npm run dev
 ```
 
 Or add it to an existing project:
 
 ```bash
-npm install @kairojs/core
+npm install @browserlessapi/kairo
 ```
 
 ## Features
@@ -128,7 +128,7 @@ Kairo needs Node.js 22.18 or newer (or Bun 1.2+). TypeScript runs directly, with
 ## Create a project
 
 ```bash
-npx @kairojs/core new my-app
+npx @browserlessapi/kairo new my-app
 cd my-app
 npm install
 npm run dev
@@ -158,7 +158,7 @@ AGENTS.md          rules for AI coding agents
 ## The whole framework in one file
 
 ```ts
-import { createApp, model, route, t, bearer } from "@kairojs/core";
+import { createApp, model, route, t, bearer } from "@browserlessapi/kairo";
 
 export const User = model("users", {
   email: t.email().unique(),
@@ -174,7 +174,7 @@ export const Todo = model("todos", {
 export const models = [User, Todo] as const;
 
 // Register once so ctx.db and ctx.user are typed in every handler.
-declare module "@kairojs/core" {
+declare module "@browserlessapi/kairo" {
   interface Register {
     models: typeof models;
     user: { id: string };
@@ -217,7 +217,7 @@ export const app = createApp({
 `t` builds schemas. One schema gives you runtime validation, a TypeScript type, JSON Schema (for OpenAPI, MCP tools and AI structured output) and a database column.
 
 ```ts
-import { t, type Infer } from "@kairojs/core";
+import { t, type Infer } from "@browserlessapi/kairo";
 
 const Signup = t.object({
   email: t.email(),
@@ -292,7 +292,7 @@ Pass `{ coerce: true }` to convert strings to numbers, booleans and arrays (Kair
 ## Models
 
 ```ts
-import { model, t, type Row } from "@kairojs/core";
+import { model, t, type Row } from "@browserlessapi/kairo";
 
 export const Ticket = model("tickets", {
   title: t.string().min(3).max(200),
@@ -315,7 +315,7 @@ type Ticket = Row<typeof Ticket>;
 // src/models.ts
 export const models = [User, Ticket] as const;
 
-declare module "@kairojs/core" {
+declare module "@browserlessapi/kairo" {
   interface Register {
     models: typeof models;
     user: AppUser;
@@ -352,8 +352,8 @@ Unknown fields or operators raise KR4003 with a "Did you mean" hint.
 ## Adapters
 
 ```ts
-import { memory } from "@kairojs/core";
-import { postgres } from "@kairojs/core/postgres";
+import { memory } from "@browserlessapi/kairo";
+import { postgres } from "@browserlessapi/kairo/postgres";
 
 createApp({ db: memory() });                                  // tests and prototypes
 createApp({ db: postgres({ url: env("DATABASE_URL") }) });    // production (npm install pg)
@@ -385,7 +385,7 @@ kairo db migrate --apply         # run pending migration files against DATABASE_
 To apply migrations from code, for example at startup in a serverless function:
 
 ```ts
-import { applyMigrations } from "@kairojs/core";
+import { applyMigrations } from "@browserlessapi/kairo";
 
 await applyMigrations(app.db, [{ name: "0001_init", sql: initSql }]);   // returns the names it applied
 ```
@@ -406,7 +406,7 @@ await db.$sql("select count(*) from tickets where owner_id = $1", [user.id]);   
 # Routes
 
 ```ts
-import { route, t, notFound } from "@kairojs/core";
+import { route, t, notFound } from "@browserlessapi/kairo";
 
 export const getTicket = route
   .get("/tickets/:id", {
@@ -460,7 +460,7 @@ Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
 ## Errors
 
 ```ts
-import { notFound, forbidden, badRequest, httpError } from "@kairojs/core";
+import { notFound, forbidden, badRequest, httpError } from "@browserlessapi/kairo";
 
 throw notFound("Ticket not found");
 throw forbidden();
@@ -532,7 +532,7 @@ route.delete("/users/:id", { auth: "admin" }) // users whose roles include "admi
 ## API keys with bearer()
 
 ```ts
-import { bearer, hashToken, createToken } from "@kairojs/core";
+import { bearer, hashToken, createToken } from "@browserlessapi/kairo";
 
 createApp({
   auth: bearer(async (token, { db }) => {
@@ -553,7 +553,7 @@ await db.api_keys.insert({ userId, hash: await hashToken(token) });
 ## Passwords
 
 ```ts
-import { hashPassword, verifyPassword } from "@kairojs/core";
+import { hashPassword, verifyPassword } from "@browserlessapi/kairo";
 
 const stored = await hashPassword(password);      // PBKDF2-SHA256, 210,000 iterations
 const ok = await verifyPassword(password, stored);
@@ -574,7 +574,7 @@ Kairo's AI module gives every route one API for every model provider, with alias
 ## Configure
 
 ```ts
-import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "@kairojs/core";
+import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "@browserlessapi/kairo";
 
 createApp({
   ai: {
@@ -652,7 +652,7 @@ Every call reports a `Usage` record (`requested`, `model` that answered, `inputT
 ## Testing
 
 ```ts
-import { mockProvider } from "@kairojs/core";
+import { mockProvider } from "@browserlessapi/kairo";
 
 ai: { providers: { mock: mockProvider({ respond: () => '{"priority":"urgent","summary":"Down"}' }) }, models: { fast: "mock:test" } }
 ```
@@ -750,8 +750,8 @@ Tests call the app in-process with `app.request`, so there is no server or port.
 ```ts
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createApp, memory, mockProvider } from "@kairojs/core";
-import { readJson } from "@kairojs/core/testing";
+import { createApp, memory, mockProvider } from "@browserlessapi/kairo";
+import { readJson } from "@browserlessapi/kairo/testing";
 import { models } from "../src/models.ts";
 import * as notes from "../src/routes/notes.ts";
 

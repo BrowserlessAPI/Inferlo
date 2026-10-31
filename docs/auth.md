@@ -26,7 +26,7 @@ route.delete("/users/:id", { auth: "admin" }) // users whose roles include "admi
 ## API keys with bearer()
 
 ```ts
-import { bearer, hashToken, createToken } from "@kairojs/core";
+import { bearer, hashToken, createToken } from "@browserlessapi/kairo";
 
 createApp({
   auth: bearer(async (token, { db }) => {
@@ -47,7 +47,7 @@ await db.api_keys.insert({ userId, hash: await hashToken(token) });
 ## Passwords
 
 ```ts
-import { hashPassword, verifyPassword } from "@kairojs/core";
+import { hashPassword, verifyPassword } from "@browserlessapi/kairo";
 
 const stored = await hashPassword(password);      // PBKDF2-SHA256, 210,000 iterations
 const ok = await verifyPassword(password, stored);

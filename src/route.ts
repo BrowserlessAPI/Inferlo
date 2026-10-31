@@ -16,7 +16,7 @@ import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
 /**
  * Register your app's models and user type once, so every handler is fully typed:
  *
- *   declare module "@kairojs/core" {
+ *   declare module "@browserlessapi/kairo" {
  *     interface Register { models: typeof models; user: User }
  *   }
  */

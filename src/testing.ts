@@ -1,7 +1,7 @@
 /**
  * Test helpers.
  *
- *   import { readJson } from "@kairojs/core/testing"
+ *   import { readJson } from "@browserlessapi/kairo/testing"
  *   const res = await app.request("/tickets", { method: "POST", json: { title: "Hi" }, as: user })
  *   const data = await readJson(res, 200)
  */

@@ -1,4 +1,4 @@
-import { createToken, env, hashToken } from "@kairojs/core";
+import { createToken, env, hashToken } from "@browserlessapi/kairo";
 import { app } from "./app.ts";
 
 await app.db.$sync();

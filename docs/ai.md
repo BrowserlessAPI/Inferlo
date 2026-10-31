@@ -5,7 +5,7 @@ Kairo's AI module gives every route one API for every model provider, with alias
 ## Configure
 
 ```ts
-import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "@kairojs/core";
+import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "@browserlessapi/kairo";
 
 createApp({
   ai: {
@@ -83,7 +83,7 @@ Every call reports a `Usage` record (`requested`, `model` that answered, `inputT
 ## Testing
 
 ```ts
-import { mockProvider } from "@kairojs/core";
+import { mockProvider } from "@browserlessapi/kairo";
 
 ai: { providers: { mock: mockProvider({ respond: () => '{"priority":"urgent","summary":"Down"}' }) }, models: { fast: "mock:test" } }
 ```

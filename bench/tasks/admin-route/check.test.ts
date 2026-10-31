@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readJson } from "@kairojs/core/testing";
+import { readJson } from "@browserlessapi/kairo/testing";
 import { app } from "../src/app.ts";
 
 test("admin users route", async () => {

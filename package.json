@@ -1,5 +1,5 @@
 {
-  "name": "@kairojs/core",
+  "name": "@browserlessapi/kairo",
   "version": "0.2.0",
   "description": "The TypeScript backend framework AI models write best. Routing, database, validation, auth and AI built in, with one schema for everything.",
   "type": "module",

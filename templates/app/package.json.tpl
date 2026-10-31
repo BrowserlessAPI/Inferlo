@@ -21,7 +21,7 @@
     "node": ">=22.18"
   },
   "dependencies": {
-    "@kairojs/core": "{{kairoDependency}}",
+    "@browserlessapi/kairo": "{{kairoDependency}}",
     "pg": "^8.16.0"
   },
   "devDependencies": {

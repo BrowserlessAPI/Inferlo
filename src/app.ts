@@ -51,7 +51,7 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
   description?: string;
   models?: Models;
   routes?: RouteSource[];
-  /** Database adapter. Default: memory(). Use postgres() from "@kairojs/core/postgres" in production. */
+  /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/kairo/postgres" in production. */
   db?: Adapter;
   auth?: AuthConfig;
   ai?: AIConfig;

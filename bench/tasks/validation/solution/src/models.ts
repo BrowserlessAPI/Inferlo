@@ -1,4 +1,4 @@
-import { model, t } from "@kairojs/core";
+import { model, t } from "@browserlessapi/kairo";
 
 export const User = model("users", {
   email: t.email().unique(),
@@ -23,7 +23,7 @@ export const models = [User, ApiKey, Note] as const;
 
 export type AppUser = { id: string; email: string; name: string; roles: string[] };
 
-declare module "@kairojs/core" {
+declare module "@browserlessapi/kairo" {
   interface Register {
     models: typeof models;
     user: AppUser;
