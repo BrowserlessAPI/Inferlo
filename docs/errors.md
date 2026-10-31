@@ -139,7 +139,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
 ### KR4013
-**Migration change not supported yet.** `kairo db migrate` only generates new tables, columns and indexes. Your models drop a table, column or index, or change an existing column (type, required, default, enum values, reference). `details.changes` lists them. Undo the model change, or write the SQL yourself in a new migration file.
+**Migration change not supported yet.** `kairo db migrate` generates new tables, columns and indexes, and drops with `--allow-drop`. Your models change an existing column (type, required, default, enum values, reference) or index. `details.changes` lists them. Undo the model change, or write the SQL yourself in a new migration file.
 
 ### KR4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
@@ -149,6 +149,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### KR4016
 **Invalid or duplicate migration name.** Migration names use letters, digits, `_` and `-` and must be unique, e.g. `0002_add_due_dates`.
+
+### KR4017
+**Migration drops data.** Your models no longer have a table, column or index that the last migration created. `details.drops` lists them. If you mean to delete that data, run `kairo db migrate --allow-drop` (or pass `{ allowDrop: true }` to `planMigration`) and review the file. Otherwise restore the removed model, field or index. A rename is not a drop: undo it and write the rename SQL yourself.
 
 ## CLI (8xxx)
 

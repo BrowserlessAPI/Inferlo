@@ -5,8 +5,10 @@
  *   kairo db migrate --apply         # runs pending files, recorded in "kairo_migrations"
  *
  * planMigration compares your models with migrations/snapshot.json (the models as of the last
- * generated migration) and returns the SQL for the difference. It only generates additive
- * changes; drops, renames and column changes are refused with KR4013 so nothing is lost silently.
+ * generated migration) and returns the SQL for the difference. Additive changes are generated
+ * directly. Drops of tables, columns and indexes delete data, so they are refused with KR4017
+ * unless you pass { allowDrop: true } (kairo db migrate --allow-drop). Renames and column
+ * changes are refused with KR4013, so nothing is lost silently.
  */
 import { KairoError } from "../errors.ts";
 import { columnName, type AnyModel } from "../model.ts";
@@ -25,6 +27,13 @@ export interface MigrationPlan {
   statements: string[];
   /** Snapshot to save after writing the file. */
   snapshot: MigrationSnapshot;
+  /** The drops included in `statements`, e.g. "drop column tasks.notes". Empty unless allowDrop was set. */
+  drops: string[];
+}
+
+export interface PlanMigrationOptions {
+  /** Generate DROP statements for removed tables, columns and indexes. These delete data. Default false. */
+  allowDrop?: boolean;
 }
 
 export interface Migration {
@@ -64,13 +73,14 @@ function checkSnapshot(previous: unknown): asserts previous is MigrationSnapshot
 }
 
 /** SQL to bring the database from `previous` (or an empty database) to `models`. */
-export function planMigration(models: readonly AnyModel[], previous?: MigrationSnapshot): MigrationPlan {
+export function planMigration(models: readonly AnyModel[], previous?: MigrationSnapshot, options: PlanMigrationOptions = {}): MigrationPlan {
   if (previous !== undefined) checkSnapshot(previous);
   const before = previous?.tables ?? {};
   const sorted = sortByReferences([...models]);
   const snapshot: MigrationSnapshot = { kairo: 1, tables: {} };
   const statements: string[] = [];
   const refused: string[] = [];
+  const drops: string[] = [];
   const needDefault: string[] = [];
 
   for (const model of sorted) {
@@ -81,29 +91,48 @@ export function planMigration(models: readonly AnyModel[], previous?: MigrationS
       statements.push(...createTableSql(model));
       continue;
     }
-    const fields = Object.entries(model.fields as Record<string, AnySchema>);
+    const dropIndexes: string[] = [];
+    const dropColumns: string[] = [];
     for (const [column, definition] of Object.entries(old.columns)) {
-      if (!(column in now.columns)) refused.push(`drop column ${model.name}.${column}`);
-      else if (now.columns[column] !== definition) refused.push(`change column ${model.name}.${column}`);
+      if (!(column in now.columns)) {
+        drops.push(`drop column ${model.name}.${column}`);
+        dropColumns.push(`ALTER TABLE ${q(model.name)} DROP COLUMN IF EXISTS ${q(column)}`);
+      } else if (now.columns[column] !== definition) refused.push(`change column ${model.name}.${column}`);
     }
-    for (const [field, schema] of fields) {
+    for (const [name, sql] of Object.entries(old.indexes)) {
+      if (!(name in now.indexes)) {
+        drops.push(`drop index ${name}`);
+        dropIndexes.push(`DROP INDEX IF EXISTS ${q(name)}`);
+      } else if (now.indexes[name] !== sql) refused.push(`change index ${name}`);
+    }
+    statements.push(...dropIndexes, ...dropColumns);
+    for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
       const column = columnName(field);
       if (column in old.columns) continue;
       if (needsValue(schema)) needDefault.push(`${model.name}.${column}`);
       statements.push(`ALTER TABLE ${q(model.name)} ADD COLUMN IF NOT EXISTS ${now.columns[column]}`);
     }
-    for (const [name, sql] of Object.entries(old.indexes)) {
-      if (!(name in now.indexes)) refused.push(`drop index ${name}`);
-      else if (now.indexes[name] !== sql) refused.push(`change index ${name}`);
-    }
     for (const [name, sql] of Object.entries(now.indexes)) if (!(name in old.indexes)) statements.push(sql);
   }
-  for (const table of Object.keys(before)) if (!(table in snapshot.tables)) refused.push(`drop table ${table}`);
+  const droppedTables = Object.keys(before).filter((table) => !(table in snapshot.tables));
+  if (droppedTables.length) {
+    drops.push(...droppedTables.map((table) => `drop table ${table}`));
+    // One statement, so foreign keys between the dropped tables do not matter. No CASCADE:
+    // if anything else still depends on a table, the migration fails instead of dropping more.
+    statements.push(`DROP TABLE IF EXISTS ${droppedTables.map(q).join(", ")}`);
+  }
 
   if (refused.length) {
     throw new KairoError("KR4013", `kairo db migrate cannot generate these changes yet: ${refused.join(", ")}.`, {
-      fix: "Only new tables, columns and indexes are generated for now. Undo these model changes, or write the SQL yourself in a new migration file.",
+      fix: "New tables, columns and indexes, and drops with --allow-drop, are generated. Renames and column changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
       details: { changes: refused },
+      expose: true,
+    });
+  }
+  if (drops.length && !options.allowDrop) {
+    throw new KairoError("KR4017", `Your model changes drop data: ${drops.join(", ")}.`, {
+      fix: "If you mean to delete this data, run kairo db migrate --allow-drop (or planMigration(models, snapshot, { allowDrop: true })) and review the file. Otherwise restore the removed models, fields or indexes.",
+      details: { drops },
       expose: true,
     });
   }
@@ -114,7 +143,7 @@ export function planMigration(models: readonly AnyModel[], previous?: MigrationS
       expose: true,
     });
   }
-  return { statements, snapshot };
+  return { statements, snapshot, drops };
 }
 
 const MIGRATION_NAME = /^[A-Za-z0-9_-]{1,200}$/;

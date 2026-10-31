@@ -5,7 +5,7 @@ The scheduled maintainer works through this list top to bottom. Each item should
 ## 0.2: Production essentials
 
 - [x] `kairo db migrate` part 1: generate versioned SQL migration files for additive model changes (new tables, columns, indexes) from `migrations/snapshot.json`, plus `kairo db migrate --apply`
-- [ ] `kairo db migrate` part 2: drops of tables, columns and indexes behind explicit confirmation (`--allow-drop`)
+- [x] `kairo db migrate` part 2: drops of tables, columns and indexes behind explicit confirmation (`--allow-drop`)
 - [ ] `kairo db migrate` part 3: renames and column changes (type, required, default, enum values) with explicit confirmation, and a checksum warning when an applied migration file was edited
 - [ ] Relations: `db.tickets.findMany({ include: { owner: true } })` for `t.ref` fields, typed results, one extra query per relation (no N+1)
 - [ ] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`

@@ -53,17 +53,68 @@ describe("planMigration", () => {
     );
   });
 
-  test("drops and column changes are refused and listed (KR4013)", () => {
+  test("column changes are refused and listed (KR4013), even with allowDrop", () => {
     const first = planMigration(models);
     const Author2 = model("authors", { name: t.string().max(120) });
+    for (const options of [undefined, { allowDrop: true }]) {
+      assert.throws(
+        () => planMigration([Author2], first.snapshot, options),
+        (e: unknown) => {
+          if (!(e instanceof KairoError) || e.code !== "KR4013") return false;
+          const changes = (e.details as { changes: string[] }).changes;
+          return changes.includes("change column authors.name") && !changes.some((c) => c.startsWith("drop"));
+        },
+      );
+    }
+  });
+
+  test("drops need allowDrop and are refused otherwise (KR4017)", () => {
+    const first = planMigration(models);
+    const Author2 = model("authors", { name: t.string().max(80) });
     assert.throws(
       () => planMigration([Author2], first.snapshot),
       (e: unknown) => {
-        if (!(e instanceof KairoError) || e.code !== "KR4013") return false;
-        const changes = (e.details as { changes: string[] }).changes;
-        return changes.includes("drop table posts") && changes.includes("drop column authors.email") && changes.includes("change column authors.name");
+        if (!(e instanceof KairoError) || e.code !== "KR4017") return false;
+        const drops = (e.details as { drops: string[] }).drops;
+        return (
+          drops.includes("drop table posts") &&
+          drops.includes("drop column authors.email") &&
+          drops.includes("drop index authors_email_key") &&
+          /--allow-drop/.test(e.fix ?? "")
+        );
       },
     );
+  });
+
+  test("allowDrop generates drops of indexes, columns and tables", () => {
+    const first = planMigration(models);
+    const Author2 = model("authors", { name: t.string().max(80), bio: t.text().optional() });
+    const plan = planMigration([Author2], first.snapshot, { allowDrop: true });
+    assert.deepEqual(plan.statements, [
+      'DROP INDEX IF EXISTS "authors_email_key"',
+      'ALTER TABLE "authors" DROP COLUMN IF EXISTS "email"',
+      'ALTER TABLE "authors" ADD COLUMN IF NOT EXISTS "bio" text',
+      'DROP TABLE IF EXISTS "posts"',
+    ]);
+    assert.deepEqual(plan.drops, ["drop column authors.email", "drop index authors_email_key", "drop table posts"]);
+    assert.deepEqual(Object.keys(plan.snapshot.tables), ["authors"]);
+    assert.deepEqual(planMigration([Author2], plan.snapshot).statements, []);
+    assert.deepEqual(planMigration([Author2], plan.snapshot).drops, []);
+  });
+
+  test("dropping only an index (unique removed) and several tables at once", () => {
+    const A = model("a_items", { code: t.string().max(10).unique() });
+    const B = model("b_items", { aId: t.ref("a_items") });
+    const C = model("c_items", { label: t.string().max(10) });
+    const first = planMigration([A, B, C]);
+    const A2 = model("a_items", { code: t.string().max(10).index() });
+    assert.throws(() => planMigration([A2, C], first.snapshot), (e: unknown) => e instanceof KairoError && e.code === "KR4017");
+    const plan = planMigration([A2, C], first.snapshot, { allowDrop: true });
+    assert.deepEqual(plan.statements, [
+      'DROP INDEX IF EXISTS "a_items_code_key"',
+      'CREATE INDEX IF NOT EXISTS "a_items_code_idx" ON "a_items" ("code")',
+      'DROP TABLE IF EXISTS "b_items"',
+    ]);
   });
 
   test("an invalid snapshot is rejected (KR4015)", () => {
@@ -110,6 +161,17 @@ if (PG_URL) {
       const u = await db.mig_users.insert({ email: "m@example.com" });
       const tag = await db.mig_tags.insert({ label: "x", userId: u.id });
       assert.equal(tag.userId, u.id);
+    });
+
+    test("an allowDrop migration drops the column and table", async () => {
+      const first = planMigration([MigUser, MigTag]);
+      const MigUser2 = model("mig_users", { email: t.email() });
+      const dropPlan = planMigration([MigUser2], first.snapshot, { allowDrop: true });
+      await applyMigrations(db, [{ name: "0004_drops", sql: dropPlan.statements.join(";\n\n") + ";\n" }]);
+      const tables = await db.$sql(`SELECT 1 FROM information_schema.tables WHERE table_name = 'mig_tags'`);
+      assert.equal(tables.length, 0);
+      const indexes = await db.$sql(`SELECT 1 FROM pg_indexes WHERE indexname = 'mig_users_email_key'`);
+      assert.equal(indexes.length, 0);
     });
 
     test("a failing migration is rolled back and not recorded", async () => {
@@ -169,11 +231,28 @@ describe("kairo db migrate (CLI)", () => {
   });
 
   test("refused changes exit non-zero and write nothing", () => {
-    writeModels(["done: t.boolean().default(false)"]);
-    const r = cli("db", "migrate", "drop title");
+    writeModels(["title: t.string().max(200)", "done: t.boolean().default(false)"]);
+    const r = cli("db", "migrate", "widen title");
     assert.equal(r.status, 1);
     assert.equal(r.out.error.code, "KR4013");
     assert.equal(readdirSync(path.join(dir, "migrations")).length, 3);
+  });
+
+  test("drops need --allow-drop (KR4017), then are written and listed", () => {
+    writeModels(["done: t.boolean().default(false)"]);
+    const refused = cli("db", "migrate", "drop title");
+    assert.equal(refused.status, 1);
+    assert.equal(refused.out.error.code, "KR4017");
+    assert.equal(readdirSync(path.join(dir, "migrations")).length, 3);
+
+    const r = cli("db", "migrate", "drop title", "--allow-drop");
+    assert.equal(r.status, 0, JSON.stringify(r.out));
+    assert.equal(r.out.file, "migrations/0003_drop_title.sql");
+    assert.deepEqual(r.out.drops, ["drop column notes.title"]);
+    const sql = readFileSync(path.join(dir, "migrations", "0003_drop_title.sql"), "utf8");
+    assert.match(sql, /ALTER TABLE "notes" DROP COLUMN IF EXISTS "title"/);
+    assert.match(sql, /deletes data/);
+    assert.deepEqual(cli("db", "migrate").out.statements, []);
   });
 
   test("--apply on memory() explains that Postgres is needed", () => {
