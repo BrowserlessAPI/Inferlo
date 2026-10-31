@@ -62,7 +62,6 @@ That one model definition gives you the database table, insert and update valida
 
 Kairo is also designed so AI coding tools (Claude Code, Cursor, Codex, NeonCodex and others) write correct Kairo code on the first try:
 
-
 - **Familiar shapes.** Hono-style routes and Zod-style schemas: patterns models already know.
 - **One way to do things.** One route API, one schema API, one query API, one AI API.
 - **No hidden behaviour.** No decorators, no dependency injection, no global registration. Everything a handler needs is in its file.
