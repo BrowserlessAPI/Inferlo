@@ -174,6 +174,41 @@ if (PG_URL) {
       assert.equal(indexes.length, 0);
     });
 
+    test("warns (onEdited) about applied files that were edited since, and still applies the rest", async () => {
+      const first = [{ name: "0010_edit", sql: "SELECT 1;\n" }];
+      assert.deepEqual(await applyMigrations(db, first), ["0010_edit"]);
+      const calls: string[][] = [];
+      const onEdited = (names: string[]) => calls.push(names);
+      // Same content with Windows line endings is not an edit.
+      assert.deepEqual(await applyMigrations(db, [{ name: "0010_edit", sql: "SELECT 1;\r\n" }], { onEdited }), []);
+      assert.deepEqual(calls, []);
+      const edited = [
+        { name: "0010_edit", sql: "SELECT 2;\n" },
+        { name: "0011_next", sql: "SELECT 3;\n" },
+      ];
+      assert.deepEqual(await applyMigrations(db, edited, { onEdited }), ["0011_next"]);
+      assert.deepEqual(calls, [["0010_edit"]]);
+      // The recorded checksum is the applied one: the warning repeats until the file is restored.
+      await applyMigrations(db, edited, { onEdited });
+      assert.deepEqual(calls, [["0010_edit"], ["0010_edit"]]);
+      await applyMigrations(db, [...first, edited[1]!], { onEdited });
+      assert.equal(calls.length, 2);
+    });
+
+    test("a kairo_migrations table from 0.2 gets a checksum column, filled on the next run", async () => {
+      await db.$sql('DROP TABLE IF EXISTS "kairo_migrations"');
+      await db.$sql('CREATE TABLE "kairo_migrations" ("name" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())');
+      await db.$sql(`INSERT INTO "kairo_migrations" ("name") VALUES ('0020_old')`);
+      const calls: string[][] = [];
+      const onEdited = (names: string[]) => calls.push(names);
+      assert.deepEqual(await applyMigrations(db, [{ name: "0020_old", sql: "SELECT 1;" }], { onEdited }), []);
+      assert.deepEqual(calls, []);
+      const rows = await db.$sql(`SELECT "checksum" FROM "kairo_migrations" WHERE "name" = '0020_old'`);
+      assert.match(String(rows[0]?.checksum), /^[0-9a-f]{64}$/);
+      await applyMigrations(db, [{ name: "0020_old", sql: "SELECT 2;" }], { onEdited });
+      assert.deepEqual(calls, [["0020_old"]]);
+    });
+
     test("a failing migration is rolled back and not recorded", async () => {
       const files = [{ name: "0003_broken", sql: 'CREATE TABLE "half_done" ("x" int);\nSELECT * FROM "does_not_exist";' }];
       await assert.rejects(applyMigrations(db, files));
@@ -181,6 +216,52 @@ if (PG_URL) {
       assert.equal(rows.length, 0);
       const tables = await db.$sql(`SELECT 1 FROM information_schema.tables WHERE table_name = 'half_done'`);
       assert.equal(tables.length, 0);
+    });
+  });
+}
+
+if (PG_URL) {
+  describe("kairo db migrate --apply (CLI, postgres)", () => {
+    let dir = "";
+    const pgDb = createDb([], postgres({ url: PG_URL }));
+    const reset = () => pgDb.$sql('DROP TABLE IF EXISTS "cli_mig_notes", "kairo_migrations" CASCADE');
+    before(async () => {
+      await reset();
+      dir = mkdtempSync(path.join(os.tmpdir(), "kairo-migrate-pg-"));
+      mkdirSync(path.join(dir, "src"));
+      mkdirSync(path.join(dir, "migrations"));
+      writeFileSync(path.join(dir, "package.json"), JSON.stringify({ type: "module" }));
+      const index = JSON.stringify(path.join(repo, "src", "index.ts"));
+      const pg = JSON.stringify(path.join(repo, "src", "db", "postgres.ts"));
+      writeFileSync(
+        path.join(dir, "src", "app.ts"),
+        `import { createApp } from ${index};\nimport { postgres } from ${pg};\nexport const app = createApp({ models: [], routes: [], db: postgres({ url: ${JSON.stringify(PG_URL)} }), logger: { info() {}, error() {} } });\n`,
+      );
+    });
+    after(async () => {
+      rmSync(dir, { recursive: true, force: true });
+      await reset();
+      await pgDb.$close();
+    });
+    const cli = (...args: string[]) => spawnSync("node", [path.join(repo, "src", "cli", "main.ts"), ...args], { cwd: dir, encoding: "utf8" });
+
+    test("lists edited files in edited and warns with KR4018", () => {
+      const file = path.join(dir, "migrations", "0001_init.sql");
+      writeFileSync(file, 'CREATE TABLE IF NOT EXISTS "cli_mig_notes" ("id" uuid PRIMARY KEY);\n');
+      const r1 = cli("db", "migrate", "--apply", "--json");
+      assert.equal(r1.status, 0, r1.stderr);
+      assert.deepEqual(JSON.parse(r1.stdout), { ok: true, applied: ["0001_init"], edited: [] });
+
+      writeFileSync(file, 'CREATE TABLE IF NOT EXISTS "cli_mig_notes" ("id" uuid PRIMARY KEY, "title" text);\n');
+      const r2 = cli("db", "migrate", "--apply", "--json");
+      assert.equal(r2.status, 0, r2.stderr);
+      assert.deepEqual(JSON.parse(r2.stdout), { ok: true, applied: [], edited: ["0001_init"] });
+
+      const r3 = cli("db", "migrate", "--apply");
+      assert.equal(r3.status, 0, r3.stderr);
+      assert.match(r3.stderr, /KR4018/);
+      assert.match(r3.stderr, /migrations\/0001_init\.sql/);
+      assert.match(r3.stdout, /No pending migrations/);
     });
   });
 }

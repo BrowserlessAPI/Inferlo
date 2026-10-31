@@ -153,6 +153,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### KR4017
 **Migration drops data.** Your models no longer have a table, column or index that the last migration created. `details.drops` lists them. If you mean to delete that data, run `kairo db migrate --allow-drop` (or pass `{ allowDrop: true }` to `planMigration`) and review the file. Otherwise restore the removed model, field or index. A rename is not a drop: undo it and write the rename SQL yourself.
 
+### KR4018
+**Applied migration file was edited** (warning, not an error). `kairo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `kairo db migrate <name>`.
+
 ## CLI (8xxx)
 
 ### KR8000

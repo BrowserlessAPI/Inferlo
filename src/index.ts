@@ -19,7 +19,7 @@ export { createDb, Table } from "./db/table.ts";
 export type { Db, Where, OrderBy, FindManyOptions } from "./db/table.ts";
 export type { Adapter, Condition, Query, DbRecord } from "./db/types.ts";
 export { planMigration, applyMigrations } from "./db/migrate.ts";
-export type { Migration, MigrationPlan, MigrationSnapshot, PlanMigrationOptions } from "./db/migrate.ts";
+export type { ApplyMigrationsOptions, Migration, MigrationPlan, MigrationSnapshot, PlanMigrationOptions } from "./db/migrate.ts";
 
 export { createAI, cosineSimilarity, extractJson, openai, openaiCompatible, anthropic, gemini, ollama, mockProvider, ProviderError } from "./ai/index.ts";
 export type { AI, AIConfig, GenerateOptions, GenerateResult, StreamResult, Usage, Pricing, Provider, ProviderRequest, Message } from "./ai/index.ts";

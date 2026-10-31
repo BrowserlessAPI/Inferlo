@@ -1,0 +1,4 @@
+{
+  "title": "Fix an applied migration that was edited",
+  "prompt": "Production ran `kairo db migrate --apply` and got warning KR4018: migrations/0001_init.sql was edited after it was applied. Someone added the `pinned` field to notes by editing that file instead of writing a new migration, so the production database has no pinned column. Keep the `pinned` field in the model. Restore migrations/0001_init.sql to the SQL that was applied, and add migrations/0002_add_pinned.sql with exactly the SQL `kairo db migrate add_pinned` would generate for the pinned field, keeping migrations/snapshot.json matching the models. You cannot run commands."
+}

@@ -90,7 +90,8 @@ kairo db migrate --apply         # run pending migration files against DATABASE_
 
 - `kairo db migrate [name]` compares your models with `migrations/snapshot.json` (your models as of the last generated migration), writes the SQL for the difference to the next numbered file and updates the snapshot. With no changes it writes nothing. Commit both files.
 - Review the generated SQL before applying it. You may edit a file until it has been applied anywhere; after that, add a new migration instead.
-- `--apply` runs every file not yet recorded in the `kairo_migrations` table, in file name order, each in its own transaction, and records it. It is safe to run on every deploy and from several instances at once. Do not put `BEGIN` or `COMMIT` in migration files.
+- `--apply` runs every file not yet recorded in the `kairo_migrations` table, in file name order, each in its own transaction, and records it with a SHA-256 checksum of its SQL. It is safe to run on every deploy and from several instances at once. Do not put `BEGIN` or `COMMIT` in migration files.
+- If a file that was already applied has been edited since, `--apply` does not run it again: it prints warning KR4018 naming the file (and lists it in `edited` with `--json`), and still applies the pending files. Restore the applied SQL (for example with `git checkout`) and put the change in a new migration. Line ending changes (CRLF and LF) do not count as edits. Migrations applied with Kairo 0.2 get their checksum recorded from the current file on the next `--apply`.
 - Generated statements use `IF NOT EXISTS`, so the first migration also works on a database created with `db push`.
 - New tables, columns and indexes are generated directly. A new required column on an existing table raises KR4014: give it a fixed `.default(value)` or make it `.optional()`.
 - Removing a model, field, `.unique()` or `.index()` drops data, so it raises KR4017 and nothing is written, unless you pass `--allow-drop`. Then the file gets `DROP INDEX`, `ALTER TABLE ... DROP COLUMN` and `DROP TABLE` statements (without `CASCADE`) and a warning comment, and `--json` output lists them in `drops`. Back up before applying it.
@@ -102,6 +103,9 @@ To apply migrations from code, for example at startup in a serverless function:
 import { applyMigrations } from "@browserlessapi/kairo";
 
 await applyMigrations(app.db, [{ name: "0001_init", sql: initSql }]);   // returns the names it applied
+
+// Applied migrations whose SQL changed since are not run again; onEdited gets their names (KR4018).
+await applyMigrations(app.db, migrations, { onEdited: (names) => console.warn("Edited after apply:", names) });
 ```
 
 To generate SQL from code, use `planMigration(models, snapshot, { allowDrop })`. It returns `{ statements, snapshot, drops }`:

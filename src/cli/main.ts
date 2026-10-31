@@ -159,8 +159,15 @@ async function cmdMigrate(args: Args) {
     if (args.flags.apply) {
       const files = await migrationFiles(dir);
       const migrations = await Promise.all(files.map(async (f) => ({ name: f.slice(0, -4), sql: await readFile(path.join(dir, f), "utf8") })));
-      const applied = await applyMigrations(app.db, migrations);
-      print({ ok: true, applied }, json, () => (applied.length ? `Applied:\n${applied.map((a) => `  ${a}`).join("\n")}` : "No pending migrations."));
+      let edited: string[] = [];
+      const applied = await applyMigrations(app.db, migrations, { onEdited: (names) => (edited = names) });
+      if (edited.length && !json) {
+        const files = edited.map((name) => `${MIGRATIONS_DIR}/${name}.sql`).join(", ");
+        console.error(
+          `Warning KR4018: ${files} ${edited.length > 1 ? "were" : "was"} edited after being applied, so the change was not run. Restore the applied SQL (git checkout) and put the change in a new migration: kairo db migrate <name>`,
+        );
+      }
+      print({ ok: true, applied, edited }, json, () => (applied.length ? `Applied:\n${applied.map((a) => `  ${a}`).join("\n")}` : "No pending migrations."));
       return;
     }
     const snapshotFile = path.join(dir, "snapshot.json");

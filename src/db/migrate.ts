@@ -154,12 +154,29 @@ interface SqlDb {
   $transaction<T>(fn: (tx: SqlDb) => Promise<T>): Promise<T>;
 }
 
+export interface ApplyMigrationsOptions {
+  /**
+   * Called with the names of migrations that were already applied but whose SQL has changed since
+   * (KR4018). They are not run again. Restore the applied SQL and put the change in a new file.
+   */
+  onEdited?: (names: string[]) => void;
+}
+
+/** SHA-256 of the SQL as hex, with Windows line endings normalised so a checkout does not count as an edit. */
+async function checksum(sql: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sql.replace(/\r\n/g, "\n")));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /**
  * Run the migrations that are not yet recorded in the "kairo_migrations" table, in name order,
  * each in its own transaction. Returns the names it applied. Safe to run from several processes
  * at once (a Postgres advisory lock serialises them).
+ *
+ * Each applied migration is recorded with a checksum of its SQL. Applied migrations whose SQL has
+ * changed since are reported to options.onEdited (KR4018) and are not run again.
  */
-export async function applyMigrations(db: SqlDb, migrations: readonly Migration[]): Promise<string[]> {
+export async function applyMigrations(db: SqlDb, migrations: readonly Migration[], options: ApplyMigrationsOptions = {}): Promise<string[]> {
   const seen = new Set<string>();
   for (const m of migrations) {
     if (!MIGRATION_NAME.test(m.name) || seen.has(m.name)) {
@@ -170,16 +187,32 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
     }
     seen.add(m.name);
   }
-  await db.$sql(`CREATE TABLE IF NOT EXISTS "kairo_migrations" ("name" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())`);
-  const done = new Set((await db.$sql(`SELECT "name" FROM "kairo_migrations"`)).map((r) => String(r.name)));
+  await db.$sql(`CREATE TABLE IF NOT EXISTS "kairo_migrations" ("name" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now(), "checksum" text)`);
+  // Tables created by Kairo 0.2 have no checksum column. Checked first, because ALTER TABLE locks the table.
+  const hasChecksum = await db.$sql(
+    `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'kairo_migrations' AND column_name = 'checksum'`,
+  );
+  if (!hasChecksum.length) await db.$sql(`ALTER TABLE "kairo_migrations" ADD COLUMN IF NOT EXISTS "checksum" text`);
+  const done = new Map((await db.$sql(`SELECT "name", "checksum" FROM "kairo_migrations"`)).map((r) => [String(r.name), r.checksum == null ? null : String(r.checksum)]));
+  const sorted = [...migrations].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const sums = new Map(await Promise.all(sorted.map(async (m) => [m.name, await checksum(m.sql)] as const)));
+  const edited: string[] = [];
+  for (const m of sorted) {
+    if (!done.has(m.name)) continue;
+    const recorded = done.get(m.name);
+    // Applied before checksums were recorded: record the current file.
+    if (recorded === null) await db.$sql(`UPDATE "kairo_migrations" SET "checksum" = $1 WHERE "name" = $2 AND "checksum" IS NULL`, [sums.get(m.name), m.name]);
+    else if (recorded !== sums.get(m.name)) edited.push(m.name);
+  }
+  if (edited.length) options.onEdited?.(edited);
   const applied: string[] = [];
-  for (const m of [...migrations].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+  for (const m of sorted) {
     if (done.has(m.name)) continue;
     const ran = await db.$transaction(async (tx) => {
       await tx.$sql(`SELECT pg_advisory_xact_lock(${LOCK_KEY})`);
       if ((await tx.$sql(`SELECT 1 FROM "kairo_migrations" WHERE "name" = $1`, [m.name])).length) return false;
       await tx.$sql(m.sql);
-      await tx.$sql(`INSERT INTO "kairo_migrations" ("name") VALUES ($1)`, [m.name]);
+      await tx.$sql(`INSERT INTO "kairo_migrations" ("name", "checksum") VALUES ($1, $2)`, [m.name, sums.get(m.name)]);
       return true;
     });
     if (ran) applied.push(m.name);

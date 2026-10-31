@@ -6,7 +6,9 @@ The scheduled maintainer works through this list top to bottom. Each item should
 
 - [x] `kairo db migrate` part 1: generate versioned SQL migration files for additive model changes (new tables, columns, indexes) from `migrations/snapshot.json`, plus `kairo db migrate --apply`
 - [x] `kairo db migrate` part 2: drops of tables, columns and indexes behind explicit confirmation (`--allow-drop`)
-- [ ] `kairo db migrate` part 3: renames and column changes (type, required, default, enum values) with explicit confirmation, and a checksum warning when an applied migration file was edited
+- [x] `kairo db migrate` part 3: checksum warning when an applied migration file was edited
+- [ ] `kairo db migrate` part 4: column changes (type, required, default, enum values) with explicit confirmation. Needs a structured column description in snapshot.json (kairo: 2) instead of the SQL string, with an upgrade path for kairo: 1 snapshots
+- [ ] `kairo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [ ] Relations: `db.tickets.findMany({ include: { owner: true } })` for `t.ref` fields, typed results, one extra query per relation (no N+1)
 - [ ] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`
 - [ ] Rate limiting: `route.post(path, { rateLimit: { max: 10, per: "minute", by: "user" | "ip" } })` with memory and Postgres stores, KR code for 429

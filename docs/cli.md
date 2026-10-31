@@ -38,7 +38,7 @@ Agents should run this after every change and not stop until `ok` is `true`.
 { "ok": true, "dryRun": false, "file": "migrations/0002_add_due_dates.sql", "statements": ["ALTER TABLE \"tasks\" ADD COLUMN IF NOT EXISTS \"due_at\" timestamptz"], "drops": [] }
 ```
 
-`file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`. `kairo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"] }`. See [Migrations](database.md#migrations).
+`file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`. `kairo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"], "edited": [] }`. `edited` lists migrations that were applied earlier but whose file has changed since (warning KR4018); they are not run again. See [Migrations](database.md#migrations).
 
 ## kairo add resource invoices
 

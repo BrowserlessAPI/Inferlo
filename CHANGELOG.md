@@ -4,6 +4,7 @@ All notable changes are listed here. Kairo follows [semantic versioning](https:/
 
 ## Unreleased
 
+- `kairo db migrate --apply` records a SHA-256 checksum of each migration file in `kairo_migrations` and warns with the new code KR4018 when a file that was already applied has been edited since (it is not run again; pending files are still applied). `--json` output has a new `edited` list, and `applyMigrations(db, migrations, { onEdited })` reports the names. Line ending changes do not count as edits. Existing `kairo_migrations` tables get a `checksum` column automatically, filled from the current files on the next run.
 - `kairo db migrate --allow-drop` generates drops of removed tables, columns and indexes (`DROP TABLE`, `ALTER TABLE ... DROP COLUMN`, `DROP INDEX`, never `CASCADE`), with a warning comment in the file. Without the flag, drops are refused with the new code KR4017 and nothing is written. Also available as `planMigration(models, snapshot, { allowDrop: true })`; the plan now includes `drops`, and `--json` output has a `drops` list. KR4013 now only covers column and index changes.
 - Docs: Kairo is now described as "the TypeScript backend framework with built-in AI model support", with a new "AI models built in" section in the README.
 
