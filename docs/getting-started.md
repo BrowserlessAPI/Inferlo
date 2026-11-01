@@ -1,6 +1,6 @@
 # Getting started
 
-Kairo needs Node.js 22.18 or newer (or Bun 1.2+). TypeScript runs directly, with no build step.
+Kairo needs Node.js 22.18 or newer (or Bun 1.3+). TypeScript runs directly, with no build step.
 
 ## Create a project
 

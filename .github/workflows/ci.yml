@@ -104,8 +104,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 1.2.0 = oldest supported (README), latest = newest release.
-        bun: ["1.2.0", "latest"]
+        # 1.3.0 = oldest supported (README): older Bun releases skip or misorder node:test subtests,
+        # so the suite cannot verify them. latest = newest release.
+        bun: ["1.3.0", "latest"]
     services:
       postgres:
         image: postgres:latest

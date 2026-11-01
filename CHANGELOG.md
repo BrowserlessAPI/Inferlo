@@ -4,7 +4,9 @@ All notable changes are listed here. Kairo follows [semantic versioning](https:/
 
 ## Unreleased
 
-- CI tests every supported version at both ends: Node.js 22.18, 22, 24 and current; Bun 1.2.0 and latest; PostgreSQL 14 to 18 and latest; TypeScript 5.9 and latest. A weekly run catches new upstream releases.
+- Breaking: the minimum supported Bun version is now 1.3.0. Bun 1.2 releases skip or misorder `node:test` subtests, so Kairo's test suite cannot verify them.
+
+- CI tests every supported version at both ends: Node.js 22.18, 22, 24 and current; Bun 1.3.0 and latest; PostgreSQL 14 to 18 and latest; TypeScript 5.9 and latest. A weekly run catches new upstream releases.
 
 - `kairo db migrate --allow-change` generates default and required/optional changes of existing columns (`ALTER COLUMN ... SET DEFAULT`, `DROP DEFAULT`, `SET NOT NULL`, `DROP NOT NULL`). Making a column required with a fixed default first fills NULL rows with it. Without the flag these changes are refused with the new code KR4019 (they were KR4013) and nothing is written. If `--apply` hits NULL rows in a column made required, it fails with the new code KR4020, naming the table and column. Also available as `planMigration(models, snapshot, { allowChange: true })`; the plan now includes `changes`, and `--json` output has a `changes` list. KR4013 now covers type, enum value, reference and index changes.
 - `migrations/snapshot.json` now describes each column as a structured object (`{ type, notNull, default?, enum?, references?, primaryKey? }`, format `"kairo": 2`) instead of its SQL text. Snapshots written by 0.2.0 (`"kairo": 1`) are read and upgraded automatically, and saved in the new format with the next generated migration. KR4013 now says what changed in each column (for example `change column posts.title (type varchar(120) -> varchar(200))`) and lists it in `details.columns`. Types: `MigrationSnapshot` is the new format; `MigrationSnapshotV1` (the old one) and `MigrationSnapshotColumn` are new exports, and `planMigration` accepts either format.

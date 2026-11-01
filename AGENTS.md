@@ -49,7 +49,7 @@ Every runtime, database and language Kairo supports is tested in CI at its **old
 | Component | Oldest tested | Latest tested |
 |---|---|---|
 | Node.js | 22.18 (`engines` in package.json) and the oldest LTS line still maintained | newest LTS and `current` |
-| Bun | 1.2.0 | `latest` |
+| Bun | 1.3.0 | `latest` |
 | PostgreSQL | oldest major still supported upstream (14 until 2026-11-12, then 15) and every major after it | `latest` |
 | TypeScript | 5.9 | `latest` |
 
