@@ -95,7 +95,8 @@ kairo db migrate --apply         # run pending migration files against DATABASE_
 - Generated statements use `IF NOT EXISTS`, so the first migration also works on a database created with `db push`.
 - New tables, columns and indexes are generated directly. A new required column on an existing table raises KR4014: give it a fixed `.default(value)` or make it `.optional()`.
 - Removing a model, field, `.unique()` or `.index()` drops data, so it raises KR4017 and nothing is written, unless you pass `--allow-drop`. Then the file gets `DROP INDEX`, `ALTER TABLE ... DROP COLUMN` and `DROP TABLE` statements (without `CASCADE`) and a warning comment, and `--json` output lists them in `drops`. Back up before applying it.
-- Renames and changed columns (type, required, default, enum values, reference) are not generated yet: they raise KR4013 and nothing is written. A rename looks like a drop plus an add; do not use `--allow-drop` for a rename, or the column's data is lost.
+- Renames and changed columns (type, required, default, enum values, reference) are not generated yet: they raise KR4013 and nothing is written. The message says what changed in each column, for example `change column posts.title (type varchar(120) -> varchar(200))`, and `details.columns` lists the same as `{ table, column, changes }`. A rename looks like a drop plus an add; do not use `--allow-drop` for a rename, or the column's data is lost.
+- `snapshot.json` describes each column as `{ type, notNull, default?, enum?, references?, primaryKey? }` (format `"kairo": 2`). Snapshots written by Kairo 0.2.0 (`"kairo": 1`, each column as SQL text) are read as they are and saved in the new format with the next generated migration. Do not edit the snapshot by hand; an invalid one raises KR4015.
 
 To apply migrations from code, for example at startup in a serverless function:
 

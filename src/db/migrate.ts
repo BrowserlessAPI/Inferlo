@@ -8,16 +8,39 @@
  * generated migration) and returns the SQL for the difference. Additive changes are generated
  * directly. Drops of tables, columns and indexes delete data, so they are refused with KR4017
  * unless you pass { allowDrop: true } (kairo db migrate --allow-drop). Renames and column
- * changes are refused with KR4013, so nothing is lost silently.
+ * changes are refused with KR4013, so nothing is lost silently. Snapshots in the 0.2.0 format
+ * (kairo: 1) are read and upgraded; plans always return the current format (kairo: 2).
  */
 import { KairoError } from "../errors.ts";
 import { columnName, type AnyModel } from "../model.ts";
 import type { AnySchema } from "../schema.ts";
-import { columnDefinition, createTableSql, modelIndexes, sortByReferences, SYSTEM_COLUMNS } from "./postgres.ts";
+import { columnDefinition, columnType, createTableSql, defaultSql, modelIndexes, sortByReferences, SYSTEM_COLUMNS } from "./postgres.ts";
 import type { DbRecord } from "./types.ts";
+
+/** One column in migrations/snapshot.json. Compared field by field to find column changes. */
+export interface MigrationSnapshotColumn {
+  /** Postgres type, e.g. "text", "varchar(80)", "integer", "jsonb". */
+  type: string;
+  /** NOT NULL (required fields). */
+  notNull: boolean;
+  /** SQL DEFAULT expression, e.g. "0", "'open'", "now()". Absent when there is no fixed default. */
+  default?: string;
+  /** Allowed values of a t.enum field (CHECK constraint). */
+  enum?: string[];
+  /** Foreign key of a t.ref field. */
+  references?: { table: string; onDelete: "restrict" | "cascade" | "set null" };
+  /** Only the "id" column. */
+  primaryKey?: true;
+}
 
 /** The models as of the last generated migration. Stored as migrations/snapshot.json. */
 export interface MigrationSnapshot {
+  kairo: 2;
+  tables: Record<string, { columns: Record<string, MigrationSnapshotColumn>; indexes: Record<string, string> }>;
+}
+
+/** The snapshot format written by Kairo 0.2.0 (each column as its SQL definition). planMigration upgrades it. */
+export interface MigrationSnapshotV1 {
   kairo: 1;
   tables: Record<string, { columns: Record<string, string>; indexes: Record<string, string> }>;
 }
@@ -44,10 +67,64 @@ export interface Migration {
 
 const q = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
 
+function columnSnapshot(schema: AnySchema): MigrationSnapshotColumn {
+  const d = schema.def;
+  const column: MigrationSnapshotColumn = { type: columnType(schema), notNull: !d.optional && !d.nullable && d.kind !== "any" };
+  const fixedDefault = defaultSql(schema);
+  if (fixedDefault !== undefined) column.default = fixedDefault;
+  if (d.kind === "enum" && d.values) column.enum = d.values.map(String);
+  if (d.kind === "ref" && d.refTable) column.references = { table: d.refTable, onDelete: d.onDelete ?? "restrict" };
+  return column;
+}
+
 function tableSnapshot(model: AnyModel): MigrationSnapshot["tables"][string] {
-  const columns: Record<string, string> = Object.fromEntries(SYSTEM_COLUMNS);
-  for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) columns[columnName(field)] = columnDefinition(model, field, schema);
+  const columns: Record<string, MigrationSnapshotColumn> = Object.fromEntries(SYSTEM_COLUMNS.map(([column, sql]) => [column, parseColumnSql(sql)!]));
+  for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) columns[columnName(field)] = columnSnapshot(schema);
   return { columns, indexes: Object.fromEntries(modelIndexes(model)) };
+}
+
+const IDENT = `"(?:[^"]|"")*"`;
+const STRING = `'(?:[^']|'')*'`;
+const unquote = (s: string) => s.slice(1, -1).replace(/''/g, "'");
+
+/**
+ * Parse a column definition as written by Kairo 0.2.0 (columnDefinition) into its structured form.
+ * Returns undefined for anything else.
+ */
+function parseColumnSql(sql: string): MigrationSnapshotColumn | undefined {
+  const head = new RegExp(`^${IDENT} (double precision|varchar\\(\\d+\\)|[a-z]+)`).exec(sql);
+  if (!head) return undefined;
+  const column: MigrationSnapshotColumn = { type: head[1]!, notNull: false };
+  let rest = sql.slice(head[0].length);
+  const clauses: [RegExp, (m: RegExpExecArray) => void][] = [
+    [/^ PRIMARY KEY/, () => ((column.primaryKey = true), (column.notNull = true))],
+    [/^ NOT NULL/, () => (column.notNull = true)],
+    [new RegExp(`^ DEFAULT (${STRING}(?:::jsonb)?|now\\(\\)|true|false|-?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?)`), (m) => (column.default = m[1])],
+    [
+      new RegExp(`^ CHECK \\(${IDENT} IN \\((${STRING}(?:, ${STRING})*)\\)\\)`),
+      (m) => (column.enum = (m[1]!.match(new RegExp(STRING, "g")) ?? []).map(unquote)),
+    ],
+    [
+      new RegExp(`^ REFERENCES (${IDENT})\\("id"\\) ON DELETE (RESTRICT|CASCADE|SET NULL)`),
+      (m) => (column.references = { table: m[1]!.slice(1, -1).replace(/""/g, '"'), onDelete: m[2]!.toLowerCase() as "restrict" | "cascade" | "set null" }),
+    ],
+  ];
+  while (rest) {
+    const clause = clauses.map(([re, apply]) => [re.exec(rest), apply] as const).find(([m]) => m);
+    if (!clause) return undefined;
+    clause[1](clause[0]!);
+    rest = rest.slice(clause[0]![0].length);
+  }
+  // Keep the same key order as columnSnapshot, so upgraded snapshots look like fresh ones.
+  const { type, notNull, default: fixedDefault, enum: values, references, primaryKey } = column;
+  return {
+    type,
+    notNull,
+    ...(fixedDefault !== undefined && { default: fixedDefault }),
+    ...(values && { enum: values }),
+    ...(references && { references }),
+    ...(primaryKey && { primaryKey }),
+  };
 }
 
 function needsValue(schema: AnySchema): boolean {
@@ -55,31 +132,70 @@ function needsValue(schema: AnySchema): boolean {
   return !d.optional && !d.nullable && d.kind !== "any" && !(d.hasDefault && typeof d.defaultValue !== "function");
 }
 
-function checkSnapshot(previous: unknown): asserts previous is MigrationSnapshot {
-  const p = previous as MigrationSnapshot | null;
-  const ok =
-    !!p &&
-    typeof p === "object" &&
-    p.kairo === 1 &&
-    !!p.tables &&
-    typeof p.tables === "object" &&
-    Object.values(p.tables).every((t) => !!t && typeof t.columns === "object" && typeof t.indexes === "object");
-  if (!ok) {
-    throw new KairoError("KR4015", "The migration snapshot is not valid.", {
-      fix: "migrations/snapshot.json must be the file written by kairo db migrate. Restore it from version control; do not edit it by hand.",
-      expose: true,
-    });
+function invalidSnapshot(fix = "migrations/snapshot.json must be the file written by kairo db migrate. Restore it from version control; do not edit it by hand."): never {
+  throw new KairoError("KR4015", "The migration snapshot is not valid.", { fix, expose: true });
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+function isColumn(c: unknown): c is MigrationSnapshotColumn {
+  return (
+    isRecord(c) &&
+    typeof c.type === "string" &&
+    typeof c.notNull === "boolean" &&
+    (c.default === undefined || typeof c.default === "string") &&
+    (c.enum === undefined || (Array.isArray(c.enum) && c.enum.every((v) => typeof v === "string"))) &&
+    (c.references === undefined || (isRecord(c.references) && typeof c.references.table === "string" && typeof c.references.onDelete === "string"))
+  );
+}
+
+/** Validate a snapshot and return it in the current (kairo: 2) format. */
+function readSnapshot(previous: unknown): MigrationSnapshot {
+  if (!isRecord(previous) || (previous.kairo !== 1 && previous.kairo !== 2) || !isRecord(previous.tables)) invalidSnapshot();
+  const tables: MigrationSnapshot["tables"] = {};
+  for (const [name, table] of Object.entries(previous.tables)) {
+    if (!isRecord(table) || !isRecord(table.columns) || !isRecord(table.indexes)) invalidSnapshot();
+    const columns: Record<string, MigrationSnapshotColumn> = {};
+    for (const [column, value] of Object.entries(table.columns)) {
+      const parsed = previous.kairo === 1 ? (typeof value === "string" ? parseColumnSql(value) : undefined) : isColumn(value) ? value : undefined;
+      if (!parsed) {
+        invalidSnapshot(
+          `Column ${name}.${column} in migrations/snapshot.json is not in the format kairo db migrate writes. Restore the file from version control; do not edit it by hand.`,
+        );
+      }
+      columns[column] = parsed;
+    }
+    tables[name] = { columns, indexes: table.indexes as Record<string, string> };
   }
+  return { kairo: 2, tables };
+}
+
+/** Plain descriptions of what differs between two versions of a column, e.g. "type text -> varchar(80)". */
+function columnChanges(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): string[] {
+  const out: string[] = [];
+  const ref = (r: MigrationSnapshotColumn["references"]) => (r ? `${r.table} on delete ${r.onDelete}` : "none");
+  const values = (v: string[] | undefined) => (v ? v.map((x) => `'${x.replace(/'/g, "''")}'`).join(", ") : "none");
+  if (before.type !== now.type) out.push(`type ${before.type} -> ${now.type}`);
+  if (before.notNull !== now.notNull) out.push(before.notNull ? "required -> optional" : "optional -> required");
+  if (before.default !== now.default) out.push(`default ${before.default ?? "none"} -> ${now.default ?? "none"}`);
+  if (values(before.enum) !== values(now.enum)) out.push(`enum values ${values(before.enum)} -> ${values(now.enum)}`);
+  if (ref(before.references) !== ref(now.references)) out.push(`reference ${ref(before.references)} -> ${ref(now.references)}`);
+  if (Boolean(before.primaryKey) !== Boolean(now.primaryKey)) out.push(before.primaryKey ? "primary key -> none" : "none -> primary key");
+  return out;
 }
 
 /** SQL to bring the database from `previous` (or an empty database) to `models`. */
-export function planMigration(models: readonly AnyModel[], previous?: MigrationSnapshot, options: PlanMigrationOptions = {}): MigrationPlan {
-  if (previous !== undefined) checkSnapshot(previous);
-  const before = previous?.tables ?? {};
+export function planMigration(
+  models: readonly AnyModel[],
+  previous?: MigrationSnapshot | MigrationSnapshotV1,
+  options: PlanMigrationOptions = {},
+): MigrationPlan {
+  const before = previous === undefined ? {} : readSnapshot(previous).tables;
   const sorted = sortByReferences([...models]);
-  const snapshot: MigrationSnapshot = { kairo: 1, tables: {} };
+  const snapshot: MigrationSnapshot = { kairo: 2, tables: {} };
   const statements: string[] = [];
   const refused: string[] = [];
+  const changedColumns: { table: string; column: string; changes: string[] }[] = [];
   const drops: string[] = [];
   const needDefault: string[] = [];
 
@@ -93,11 +209,17 @@ export function planMigration(models: readonly AnyModel[], previous?: MigrationS
     }
     const dropIndexes: string[] = [];
     const dropColumns: string[] = [];
-    for (const [column, definition] of Object.entries(old.columns)) {
+    for (const [column, description] of Object.entries(old.columns)) {
       if (!(column in now.columns)) {
         drops.push(`drop column ${model.name}.${column}`);
         dropColumns.push(`ALTER TABLE ${q(model.name)} DROP COLUMN IF EXISTS ${q(column)}`);
-      } else if (now.columns[column] !== definition) refused.push(`change column ${model.name}.${column}`);
+        continue;
+      }
+      const changes = columnChanges(description, now.columns[column]!);
+      if (changes.length) {
+        refused.push(`change column ${model.name}.${column}`);
+        changedColumns.push({ table: model.name, column, changes });
+      }
     }
     for (const [name, sql] of Object.entries(old.indexes)) {
       if (!(name in now.indexes)) {
@@ -110,7 +232,7 @@ export function planMigration(models: readonly AnyModel[], previous?: MigrationS
       const column = columnName(field);
       if (column in old.columns) continue;
       if (needsValue(schema)) needDefault.push(`${model.name}.${column}`);
-      statements.push(`ALTER TABLE ${q(model.name)} ADD COLUMN IF NOT EXISTS ${now.columns[column]}`);
+      statements.push(`ALTER TABLE ${q(model.name)} ADD COLUMN IF NOT EXISTS ${columnDefinition(model, field, schema)}`);
     }
     for (const [name, sql] of Object.entries(now.indexes)) if (!(name in old.indexes)) statements.push(sql);
   }
@@ -123,9 +245,13 @@ export function planMigration(models: readonly AnyModel[], previous?: MigrationS
   }
 
   if (refused.length) {
-    throw new KairoError("KR4013", `kairo db migrate cannot generate these changes yet: ${refused.join(", ")}.`, {
+    const explained = refused.map((change) => {
+      const column = changedColumns.find((c) => change === `change column ${c.table}.${c.column}`);
+      return column ? `${change} (${column.changes.join(", ")})` : change;
+    });
+    throw new KairoError("KR4013", `kairo db migrate cannot generate these changes yet: ${explained.join(", ")}.`, {
       fix: "New tables, columns and indexes, and drops with --allow-drop, are generated. Renames and column changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
-      details: { changes: refused },
+      details: { changes: refused, columns: changedColumns },
       expose: true,
     });
   }

@@ -7,7 +7,9 @@ The scheduled maintainer works through this list top to bottom. Each item should
 - [x] `kairo db migrate` part 1: generate versioned SQL migration files for additive model changes (new tables, columns, indexes) from `migrations/snapshot.json`, plus `kairo db migrate --apply`
 - [x] `kairo db migrate` part 2: drops of tables, columns and indexes behind explicit confirmation (`--allow-drop`)
 - [x] `kairo db migrate` part 3: checksum warning when an applied migration file was edited
-- [ ] `kairo db migrate` part 4: column changes (type, required, default, enum values) with explicit confirmation. Needs a structured column description in snapshot.json (kairo: 2) instead of the SQL string, with an upgrade path for kairo: 1 snapshots
+- [x] `kairo db migrate` part 4a: structured column descriptions in snapshot.json (kairo: 2) with an upgrade path for kairo: 1 snapshots, and KR4013 saying what changed in each column
+- [ ] `kairo db migrate` part 4b: generate default and required/optional changes (`SET DEFAULT`, `DROP DEFAULT`, `DROP NOT NULL`, `SET NOT NULL`) behind explicit confirmation (`--allow-change`), with a KR code when existing NULL rows would block `SET NOT NULL`
+- [ ] `kairo db migrate` part 4c: type and enum value changes (`ALTER COLUMN ... TYPE ... USING`, replacing the enum CHECK constraint) and reference changes behind `--allow-change`
 - [ ] `kairo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [ ] Relations: `db.tickets.findMany({ include: { owner: true } })` for `t.ref` fields, typed results, one extra query per relation (no N+1)
 - [ ] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`

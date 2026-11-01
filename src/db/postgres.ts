@@ -73,10 +73,18 @@ function literal(value: unknown): string {
   return `'${String(typeof value === "object" ? JSON.stringify(value) : value).replace(/'/g, "''")}'`;
 }
 
+/** The column's SQL DEFAULT expression, or undefined when it has no fixed default (function defaults run in JavaScript). */
+export function defaultSql(schema: AnySchema): string | undefined {
+  const d = schema.def;
+  if (!d.hasDefault || typeof d.defaultValue === "function") return undefined;
+  return `${literal(d.defaultValue)}${isJson(schema) ? "::jsonb" : ""}`;
+}
+
 export function columnDefinition(model: AnyModel, field: string, schema: AnySchema, forAlter = false): string {
   const d = schema.def;
   let sql = `${q(columnName(field))} ${columnType(schema)}`;
-  if (d.hasDefault && typeof d.defaultValue !== "function") sql += ` DEFAULT ${literal(d.defaultValue)}${isJson(schema) ? "::jsonb" : ""}`;
+  const fixedDefault = defaultSql(schema);
+  if (fixedDefault !== undefined) sql += ` DEFAULT ${fixedDefault}`;
   const required = !d.optional && !d.nullable && !(d.kind === "any");
   if (required && (!forAlter || (d.hasDefault && typeof d.defaultValue !== "function"))) sql += " NOT NULL";
   if (d.kind === "enum" && d.values) sql += ` CHECK (${q(columnName(field))} IN (${d.values.map(literal).join(", ")}))`;

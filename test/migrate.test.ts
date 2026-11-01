@@ -5,8 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
-import { applyMigrations, createDb, KairoError, memory, model, planMigration, t } from "../src/index.ts";
-import { postgres } from "../src/db/postgres.ts";
+import { applyMigrations, createDb, KairoError, memory, model, planMigration, t, type MigrationSnapshotV1 } from "../src/index.ts";
+import { columnDefinition, modelIndexes, postgres, SYSTEM_COLUMNS } from "../src/db/postgres.ts";
+import { columnName, type AnyModel } from "../src/model.ts";
+import type { AnySchema } from "../src/schema.ts";
 import { Author, Post, models } from "./helpers.ts";
 
 const PG_URL = process.env.KAIRO_TEST_DATABASE_URL;
@@ -20,7 +22,7 @@ describe("planMigration", () => {
     assert.ok(plan.statements.some((s) => s.includes('"authors_email_key"')));
     assert.ok(plan.statements.some((s) => s.includes('"posts_author_id_idx"')));
     assert.deepEqual(Object.keys(plan.snapshot.tables).sort(), ["authors", "posts"]);
-    assert.equal(plan.snapshot.kairo, 1);
+    assert.equal(plan.snapshot.kairo, 2);
   });
 
   test("no changes means no statements", () => {
@@ -119,6 +121,101 @@ describe("planMigration", () => {
 
   test("an invalid snapshot is rejected (KR4015)", () => {
     assert.throws(() => planMigration(models, { kairo: 99, tables: {} } as never), (e: unknown) => e instanceof KairoError && e.code === "KR4015");
+    const bad = { kairo: 2, tables: { authors: { columns: { name: "\"name\" text" }, indexes: {} } } };
+    assert.throws(() => planMigration(models, bad as never), (e: unknown) => e instanceof KairoError && e.code === "KR4015");
+    const badV1 = { kairo: 1, tables: { authors: { columns: { name: "\"name\" text WHATEVER" }, indexes: {} } } };
+    assert.throws(() => planMigration(models, badV1 as never), (e: unknown) => e instanceof KairoError && e.code === "KR4015");
+  });
+});
+
+/** The snapshot format Kairo 0.2.0 wrote: each column as its SQL definition. */
+function v1Snapshot(list: readonly AnyModel[]): MigrationSnapshotV1 {
+  const tables: MigrationSnapshotV1["tables"] = {};
+  for (const m of list) {
+    const columns: Record<string, string> = Object.fromEntries(SYSTEM_COLUMNS);
+    for (const [field, schema] of Object.entries(m.fields as Record<string, AnySchema>)) columns[columnName(field)] = columnDefinition(m, field, schema);
+    tables[m.name] = { columns, indexes: Object.fromEntries(modelIndexes(m)) };
+  }
+  return { kairo: 1, tables };
+}
+
+describe("migration snapshot format (kairo: 2)", () => {
+  test("columns are stored as structured descriptions", () => {
+    const { snapshot } = planMigration(models);
+    const posts = snapshot.tables.posts!.columns;
+    assert.deepEqual(posts.id, { type: "uuid", notNull: true, primaryKey: true });
+    assert.deepEqual(posts.created_at, { type: "timestamptz", notNull: true, default: "now()" });
+    assert.deepEqual(posts.title, { type: "varchar(120)", notNull: true });
+    assert.deepEqual(posts.views, { type: "integer", notNull: true, default: "0" });
+    assert.deepEqual(posts.rating, { type: "double precision", notNull: false });
+    assert.deepEqual(posts.tags, { type: "jsonb", notNull: true });
+    assert.deepEqual(posts.kind, { type: "text", notNull: true, default: "'note'", enum: ["note", "article"] });
+    assert.deepEqual(posts.published_at, { type: "timestamptz", notNull: false });
+    assert.deepEqual(posts.author_id, { type: "uuid", notNull: true, references: { table: "authors", onDelete: "cascade" } });
+    const Settings = model("settings", { prefs: t.json<{ a: number }>().default({ a: 1 }), note: t.string().default("it's") });
+    const s = planMigration([Settings]).snapshot.tables.settings!.columns;
+    assert.deepEqual(s.prefs, { type: "jsonb", notNull: true, default: `'{"a":1}'::jsonb` });
+    assert.deepEqual(s.note, { type: "text", notNull: true, default: "'it''s'" });
+  });
+
+  test("a kairo: 1 snapshot is upgraded: unchanged models give no statements and a kairo: 2 snapshot", () => {
+    const Odd = model("odd_items", {
+      label: t.string().max(40).default("a 'quoted', (odd) DEFAULT value NOT NULL"),
+      state: t.enum(["it's", "a, b", "x)"]).default("x)"),
+      ratio: t.number().default(-1.5),
+      on: t.boolean().default(true),
+      parent: t.ref("odd_items", { onDelete: "set null" }).optional(),
+      extra: t.any(),
+    });
+    for (const list of [models, [Odd]] as const) {
+      const fresh = planMigration(list);
+      const upgraded = planMigration(list, v1Snapshot(list));
+      assert.deepEqual(upgraded.statements, []);
+      assert.equal(upgraded.snapshot.kairo, 2);
+      assert.deepEqual(upgraded.snapshot, fresh.snapshot);
+    }
+  });
+
+  test("a kairo: 1 snapshot still plans additive changes and drops", () => {
+    const Author2 = model("authors", { name: t.string().max(80), email: t.email().unique(), bio: t.text().optional() });
+    assert.deepEqual(planMigration([Author2, Post], v1Snapshot(models)).statements, ['ALTER TABLE "authors" ADD COLUMN IF NOT EXISTS "bio" text']);
+    assert.throws(() => planMigration([Author2], v1Snapshot(models)), (e: unknown) => e instanceof KairoError && e.code === "KR4017");
+  });
+
+  test("KR4013 says what changed in each column, for kairo: 1 and kairo: 2 snapshots", () => {
+    const Post2 = model("posts", {
+      ...Post.fields,
+      title: t.string().min(1).max(200),
+      views: t.int().default(1),
+      rating: t.number(),
+      kind: t.enum(["note", "article", "page"]).default("note"),
+      authorId: t.ref("authors"),
+    });
+    for (const previous of [planMigration(models).snapshot, v1Snapshot(models)]) {
+      assert.throws(
+        () => planMigration([Author, Post2], previous),
+        (e: unknown) => {
+          if (!(e instanceof KairoError) || e.code !== "KR4013") return false;
+          const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
+          assert.deepEqual(details.changes, [
+            "change column posts.title",
+            "change column posts.views",
+            "change column posts.rating",
+            "change column posts.kind",
+            "change column posts.author_id",
+          ]);
+          assert.deepEqual(details.columns, [
+            { table: "posts", column: "title", changes: ["type varchar(120) -> varchar(200)"] },
+            { table: "posts", column: "views", changes: ["default 0 -> 1"] },
+            { table: "posts", column: "rating", changes: ["optional -> required"] },
+            { table: "posts", column: "kind", changes: ["enum values 'note', 'article' -> 'note', 'article', 'page'"] },
+            { table: "posts", column: "author_id", changes: ["reference authors on delete cascade -> authors on delete restrict"] },
+          ]);
+          assert.match(e.message, /posts\.title \(type varchar\(120\) -> varchar\(200\)\)/);
+          return true;
+        },
+      );
+    }
   });
 });
 
@@ -333,6 +430,24 @@ describe("kairo db migrate (CLI)", () => {
     const sql = readFileSync(path.join(dir, "migrations", "0003_drop_title.sql"), "utf8");
     assert.match(sql, /ALTER TABLE "notes" DROP COLUMN IF EXISTS "title"/);
     assert.match(sql, /deletes data/);
+    assert.deepEqual(cli("db", "migrate").out.statements, []);
+  });
+
+  test("a kairo: 1 snapshot from 0.2.0 keeps working and is saved as kairo: 2 with the next migration", () => {
+    const snapshotFile = path.join(dir, "migrations", "snapshot.json");
+    writeFileSync(snapshotFile, JSON.stringify(v1Snapshot([model("notes", { done: t.boolean().default(false) })]), null, 2) + "\n");
+    const unchanged = cli("db", "migrate");
+    assert.equal(unchanged.status, 0, JSON.stringify(unchanged.out));
+    assert.deepEqual(unchanged.out.statements, []);
+    assert.equal(JSON.parse(readFileSync(snapshotFile, "utf8")).kairo, 1);
+
+    writeModels(["done: t.boolean().default(false)", "pinned: t.boolean().default(false)"]);
+    const r = cli("db", "migrate", "add pinned");
+    assert.equal(r.status, 0, JSON.stringify(r.out));
+    assert.deepEqual(r.out.statements, ['ALTER TABLE "notes" ADD COLUMN IF NOT EXISTS "pinned" boolean DEFAULT false NOT NULL']);
+    const saved = JSON.parse(readFileSync(snapshotFile, "utf8"));
+    assert.equal(saved.kairo, 2);
+    assert.deepEqual(saved.tables.notes.columns.pinned, { type: "boolean", notNull: true, default: "false" });
     assert.deepEqual(cli("db", "migrate").out.statements, []);
   });
 
