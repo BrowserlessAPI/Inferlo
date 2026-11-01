@@ -42,6 +42,25 @@ bench/             AI success benchmark
 test/              framework tests
 ```
 
+## Supported versions (test oldest and latest)
+
+Every runtime, database and language Kairo supports is tested in CI at its **oldest supported version** and its **latest version**, and every PostgreSQL major version that is still supported upstream is tested. The matrix lives in `.github/workflows/ci.yml`; CI also runs weekly so new upstream releases are tested even when Kairo did not change.
+
+| Component | Oldest tested | Latest tested |
+|---|---|---|
+| Node.js | 22.18 (`engines` in package.json) and the oldest LTS line still maintained | newest LTS and `current` |
+| Bun | 1.2.0 | `latest` |
+| PostgreSQL | oldest major still supported upstream (14 until 2026-11-12, then 15) and every major after it | `latest` |
+| TypeScript | 5.9 | `latest` |
+
+Rules:
+
+1. When a new major version is released (Node, Bun, PostgreSQL, TypeScript, or any database or runtime added later, such as MySQL or Deno), add it to the matrix before or together with the next change.
+2. When a version reaches end of life upstream, move "oldest tested" forward, update `engines`, README and docs/getting-started.md, and note it in CHANGELOG.md under "Breaking".
+3. Never drop or skip a version just to make CI pass. If a version fails, fix Kairo for it.
+4. Anything new Kairo starts supporting (a database adapter, a runtime) gets its oldest supported and latest versions in the matrix in the same change.
+5. Local runs cover one version; CI covers the full matrix. A change is only done when every CI job is green.
+
 ## Checks (all must pass before every commit)
 
 ```bash

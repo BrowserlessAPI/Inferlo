@@ -75,6 +75,8 @@ Kairo is also designed so AI coding tools (Claude Code, Cursor, Codex, NeonCodex
 
 Requires Node.js 22.18+ or Bun 1.2+. TypeScript runs directly with no build step.
 
+Every release is tested on Node.js 22.18, 22, 24 and the current release; Bun 1.2.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
+
 ```bash
 npx @browserlessapi/kairo new my-app
 cd my-app && npm install && npm run dev

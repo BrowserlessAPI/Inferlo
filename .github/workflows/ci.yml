@@ -1,19 +1,30 @@
 name: CI
 
+# Version policy (see AGENTS.md "Supported versions"): every runtime, database and language
+# Kairo supports is tested at its oldest supported version and its latest version.
+
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly run so a new upstream release (Node, Bun, PostgreSQL, TypeScript) is tested
+    # even when nothing in Kairo changed.
+    - cron: "17 3 * * 1"
 
 jobs:
   node:
+    name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node: ["22", "24"]
+        # 22.18 = oldest supported (package.json engines), 22 = oldest LTS line,
+        # 24 = active LTS, current = newest Node release.
+        node: ["22.18", "22", "24", "current"]
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: kairo_test
@@ -28,6 +39,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - run: node --version
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -35,10 +47,81 @@ jobs:
       - run: node bench/run.ts --verify
       - run: node bench/run.ts --baseline
 
-  bun:
+  postgres:
+    name: PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every supported major version: 14 is the oldest still supported upstream
+        # (end of life 2026-11-12, then 15 becomes the oldest), latest = newest release.
+        postgres: ["14", "15", "16", "17", "18", "latest"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kairo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      KAIRO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/kairo_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Server version
+        run: node -e "const {Client}=require('pg');const c=new Client({connectionString:process.env.KAIRO_TEST_DATABASE_URL});c.connect().then(()=>c.query('show server_version')).then(r=>{console.log('PostgreSQL',r.rows[0].server_version);return c.end()})"
+      - run: npm test
+
+  typescript:
+    name: TypeScript ${{ matrix.typescript }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 5.9 = oldest supported (erasableSyntaxOnly and rewriteRelativeImportExtensions), latest = newest.
+        typescript: ["5.9", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save typescript@${{ matrix.typescript }}
+      - run: npx tsc --version
+      - run: npm run typecheck
+      - run: npm run build
+
+  bun:
+    name: Bun ${{ matrix.bun }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.2.0 = oldest supported (README), latest = newest release.
+        bun: ["1.2.0", "latest"]
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kairo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      KAIRO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/kairo_test
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
+      - run: bun --version
       - run: bun install
       - run: bun test test/
