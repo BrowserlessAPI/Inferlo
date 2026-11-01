@@ -1,6 +1,6 @@
 /**
  * describe() returns a machine-readable map of the whole app. AI coding agents read it
- * (kairo describe --json) instead of searching the codebase.
+ * (inferlo describe --json) instead of searching the codebase.
  */
 import type { App } from "./app.ts";
 import { toolName } from "./mcp.ts";
@@ -21,7 +21,7 @@ export interface FieldDescription {
 }
 
 export interface AppDescription {
-  kairo: string;
+  inferlo: string;
   name: string;
   version: string;
   description?: string;
@@ -43,7 +43,7 @@ export interface AppDescription {
   ai: { configured: boolean; aliases: Record<string, string[]> };
 }
 
-export const KAIRO_VERSION = "0.2.0";
+export const INFERLO_VERSION = "0.3.0";
 
 function field(name: string, schema: AnySchema): FieldDescription {
   const d = schema.def;
@@ -64,7 +64,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
 
 export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; description?: string }): AppDescription {
   return {
-    kairo: KAIRO_VERSION,
+    inferlo: INFERLO_VERSION,
     name: app.name,
     version: app.version,
     description: options.description,

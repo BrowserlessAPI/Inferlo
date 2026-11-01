@@ -7,7 +7,7 @@ import { memory } from "./db/memory.ts";
 import { createDb, type Db } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { describeApp, type AppDescription } from "./describe.ts";
-import { KairoError, didYouMean, suggest } from "./errors.ts";
+import { InferloError, didYouMean, suggest } from "./errors.ts";
 import { handleMcp } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
@@ -51,7 +51,7 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
   description?: string;
   models?: Models;
   routes?: RouteSource[];
-  /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/kairo/postgres" in production. */
+  /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/inferlo/postgres" in production. */
   db?: Adapter;
   auth?: AuthConfig;
   ai?: AIConfig;
@@ -108,7 +108,7 @@ const testUsers = new WeakMap<Request, AppUser | null>();
 
 function compile(def: RouteDef): CompiledRoute {
   if (!def.path.startsWith("/")) {
-    throw new KairoError("KR6003", `Route path "${def.path}" must start with "/".`, { fix: `Use "/${def.path}".` });
+    throw new InferloError("IL6003", `Route path "${def.path}" must start with "/".`, { fix: `Use "/${def.path}".` });
   }
   const keys: string[] = [];
   let score = 0;
@@ -161,7 +161,7 @@ function corsHeaders(config: CorsConfig, origin: string | null): Record<string, 
 
 async function readBody(req: Request, limit: number): Promise<string> {
   const length = Number(req.headers.get("content-length") ?? "0");
-  if (length > limit) throw new KairoError("KR2004", `Request body is larger than ${limit} bytes.`, { status: 413 });
+  if (length > limit) throw new InferloError("IL2004", `Request body is larger than ${limit} bytes.`, { status: 413 });
   if (!req.body) return "";
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -172,7 +172,7 @@ async function readBody(req: Request, limit: number): Promise<string> {
     size += value.byteLength;
     if (size > limit) {
       await reader.cancel();
-      throw new KairoError("KR2004", `Request body is larger than ${limit} bytes.`, { status: 413 });
+      throw new InferloError("IL2004", `Request body is larger than ${limit} bytes.`, { status: 413 });
     }
     chunks.push(value);
   }
@@ -201,20 +201,20 @@ function json(data: unknown, status: number, headers: Headers): Response {
 
 export function createApp<const Models extends readonly AnyModel[] = []>(config: AppConfig<Models> = {}): App<Models> {
   const logger: Logger = config.logger ?? {
-    info: (m, d) => console.log(`[kairo] ${m}`, d ?? ""),
-    error: (m, d) => console.error(`[kairo] ${m}`, d ?? ""),
+    info: (m, d) => console.log(`[inferlo] ${m}`, d ?? ""),
+    error: (m, d) => console.error(`[inferlo] ${m}`, d ?? ""),
   };
   const models = (config.models ?? []) as unknown as Models;
   const modelNames = new Set<string>();
   for (const m of models) {
-    if (modelNames.has(m.name)) throw new KairoError("KR6004", `Two models are named "${m.name}".`, { fix: "Model names must be unique." });
+    if (modelNames.has(m.name)) throw new InferloError("IL6004", `Two models are named "${m.name}".`, { fix: "Model names must be unique." });
     modelNames.add(m.name);
   }
   for (const m of models) {
     for (const [field, schema] of Object.entries(m.fields as Record<string, AnySchema>)) {
       const ref = schema.def.refTable;
       if (ref && !modelNames.has(ref)) {
-        throw new KairoError("KR6005", `${m.name}.${field} references "${ref}", which is not a registered model.${didYouMean(ref, modelNames)}`, {
+        throw new InferloError("IL6005", `${m.name}.${field} references "${ref}", which is not a registered model.${didYouMean(ref, modelNames)}`, {
           fix: `Add the "${ref}" model to createApp({ models: [...] }) or fix the name in t.ref().`,
         });
       }
@@ -227,7 +227,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   for (const r of routes) {
     const sig = `${r.method} ${r.path.replace(/:[^/]+/g, ":")}`;
     if (signatures.has(sig)) {
-      throw new KairoError("KR6001", `Duplicate route ${r.method} ${r.path}.`, { fix: "Each method and path may only be defined once." });
+      throw new InferloError("IL6001", `Duplicate route ${r.method} ${r.path}.`, { fix: "Each method and path may only be defined once." });
     }
     signatures.set(sig, r);
   }
@@ -235,13 +235,13 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   for (const r of routes) {
     if (!r.name) continue;
     if (names.has(r.name) && names.get(r.name) !== r) {
-      throw new KairoError("KR6006", `Two routes are exported as "${r.name}".`, { fix: "Give each route export a unique name; it is used for MCP tools and describe." });
+      throw new InferloError("IL6006", `Two routes are exported as "${r.name}".`, { fix: "Give each route export a unique name; it is used for MCP tools and describe." });
     }
     names.set(r.name, r);
   }
   const needsAuth = routes.filter((r) => (r.options.auth ?? "user") !== "public");
   if (needsAuth.length && !config.auth) {
-    throw new KairoError("KR3003", `${needsAuth.length} route(s) require a signed-in user, but createApp has no auth configured: ${needsAuth.map((r) => `${r.method} ${r.path}`).join(", ")}.`, {
+    throw new InferloError("IL3003", `${needsAuth.length} route(s) require a signed-in user, but createApp has no auth configured: ${needsAuth.map((r) => `${r.method} ${r.path}`).join(", ")}.`, {
       fix: 'Routes are private by default. Add auth: "public" to routes anyone may call, or pass createApp({ auth: { resolve(req) { ... } } }).',
     });
   }
@@ -258,7 +258,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   const roles = (user: AppUser): string[] => config.auth?.roles?.(user) ?? ((user as { roles?: string[] }).roles ?? []);
 
   const errorResponse = (error: unknown, headers: Headers, req: Request): Response => {
-    if (error instanceof KairoError) {
+    if (error instanceof InferloError) {
       if (error.status >= 500) logger.error(`${req.method} ${new URL(req.url).pathname} failed: ${error.format()}`, error.cause ?? "");
       const body = error.toJSON();
       if (config.exposeErrors && !error.expose) (body.error as Record<string, unknown>).message = error.message;
@@ -266,7 +266,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     }
     logger.error(`${req.method} ${new URL(req.url).pathname} failed`, error);
     const message = config.exposeErrors && error instanceof Error ? error.message : "Internal server error";
-    return json({ error: { code: "KR9000", message, docs: new KairoError("KR9000", "").docs } }, 500, headers);
+    return json({ error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } }, 500, headers);
   };
 
   const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[]): Promise<Response> => {
@@ -298,10 +298,10 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
       if (!match) {
         if (allowed.length) {
           headers.set("allow", [...new Set(allowed)].join(", "));
-          throw new KairoError("KR2002", `${method} is not allowed on ${url.pathname}. Allowed: ${[...new Set(allowed)].join(", ")}.`, { status: 405 });
+          throw new InferloError("IL2002", `${method} is not allowed on ${url.pathname}. Allowed: ${[...new Set(allowed)].join(", ")}.`, { status: 405 });
         }
         const near = suggest(url.pathname, routes.map((r) => r.path));
-        throw new KairoError("KR2001", `No route matches ${method} ${url.pathname}.${near ? ` Closest route: ${near}.` : ""}`, { status: 404 });
+        throw new InferloError("IL2001", `No route matches ${method} ${url.pathname}.${near ? ` Closest route: ${near}.` : ""}`, { status: 404 });
       }
       const { def, keys } = match.route;
       const opts = def.options;
@@ -312,8 +312,8 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
       else if (config.auth) user = (await config.auth.resolve(req, { db: db as never, url })) ?? null;
       const level = opts.auth ?? "user";
       if (level !== "public") {
-        if (!user) throw new KairoError("KR3001", "Sign in required.", { status: 401, fix: "Send valid credentials, e.g. an Authorization: Bearer <token> header." });
-        if (level !== "user" && !roles(user).includes(level)) throw new KairoError("KR3002", `This requires the "${level}" role.`, { status: 403 });
+        if (!user) throw new InferloError("IL3001", "Sign in required.", { status: 401, fix: "Send valid credentials, e.g. an Authorization: Bearer <token> header." });
+        if (level !== "user" && !roles(user).includes(level)) throw new InferloError("IL3002", `This requires the "${level}" role.`, { status: 403 });
       }
 
       // Input
@@ -336,7 +336,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
             try {
               raw = JSON.parse(text);
             } catch {
-              throw new KairoError("KR2003", "Request body is not valid JSON.", { status: 400, fix: "Send JSON with Content-Type: application/json." });
+              throw new InferloError("IL2003", "Request body is not valid JSON.", { status: 400, fix: "Send JSON with Content-Type: application/json." });
             }
           }
         }
@@ -375,7 +375,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   };
 
   const app: App<Models> = {
-    name: config.name ?? "kairo-app",
+    name: config.name ?? "inferlo-app",
     version: config.version ?? "0.0.0",
     routes,
     models,
@@ -408,7 +408,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     },
 
     async request(path, options = {}) {
-      const url = new URL(path, "http://kairo.test");
+      const url = new URL(path, "http://inferlo.test");
       for (const [k, v] of Object.entries(options.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v));
       const headers: Record<string, string> = { ...options.headers };
       let body = options.body;

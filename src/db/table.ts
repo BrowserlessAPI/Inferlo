@@ -2,7 +2,7 @@
  * Typed table clients: db.tickets.insert(...), db.tickets.findMany({ where: { status: "open" } }).
  * Inserts and updates are always validated against the model, and every query is parameterised.
  */
-import { KairoError, didYouMean, notFound } from "../errors.ts";
+import { InferloError, didYouMean, notFound } from "../errors.ts";
 import type { AnyModel, Row, CreateInput, UpdateInput } from "../model.ts";
 import { ValidationError } from "../schema.ts";
 import type { Adapter, Condition, DbRecord, Op, Query } from "./types.ts";
@@ -70,7 +70,7 @@ export class Table<M extends AnyModel> {
     return (rows[0] as Row<M>) ?? null;
   }
 
-  /** Row by id. Throws KR4001 (HTTP 404) when it does not exist. */
+  /** Row by id. Throws IL4001 (HTTP 404) when it does not exist. */
   async get(id: string): Promise<Row<M>> {
     const row = await this.find(id);
     if (!row) throw notFound(`${singular(this.model.name)} ${id} was not found.`, { table: this.model.name, id });
@@ -91,7 +91,7 @@ export class Table<M extends AnyModel> {
     return this.#adapter().count(this.model, this.#where(where));
   }
 
-  /** Validate and update one row by id. Throws KR4001 (HTTP 404) when it does not exist. */
+  /** Validate and update one row by id. Throws IL4001 (HTTP 404) when it does not exist. */
   async update(id: string, patch: UpdateInput<M>): Promise<Row<M>> {
     const parsed = this.#validate(this.model.update, patch, "update");
     const rows = await this.#adapter().update(this.model, [{ field: "id", op: "eq", value: id }], { ...parsed, updatedAt: new Date() });
@@ -115,7 +115,7 @@ export class Table<M extends AnyModel> {
   async deleteMany(where: Where<Row<M>>): Promise<number> {
     const conditions = this.#where(where);
     if (!conditions.length) {
-      throw new KairoError("KR4007", `deleteMany() on "${this.model.name}" needs a where filter.`, {
+      throw new InferloError("IL4007", `deleteMany() on "${this.model.name}" needs a where filter.`, {
         fix: "Pass a filter, e.g. deleteMany({ status: \"closed\" }). To delete everything use deleteMany({ id: { isNull: false } }).",
       });
     }
@@ -130,7 +130,7 @@ export class Table<M extends AnyModel> {
 
   #checkField(field: string, where: string): void {
     if (!this.#fields.includes(field)) {
-      throw new KairoError("KR4003", `Unknown field "${field}" in ${where} on "${this.model.name}".${didYouMean(field, this.#fields)}`, {
+      throw new InferloError("IL4003", `Unknown field "${field}" in ${where} on "${this.model.name}".${didYouMean(field, this.#fields)}`, {
         fix: `Use one of: ${this.#fields.join(", ")}`,
         status: 500,
       });
@@ -146,7 +146,7 @@ export class Table<M extends AnyModel> {
         for (const [op, operand] of Object.entries(value)) {
           if (operand === undefined) continue;
           if (!OPS.includes(op as Op)) {
-            throw new KairoError("KR4003", `Unknown operator "${op}" for "${field}".${didYouMean(op, OPS)}`, {
+            throw new InferloError("IL4003", `Unknown operator "${op}" for "${field}".${didYouMean(op, OPS)}`, {
               fix: `Operators: ${OPS.join(", ")}`,
             });
           }
@@ -168,7 +168,7 @@ export class Table<M extends AnyModel> {
     for (const [field, direction] of entries as [string, string][]) {
       this.#checkField(field, "orderBy");
       if (direction !== "asc" && direction !== "desc") {
-        throw new KairoError("KR4003", `orderBy direction for "${field}" must be "asc" or "desc".`);
+        throw new InferloError("IL4003", `orderBy direction for "${field}" must be "asc" or "desc".`);
       }
       orderBy.push([field, direction]);
     }
@@ -207,7 +207,7 @@ export function createDb<const Models extends readonly AnyModel[]>(models: Model
       $sync: (options) => current.sync([...models], options),
       $transaction: async (fn) => (current.transaction ? current.transaction((tx) => fn(build(tx))) : fn(build(current))),
       $sql: async (text, params) => {
-        if (!current.sql) throw new KairoError("KR4008", `Raw SQL is not supported by the ${current.dialect} adapter.`, { fix: "Use postgres() from @browserlessapi/kairo/postgres." });
+        if (!current.sql) throw new InferloError("IL4008", `Raw SQL is not supported by the ${current.dialect} adapter.`, { fix: "Use postgres() from @browserlessapi/inferlo/postgres." });
         return current.sql(text, params);
       },
       $close: async () => current.close?.(),
@@ -217,7 +217,7 @@ export function createDb<const Models extends readonly AnyModel[]>(models: Model
       get(target, prop) {
         if (typeof prop === "string" && !(prop in target) && !prop.startsWith("$") && prop !== "then" && prop !== "toJSON") {
           const names = models.map((m) => m.name);
-          throw new KairoError("KR4002", `db.${prop} does not exist.${didYouMean(prop, names)}`, {
+          throw new InferloError("IL4002", `db.${prop} does not exist.${didYouMean(prop, names)}`, {
             fix: `Registered tables: ${names.join(", ") || "(none)"}. Add the model to createApp({ models: [...] }).`,
           });
         }

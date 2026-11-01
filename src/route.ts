@@ -16,7 +16,7 @@ import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
 /**
  * Register your app's models and user type once, so every handler is fully typed:
  *
- *   declare module "@browserlessapi/kairo" {
+ *   declare module "@browserlessapi/inferlo" {
  *     interface Register { models: typeof models; user: User }
  *   }
  */
@@ -92,7 +92,7 @@ export type AnyContext = Context<any, any, any, any>;
 export type Handler<C, R> = (ctx: C) => R | Promise<R>;
 
 export interface RouteDef {
-  readonly kind: "kairo.route";
+  readonly kind: "inferlo.route";
   readonly method: Method;
   readonly path: string;
   readonly options: RouteOptions<any, any, any>;
@@ -124,7 +124,7 @@ export class RouteBuilder<Path extends string, B extends AnySchema | undefined, 
       R
     >,
   ): RouteDef & { readonly $response: Awaited<R> } {
-    return { kind: "kairo.route", method: this.method, path: this.path, options: this.options, handler: handler as Handler<AnyContext, unknown> } as unknown as RouteDef & {
+    return { kind: "inferlo.route", method: this.method, path: this.path, options: this.options, handler: handler as Handler<AnyContext, unknown> } as unknown as RouteDef & {
       readonly $response: Awaited<R>;
     };
   }
@@ -152,5 +152,5 @@ export const route = {
 };
 
 export function isRoute(value: unknown): value is RouteDef {
-  return typeof value === "object" && value !== null && (value as RouteDef).kind === "kairo.route";
+  return typeof value === "object" && value !== null && (value as RouteDef).kind === "inferlo.route";
 }

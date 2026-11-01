@@ -5,13 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
-import { applyMigrations, createDb, KairoError, memory, model, planMigration, t, type MigrationSnapshotV1 } from "../src/index.ts";
+import { applyMigrations, createDb, InferloError, memory, model, planMigration, t, type MigrationSnapshotV1 } from "../src/index.ts";
 import { columnDefinition, modelIndexes, postgres, SYSTEM_COLUMNS } from "../src/db/postgres.ts";
 import { columnName, type AnyModel } from "../src/model.ts";
 import type { AnySchema } from "../src/schema.ts";
 import { Author, Post, models } from "./helpers.ts";
 
-const PG_URL = process.env.KAIRO_TEST_DATABASE_URL;
+const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("planMigration", () => {
@@ -22,7 +22,16 @@ describe("planMigration", () => {
     assert.ok(plan.statements.some((s) => s.includes('"authors_email_key"')));
     assert.ok(plan.statements.some((s) => s.includes('"posts_author_id_idx"')));
     assert.deepEqual(Object.keys(plan.snapshot.tables).sort(), ["authors", "posts"]);
-    assert.equal(plan.snapshot.kairo, 2);
+    assert.equal(plan.snapshot.inferlo, 2);
+  });
+
+  test("a snapshot written before the rename from Kairo (key \"kairo\") is still read", () => {
+    const first = planMigration(models);
+    const { inferlo, ...rest } = first.snapshot;
+    const legacy = { ...rest, kairo: inferlo };
+    const second = planMigration(models, legacy as never);
+    assert.deepEqual(second.statements, []);
+    assert.equal(second.snapshot.inferlo, 2);
   });
 
   test("no changes means no statements", () => {
@@ -46,23 +55,23 @@ describe("planMigration", () => {
     assert.deepEqual(planMigration([Author2, Post, Tag], plan.snapshot).statements, []);
   });
 
-  test("a new required column without a default on an existing table is refused (KR4014)", () => {
+  test("a new required column without a default on an existing table is refused (IL4014)", () => {
     const first = planMigration(models);
     const Author2 = model("authors", { name: t.string().max(80), email: t.email().unique(), country: t.string() });
     assert.throws(
       () => planMigration([Author2, Post], first.snapshot),
-      (e: unknown) => e instanceof KairoError && e.code === "KR4014" && /authors\.country/.test(e.message) && /default|optional/.test(e.fix ?? ""),
+      (e: unknown) => e instanceof InferloError && e.code === "IL4014" && /authors\.country/.test(e.message) && /default|optional/.test(e.fix ?? ""),
     );
   });
 
-  test("column changes are refused and listed (KR4013), even with allowDrop", () => {
+  test("column changes are refused and listed (IL4013), even with allowDrop", () => {
     const first = planMigration(models);
     const Author2 = model("authors", { name: t.string().max(120) });
     for (const options of [undefined, { allowDrop: true }]) {
       assert.throws(
         () => planMigration([Author2], first.snapshot, options),
         (e: unknown) => {
-          if (!(e instanceof KairoError) || e.code !== "KR4013") return false;
+          if (!(e instanceof InferloError) || e.code !== "IL4013") return false;
           const changes = (e.details as { changes: string[] }).changes;
           return changes.includes("change column authors.name") && !changes.some((c) => c.startsWith("drop"));
         },
@@ -70,13 +79,13 @@ describe("planMigration", () => {
     }
   });
 
-  test("drops need allowDrop and are refused otherwise (KR4017)", () => {
+  test("drops need allowDrop and are refused otherwise (IL4017)", () => {
     const first = planMigration(models);
     const Author2 = model("authors", { name: t.string().max(80) });
     assert.throws(
       () => planMigration([Author2], first.snapshot),
       (e: unknown) => {
-        if (!(e instanceof KairoError) || e.code !== "KR4017") return false;
+        if (!(e instanceof InferloError) || e.code !== "IL4017") return false;
         const drops = (e.details as { drops: string[] }).drops;
         return (
           drops.includes("drop table posts") &&
@@ -110,7 +119,7 @@ describe("planMigration", () => {
     const C = model("c_items", { label: t.string().max(10) });
     const first = planMigration([A, B, C]);
     const A2 = model("a_items", { code: t.string().max(10).index() });
-    assert.throws(() => planMigration([A2, C], first.snapshot), (e: unknown) => e instanceof KairoError && e.code === "KR4017");
+    assert.throws(() => planMigration([A2, C], first.snapshot), (e: unknown) => e instanceof InferloError && e.code === "IL4017");
     const plan = planMigration([A2, C], first.snapshot, { allowDrop: true });
     assert.deepEqual(plan.statements, [
       'DROP INDEX IF EXISTS "a_items_code_key"',
@@ -119,16 +128,16 @@ describe("planMigration", () => {
     ]);
   });
 
-  test("an invalid snapshot is rejected (KR4015)", () => {
-    assert.throws(() => planMigration(models, { kairo: 99, tables: {} } as never), (e: unknown) => e instanceof KairoError && e.code === "KR4015");
-    const bad = { kairo: 2, tables: { authors: { columns: { name: "\"name\" text" }, indexes: {} } } };
-    assert.throws(() => planMigration(models, bad as never), (e: unknown) => e instanceof KairoError && e.code === "KR4015");
-    const badV1 = { kairo: 1, tables: { authors: { columns: { name: "\"name\" text WHATEVER" }, indexes: {} } } };
-    assert.throws(() => planMigration(models, badV1 as never), (e: unknown) => e instanceof KairoError && e.code === "KR4015");
+  test("an invalid snapshot is rejected (IL4015)", () => {
+    assert.throws(() => planMigration(models, { inferlo: 99, tables: {} } as never), (e: unknown) => e instanceof InferloError && e.code === "IL4015");
+    const bad = { inferlo: 2, tables: { authors: { columns: { name: "\"name\" text" }, indexes: {} } } };
+    assert.throws(() => planMigration(models, bad as never), (e: unknown) => e instanceof InferloError && e.code === "IL4015");
+    const badV1 = { inferlo: 1, tables: { authors: { columns: { name: "\"name\" text WHATEVER" }, indexes: {} } } };
+    assert.throws(() => planMigration(models, badV1 as never), (e: unknown) => e instanceof InferloError && e.code === "IL4015");
   });
 });
 
-/** The snapshot format Kairo 0.2.0 wrote: each column as its SQL definition. */
+/** The snapshot format Inferlo 0.2.0 wrote: each column as its SQL definition. */
 function v1Snapshot(list: readonly AnyModel[]): MigrationSnapshotV1 {
   const tables: MigrationSnapshotV1["tables"] = {};
   for (const m of list) {
@@ -136,10 +145,10 @@ function v1Snapshot(list: readonly AnyModel[]): MigrationSnapshotV1 {
     for (const [field, schema] of Object.entries(m.fields as Record<string, AnySchema>)) columns[columnName(field)] = columnDefinition(m, field, schema);
     tables[m.name] = { columns, indexes: Object.fromEntries(modelIndexes(m)) };
   }
-  return { kairo: 1, tables };
+  return { inferlo: 1, tables };
 }
 
-describe("migration snapshot format (kairo: 2)", () => {
+describe("migration snapshot format (inferlo: 2)", () => {
   test("columns are stored as structured descriptions", () => {
     const { snapshot } = planMigration(models);
     const posts = snapshot.tables.posts!.columns;
@@ -158,7 +167,7 @@ describe("migration snapshot format (kairo: 2)", () => {
     assert.deepEqual(s.note, { type: "text", notNull: true, default: "'it''s'" });
   });
 
-  test("a kairo: 1 snapshot is upgraded: unchanged models give no statements and a kairo: 2 snapshot", () => {
+  test("an inferlo: 1 snapshot is upgraded: unchanged models give no statements and an inferlo: 2 snapshot", () => {
     const Odd = model("odd_items", {
       label: t.string().max(40).default("a 'quoted', (odd) DEFAULT value NOT NULL"),
       state: t.enum(["it's", "a, b", "x)"]).default("x)"),
@@ -171,18 +180,18 @@ describe("migration snapshot format (kairo: 2)", () => {
       const fresh = planMigration(list);
       const upgraded = planMigration(list, v1Snapshot(list));
       assert.deepEqual(upgraded.statements, []);
-      assert.equal(upgraded.snapshot.kairo, 2);
+      assert.equal(upgraded.snapshot.inferlo, 2);
       assert.deepEqual(upgraded.snapshot, fresh.snapshot);
     }
   });
 
-  test("a kairo: 1 snapshot still plans additive changes and drops", () => {
+  test("an inferlo: 1 snapshot still plans additive changes and drops", () => {
     const Author2 = model("authors", { name: t.string().max(80), email: t.email().unique(), bio: t.text().optional() });
     assert.deepEqual(planMigration([Author2, Post], v1Snapshot(models)).statements, ['ALTER TABLE "authors" ADD COLUMN IF NOT EXISTS "bio" text']);
-    assert.throws(() => planMigration([Author2], v1Snapshot(models)), (e: unknown) => e instanceof KairoError && e.code === "KR4017");
+    assert.throws(() => planMigration([Author2], v1Snapshot(models)), (e: unknown) => e instanceof InferloError && e.code === "IL4017");
   });
 
-  test("KR4013 says what changed in each column, for kairo: 1 and kairo: 2 snapshots", () => {
+  test("IL4013 says what changed in each column, for inferlo: 1 and inferlo: 2 snapshots", () => {
     const Post2 = model("posts", {
       ...Post.fields,
       title: t.string().min(1).max(200).default("Untitled"),
@@ -194,7 +203,7 @@ describe("migration snapshot format (kairo: 2)", () => {
         assert.throws(
           () => planMigration([Author, Post2], previous, options),
           (e: unknown) => {
-            if (!(e instanceof KairoError) || e.code !== "KR4013") return false;
+            if (!(e instanceof InferloError) || e.code !== "IL4013") return false;
             const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
             assert.deepEqual(details.changes, ["change column posts.title", "change column posts.kind", "change column posts.author_id"]);
             assert.deepEqual(details.columns, [
@@ -221,12 +230,12 @@ describe("default and required changes (allowChange)", () => {
     meta: t.json<{ source?: string }>(),
   });
 
-  test("are refused without allowChange (KR4019) and listed, for kairo: 1 and kairo: 2 snapshots", () => {
+  test("are refused without allowChange (IL4019) and listed, for inferlo: 1 and inferlo: 2 snapshots", () => {
     for (const previous of [planMigration(models).snapshot, v1Snapshot(models)]) {
       assert.throws(
         () => planMigration([Author, Post2], previous, { allowDrop: true }),
         (e: unknown) => {
-          if (!(e instanceof KairoError) || e.code !== "KR4019") return false;
+          if (!(e instanceof InferloError) || e.code !== "IL4019") return false;
           const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
           assert.deepEqual(details.columns, [
             { table: "posts", column: "body", changes: ["required -> optional"] },
@@ -285,14 +294,14 @@ describe("default and required changes (allowChange)", () => {
 });
 
 describe("applyMigrations", () => {
-  test("needs a database with raw SQL (memory is rejected with KR4008)", async () => {
+  test("needs a database with raw SQL (memory is rejected with IL4008)", async () => {
     const db = createDb(models, memory());
-    await assert.rejects(applyMigrations(db, [{ name: "0001_init", sql: "select 1" }]), (e: unknown) => e instanceof KairoError && e.code === "KR4008");
+    await assert.rejects(applyMigrations(db, [{ name: "0001_init", sql: "select 1" }]), (e: unknown) => e instanceof InferloError && e.code === "IL4008");
   });
 
-  test("rejects bad migration names (KR4016)", async () => {
+  test("rejects bad migration names (IL4016)", async () => {
     const db = createDb(models, memory());
-    await assert.rejects(applyMigrations(db, [{ name: "../evil", sql: "select 1" }]), (e: unknown) => e instanceof KairoError && e.code === "KR4016");
+    await assert.rejects(applyMigrations(db, [{ name: "../evil", sql: "select 1" }]), (e: unknown) => e instanceof InferloError && e.code === "IL4016");
   });
 });
 
@@ -302,7 +311,7 @@ if (PG_URL) {
     const MigUser = model("mig_users", { email: t.email().unique() });
     const MigTag = model("mig_tags", { label: t.string().max(30), userId: t.ref("mig_users") });
     const db = createDb([MigUser, MigTag], postgres({ url: PG_URL }));
-    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "half_done", "kairo_migrations" CASCADE');
+    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "half_done", "inferlo_migrations" CASCADE');
     before(reset);
     after(async () => {
       await reset();
@@ -318,7 +327,7 @@ if (PG_URL) {
       ];
       assert.deepEqual(await applyMigrations(db, files), ["0001_init", "0002_tags"]);
       assert.deepEqual(await applyMigrations(db, files), []);
-      const rows = await db.$sql('SELECT name FROM "kairo_migrations" ORDER BY name');
+      const rows = await db.$sql('SELECT name FROM "inferlo_migrations" ORDER BY name');
       assert.deepEqual(rows.map((r) => r.name), ["0001_init", "0002_tags"]);
       const u = await db.mig_users.insert({ email: "m@example.com" });
       const tag = await db.mig_tags.insert({ label: "x", userId: u.id });
@@ -357,21 +366,22 @@ if (PG_URL) {
       assert.equal(calls.length, 2);
     });
 
-    test("a kairo_migrations table from 0.2 gets a checksum column, filled on the next run", async () => {
-      await db.$sql('DROP TABLE IF EXISTS "kairo_migrations"');
+    test("a kairo_migrations table from Kairo 0.2 is renamed, gets a checksum column, filled on the next run", async () => {
+      await db.$sql('DROP TABLE IF EXISTS "inferlo_migrations", "kairo_migrations"');
       await db.$sql('CREATE TABLE "kairo_migrations" ("name" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())');
       await db.$sql(`INSERT INTO "kairo_migrations" ("name") VALUES ('0020_old')`);
       const calls: string[][] = [];
       const onEdited = (names: string[]) => calls.push(names);
       assert.deepEqual(await applyMigrations(db, [{ name: "0020_old", sql: "SELECT 1;" }], { onEdited }), []);
       assert.deepEqual(calls, []);
-      const rows = await db.$sql(`SELECT "checksum" FROM "kairo_migrations" WHERE "name" = '0020_old'`);
+      const rows = await db.$sql(`SELECT "checksum" FROM "inferlo_migrations" WHERE "name" = '0020_old'`);
       assert.match(String(rows[0]?.checksum), /^[0-9a-f]{64}$/);
       await applyMigrations(db, [{ name: "0020_old", sql: "SELECT 2;" }], { onEdited });
       assert.deepEqual(calls, [["0020_old"]]);
+      assert.equal((await db.$sql(`SELECT to_regclass('"kairo_migrations"') AS t`))[0]?.t, null);
     });
 
-    test("an allowChange migration changes defaults and required, and NULL rows block SET NOT NULL (KR4020)", async () => {
+    test("an allowChange migration changes defaults and required, and NULL rows block SET NOT NULL (IL4020)", async () => {
       const Doc = model("mig_docs", { title: t.string().max(50).optional(), state: t.string().max(10).default("draft"), score: t.int().optional() });
       const first = planMigration([Doc]);
       await applyMigrations(db, [{ name: "0030_docs", sql: first.statements.join(";\n\n") + ";\n" }]);
@@ -381,13 +391,13 @@ if (PG_URL) {
       const plan = planMigration([Doc2], first.snapshot, { allowChange: true });
       const blocked = [{ name: "0031_required", sql: plan.statements.join(";\n\n") + ";\n" }];
       await assert.rejects(applyMigrations(db, blocked), (e: unknown) => {
-        if (!(e instanceof KairoError) || e.code !== "KR4020") return false;
+        if (!(e instanceof InferloError) || e.code !== "IL4020") return false;
         assert.deepEqual(e.details, { migration: "0031_required", table: "mig_docs", column: "title" });
         assert.match(e.message, /mig_docs\.title/);
         assert.match(e.fix ?? "", /UPDATE "mig_docs" SET "title" = .* WHERE "title" IS NULL/);
         return true;
       });
-      const recorded = await db.$sql(`SELECT 1 FROM "kairo_migrations" WHERE "name" = '0031_required'`);
+      const recorded = await db.$sql(`SELECT 1 FROM "inferlo_migrations" WHERE "name" = '0031_required'`);
       assert.equal(recorded.length, 0);
 
       await db.$sql(`UPDATE "mig_docs" SET "title" = 'x' WHERE "title" IS NULL`);
@@ -407,7 +417,7 @@ if (PG_URL) {
     test("a failing migration is rolled back and not recorded", async () => {
       const files = [{ name: "0003_broken", sql: 'CREATE TABLE "half_done" ("x" int);\nSELECT * FROM "does_not_exist";' }];
       await assert.rejects(applyMigrations(db, files));
-      const rows = await db.$sql(`SELECT name FROM "kairo_migrations" WHERE name = '0003_broken'`);
+      const rows = await db.$sql(`SELECT name FROM "inferlo_migrations" WHERE name = '0003_broken'`);
       assert.equal(rows.length, 0);
       const tables = await db.$sql(`SELECT 1 FROM information_schema.tables WHERE table_name = 'half_done'`);
       assert.equal(tables.length, 0);
@@ -416,13 +426,13 @@ if (PG_URL) {
 }
 
 if (PG_URL) {
-  describe("kairo db migrate --apply (CLI, postgres)", () => {
+  describe("inferlo db migrate --apply (CLI, postgres)", () => {
     let dir = "";
     const pgDb = createDb([], postgres({ url: PG_URL }));
-    const reset = () => pgDb.$sql('DROP TABLE IF EXISTS "cli_mig_notes", "kairo_migrations" CASCADE');
+    const reset = () => pgDb.$sql('DROP TABLE IF EXISTS "cli_mig_notes", "inferlo_migrations" CASCADE');
     before(async () => {
       await reset();
-      dir = mkdtempSync(path.join(os.tmpdir(), "kairo-migrate-pg-"));
+      dir = mkdtempSync(path.join(os.tmpdir(), "inferlo-migrate-pg-"));
       mkdirSync(path.join(dir, "src"));
       mkdirSync(path.join(dir, "migrations"));
       writeFileSync(path.join(dir, "package.json"), JSON.stringify({ type: "module" }));
@@ -440,7 +450,7 @@ if (PG_URL) {
     });
     const cli = (...args: string[]) => spawnSync("node", [path.join(repo, "src", "cli", "main.ts"), ...args], { cwd: dir, encoding: "utf8" });
 
-    test("lists edited files in edited and warns with KR4018", () => {
+    test("lists edited files in edited and warns with IL4018", () => {
       const file = path.join(dir, "migrations", "0001_init.sql");
       writeFileSync(file, 'CREATE TABLE IF NOT EXISTS "cli_mig_notes" ("id" uuid PRIMARY KEY);\n');
       const r1 = cli("db", "migrate", "--apply", "--json");
@@ -454,17 +464,17 @@ if (PG_URL) {
 
       const r3 = cli("db", "migrate", "--apply");
       assert.equal(r3.status, 0, r3.stderr);
-      assert.match(r3.stderr, /KR4018/);
+      assert.match(r3.stderr, /IL4018/);
       assert.match(r3.stderr, /migrations\/0001_init\.sql/);
       assert.match(r3.stdout, /No pending migrations/);
     });
   });
 }
 
-describe("kairo db migrate (CLI)", () => {
+describe("inferlo db migrate (CLI)", () => {
   let dir = "";
   before(() => {
-    dir = mkdtempSync(path.join(os.tmpdir(), "kairo-migrate-"));
+    dir = mkdtempSync(path.join(os.tmpdir(), "inferlo-migrate-"));
     mkdirSync(path.join(dir, "src"));
     writeFileSync(path.join(dir, "package.json"), JSON.stringify({ type: "module" }));
     writeModels(["title: t.string().max(100)"]);
@@ -510,15 +520,15 @@ describe("kairo db migrate (CLI)", () => {
     writeModels(["title: t.string().max(200)", "done: t.boolean().default(false)"]);
     const r = cli("db", "migrate", "widen title");
     assert.equal(r.status, 1);
-    assert.equal(r.out.error.code, "KR4013");
+    assert.equal(r.out.error.code, "IL4013");
     assert.equal(readdirSync(path.join(dir, "migrations")).length, 3);
   });
 
-  test("drops need --allow-drop (KR4017), then are written and listed", () => {
+  test("drops need --allow-drop (IL4017), then are written and listed", () => {
     writeModels(["done: t.boolean().default(false)"]);
     const refused = cli("db", "migrate", "drop title");
     assert.equal(refused.status, 1);
-    assert.equal(refused.out.error.code, "KR4017");
+    assert.equal(refused.out.error.code, "IL4017");
     assert.equal(readdirSync(path.join(dir, "migrations")).length, 3);
 
     const r = cli("db", "migrate", "drop title", "--allow-drop");
@@ -531,11 +541,11 @@ describe("kairo db migrate (CLI)", () => {
     assert.deepEqual(cli("db", "migrate").out.statements, []);
   });
 
-  test("default and required changes need --allow-change (KR4019), then are written and listed", () => {
+  test("default and required changes need --allow-change (IL4019), then are written and listed", () => {
     writeModels(["done: t.boolean()"]);
     const refused = cli("db", "migrate", "no default");
     assert.equal(refused.status, 1);
-    assert.equal(refused.out.error.code, "KR4019");
+    assert.equal(refused.out.error.code, "IL4019");
     assert.equal(readdirSync(path.join(dir, "migrations")).length, 4);
 
     const r = cli("db", "migrate", "no default", "--allow-change");
@@ -553,20 +563,20 @@ describe("kairo db migrate (CLI)", () => {
     assert.deepEqual(back.out.statements, ['ALTER TABLE "notes" ALTER COLUMN "done" SET DEFAULT false']);
   });
 
-  test("a kairo: 1 snapshot from 0.2.0 keeps working and is saved as kairo: 2 with the next migration", () => {
+  test("an inferlo: 1 snapshot from 0.2.0 keeps working and is saved as inferlo: 2 with the next migration", () => {
     const snapshotFile = path.join(dir, "migrations", "snapshot.json");
     writeFileSync(snapshotFile, JSON.stringify(v1Snapshot([model("notes", { done: t.boolean().default(false) })]), null, 2) + "\n");
     const unchanged = cli("db", "migrate");
     assert.equal(unchanged.status, 0, JSON.stringify(unchanged.out));
     assert.deepEqual(unchanged.out.statements, []);
-    assert.equal(JSON.parse(readFileSync(snapshotFile, "utf8")).kairo, 1);
+    assert.equal(JSON.parse(readFileSync(snapshotFile, "utf8")).inferlo, 1);
 
     writeModels(["done: t.boolean().default(false)", "pinned: t.boolean().default(false)"]);
     const r = cli("db", "migrate", "add pinned");
     assert.equal(r.status, 0, JSON.stringify(r.out));
     assert.deepEqual(r.out.statements, ['ALTER TABLE "notes" ADD COLUMN IF NOT EXISTS "pinned" boolean DEFAULT false NOT NULL']);
     const saved = JSON.parse(readFileSync(snapshotFile, "utf8"));
-    assert.equal(saved.kairo, 2);
+    assert.equal(saved.inferlo, 2);
     assert.deepEqual(saved.tables.notes.columns.pinned, { type: "boolean", notNull: true, default: "false" });
     assert.deepEqual(cli("db", "migrate").out.statements, []);
   });
@@ -574,6 +584,6 @@ describe("kairo db migrate (CLI)", () => {
   test("--apply on memory() explains that Postgres is needed", () => {
     const r = cli("db", "migrate", "--apply");
     assert.equal(r.status, 1);
-    assert.equal(r.out.error.code, "KR4008");
+    assert.equal(r.out.error.code, "IL4008");
   });
 });

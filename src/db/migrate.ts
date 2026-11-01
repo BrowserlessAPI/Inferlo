@@ -1,18 +1,18 @@
 /**
  * Versioned SQL migrations (PostgreSQL).
  *
- *   kairo db migrate add_due_dates   # writes migrations/0002_add_due_dates.sql
- *   kairo db migrate --apply         # runs pending files, recorded in "kairo_migrations"
+ *   inferlo db migrate add_due_dates   # writes migrations/0002_add_due_dates.sql
+ *   inferlo db migrate --apply         # runs pending files, recorded in "inferlo_migrations"
  *
  * planMigration compares your models with migrations/snapshot.json (the models as of the last
  * generated migration) and returns the SQL for the difference. Additive changes are generated
- * directly. Drops of tables, columns and indexes delete data, so they are refused with KR4017
- * unless you pass { allowDrop: true } (kairo db migrate --allow-drop). Default and required
- * changes are refused with KR4019 unless you pass { allowChange: true } (--allow-change). Renames
- * and other column changes are refused with KR4013, so nothing is lost silently. Snapshots in the
- * 0.2.0 format (kairo: 1) are read and upgraded; plans always return the current format (kairo: 2).
+ * directly. Drops of tables, columns and indexes delete data, so they are refused with IL4017
+ * unless you pass { allowDrop: true } (inferlo db migrate --allow-drop). Default and required
+ * changes are refused with IL4019 unless you pass { allowChange: true } (--allow-change). Renames
+ * and other column changes are refused with IL4013, so nothing is lost silently. Snapshots in the
+ * 0.2.0 format (inferlo: 1) are read and upgraded; plans always return the current format (inferlo: 2).
  */
-import { KairoError } from "../errors.ts";
+import { InferloError } from "../errors.ts";
 import { columnName, type AnyModel } from "../model.ts";
 import type { AnySchema } from "../schema.ts";
 import { columnDefinition, columnType, createTableSql, defaultSql, modelIndexes, sortByReferences, SYSTEM_COLUMNS } from "./postgres.ts";
@@ -36,13 +36,13 @@ export interface MigrationSnapshotColumn {
 
 /** The models as of the last generated migration. Stored as migrations/snapshot.json. */
 export interface MigrationSnapshot {
-  kairo: 2;
+  inferlo: 2;
   tables: Record<string, { columns: Record<string, MigrationSnapshotColumn>; indexes: Record<string, string> }>;
 }
 
-/** The snapshot format written by Kairo 0.2.0 (each column as its SQL definition). planMigration upgrades it. */
+/** The snapshot format written by Inferlo 0.2.0 (each column as its SQL definition). planMigration upgrades it. */
 export interface MigrationSnapshotV1 {
-  kairo: 1;
+  inferlo: 1;
   tables: Record<string, { columns: Record<string, string>; indexes: Record<string, string> }>;
 }
 
@@ -62,7 +62,7 @@ export interface PlanMigrationOptions {
   allowDrop?: boolean;
   /**
    * Generate default and required/optional changes of existing columns (SET DEFAULT, DROP DEFAULT,
-   * SET NOT NULL, DROP NOT NULL). Making a column required fails at apply time (KR4020) if rows
+   * SET NOT NULL, DROP NOT NULL). Making a column required fails at apply time (IL4020) if rows
    * still have NULL in it, unless the field has a fixed default, which fills them. Default false.
    */
   allowChange?: boolean;
@@ -97,7 +97,7 @@ const STRING = `'(?:[^']|'')*'`;
 const unquote = (s: string) => s.slice(1, -1).replace(/''/g, "'");
 
 /**
- * Parse a column definition as written by Kairo 0.2.0 (columnDefinition) into its structured form.
+ * Parse a column definition as written by Inferlo 0.2.0 (columnDefinition) into its structured form.
  * Returns undefined for anything else.
  */
 function parseColumnSql(sql: string): MigrationSnapshotColumn | undefined {
@@ -141,8 +141,8 @@ function needsValue(schema: AnySchema): boolean {
   return !d.optional && !d.nullable && d.kind !== "any" && !(d.hasDefault && typeof d.defaultValue !== "function");
 }
 
-function invalidSnapshot(fix = "migrations/snapshot.json must be the file written by kairo db migrate. Restore it from version control; do not edit it by hand."): never {
-  throw new KairoError("KR4015", "The migration snapshot is not valid.", { fix, expose: true });
+function invalidSnapshot(fix = "migrations/snapshot.json must be the file written by inferlo db migrate. Restore it from version control; do not edit it by hand."): never {
+  throw new InferloError("IL4015", "The migration snapshot is not valid.", { fix, expose: true });
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -158,25 +158,27 @@ function isColumn(c: unknown): c is MigrationSnapshotColumn {
   );
 }
 
-/** Validate a snapshot and return it in the current (kairo: 2) format. */
-function readSnapshot(previous: unknown): MigrationSnapshot {
-  if (!isRecord(previous) || (previous.kairo !== 1 && previous.kairo !== 2) || !isRecord(previous.tables)) invalidSnapshot();
+/** Validate a snapshot and return it in the current (inferlo: 2) format. */
+function readSnapshot(input: unknown): MigrationSnapshot {
+  // Snapshots written before the rename from Kairo use the key "kairo" instead of "inferlo".
+  const previous = isRecord(input) && input.inferlo === undefined && "kairo" in input ? { ...input, inferlo: input["kairo"] } : input;
+  if (!isRecord(previous) || (previous.inferlo !== 1 && previous.inferlo !== 2) || !isRecord(previous.tables)) invalidSnapshot();
   const tables: MigrationSnapshot["tables"] = {};
   for (const [name, table] of Object.entries(previous.tables)) {
     if (!isRecord(table) || !isRecord(table.columns) || !isRecord(table.indexes)) invalidSnapshot();
     const columns: Record<string, MigrationSnapshotColumn> = {};
     for (const [column, value] of Object.entries(table.columns)) {
-      const parsed = previous.kairo === 1 ? (typeof value === "string" ? parseColumnSql(value) : undefined) : isColumn(value) ? value : undefined;
+      const parsed = previous.inferlo === 1 ? (typeof value === "string" ? parseColumnSql(value) : undefined) : isColumn(value) ? value : undefined;
       if (!parsed) {
         invalidSnapshot(
-          `Column ${name}.${column} in migrations/snapshot.json is not in the format kairo db migrate writes. Restore the file from version control; do not edit it by hand.`,
+          `Column ${name}.${column} in migrations/snapshot.json is not in the format inferlo db migrate writes. Restore the file from version control; do not edit it by hand.`,
         );
       }
       columns[column] = parsed;
     }
     tables[name] = { columns, indexes: table.indexes as Record<string, string> };
   }
-  return { kairo: 2, tables };
+  return { inferlo: 2, tables };
 }
 
 /** Plain descriptions of what differs between two versions of a column, e.g. "type text -> varchar(80)". */
@@ -220,7 +222,7 @@ export function planMigration(
 ): MigrationPlan {
   const before = previous === undefined ? {} : readSnapshot(previous).tables;
   const sorted = sortByReferences([...models]);
-  const snapshot: MigrationSnapshot = { kairo: 2, tables: {} };
+  const snapshot: MigrationSnapshot = { inferlo: 2, tables: {} };
   const statements: string[] = [];
   const refused: string[] = [];
   const changedColumns: { table: string; column: string; changes: string[] }[] = [];
@@ -284,29 +286,29 @@ export function planMigration(
       const column = changedColumns.find((c) => change === `change column ${c.table}.${c.column}`);
       return column ? `${change} (${column.changes.join(", ")})` : change;
     });
-    throw new KairoError("KR4013", `kairo db migrate cannot generate these changes yet: ${explained.join(", ")}.`, {
+    throw new InferloError("IL4013", `inferlo db migrate cannot generate these changes yet: ${explained.join(", ")}.`, {
       fix: "New tables, columns and indexes, drops with --allow-drop, and default and required changes with --allow-change are generated. Renames, type, enum value, reference and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
       details: { changes: refused, columns: changedColumns },
       expose: true,
     });
   }
   if (drops.length && !options.allowDrop) {
-    throw new KairoError("KR4017", `Your model changes drop data: ${drops.join(", ")}.`, {
-      fix: "If you mean to delete this data, run kairo db migrate --allow-drop (or planMigration(models, snapshot, { allowDrop: true })) and review the file. Otherwise restore the removed models, fields or indexes.",
+    throw new InferloError("IL4017", `Your model changes drop data: ${drops.join(", ")}.`, {
+      fix: "If you mean to delete this data, run inferlo db migrate --allow-drop (or planMigration(models, snapshot, { allowDrop: true })) and review the file. Otherwise restore the removed models, fields or indexes.",
       details: { drops },
       expose: true,
     });
   }
   const changes = alterable.map((c) => `change column ${c.table}.${c.column} (${c.changes.join(", ")})`);
   if (changes.length && !options.allowChange) {
-    throw new KairoError("KR4019", `Your model changes change existing columns: ${changes.join(", ")}.`, {
-      fix: "If you mean to change these columns, run kairo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Otherwise undo the model changes.",
+    throw new InferloError("IL4019", `Your model changes change existing columns: ${changes.join(", ")}.`, {
+      fix: "If you mean to change these columns, run inferlo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Otherwise undo the model changes.",
       details: { changes, columns: alterable },
       expose: true,
     });
   }
   if (needDefault.length) {
-    throw new KairoError("KR4014", `New required column${needDefault.length > 1 ? "s" : ""} ${needDefault.join(", ")} on an existing table need a value for existing rows.`, {
+    throw new InferloError("IL4014", `New required column${needDefault.length > 1 ? "s" : ""} ${needDefault.join(", ")} on an existing table need a value for existing rows.`, {
       fix: 'Add .default(value) (a fixed value, not a function) or .optional() to the field, e.g. status: t.enum(["open", "closed"]).default("open").',
       details: { columns: needDefault },
       expose: true,
@@ -326,7 +328,7 @@ interface SqlDb {
 export interface ApplyMigrationsOptions {
   /**
    * Called with the names of migrations that were already applied but whose SQL has changed since
-   * (KR4018). They are not run again. Restore the applied SQL and put the change in a new file.
+   * (IL4018). They are not run again. Restore the applied SQL and put the change in a new file.
    */
   onEdited?: (names: string[]) => void;
 }
@@ -338,10 +340,10 @@ async function checksum(sql: string): Promise<string> {
 }
 
 /**
- * KR4020 for a Postgres not-null violation (23502), for example SET NOT NULL on a column that still
+ * IL4020 for a Postgres not-null violation (23502), for example SET NOT NULL on a column that still
  * has NULL rows. Undefined for any other error.
  */
-function nullRowsError(error: unknown, migration: string): KairoError | undefined {
+function nullRowsError(error: unknown, migration: string): InferloError | undefined {
   const e = error as { code?: string; table?: string; column?: string; message?: string } | null;
   if (!e || e.code !== "23502") return undefined;
   const match = /column "((?:[^"]|"")+)" of relation "((?:[^"]|"")+)"/.exec(e.message ?? "");
@@ -349,7 +351,7 @@ function nullRowsError(error: unknown, migration: string): KairoError | undefine
   const column = e.column ?? match?.[1];
   const where = table && column ? `${table}.${column}` : "a required column";
   const update = table && column ? `UPDATE ${q(table)} SET ${q(column)} = <value> WHERE ${q(column)} IS NULL` : "UPDATE <table> SET <column> = <value> WHERE <column> IS NULL";
-  return new KairoError("KR4020", `Migration ${migration} failed: ${where} is required (NOT NULL) but rows have NULL in it.`, {
+  return new InferloError("IL4020", `Migration ${migration} failed: ${where} is required (NOT NULL) but rows have NULL in it.`, {
     fix: `Fill the NULL rows first: if ${migration} has not been applied anywhere, add ${update}; before the SET NOT NULL statement, or give the field a fixed .default(value) and regenerate the migration. Or keep the field optional.`,
     details: { migration, table, column },
     cause: error,
@@ -358,31 +360,36 @@ function nullRowsError(error: unknown, migration: string): KairoError | undefine
 }
 
 /**
- * Run the migrations that are not yet recorded in the "kairo_migrations" table, in name order,
+ * Run the migrations that are not yet recorded in the "inferlo_migrations" table, in name order,
  * each in its own transaction. Returns the names it applied. Safe to run from several processes
  * at once (a Postgres advisory lock serialises them).
  *
  * Each applied migration is recorded with a checksum of its SQL. Applied migrations whose SQL has
- * changed since are reported to options.onEdited (KR4018) and are not run again.
+ * changed since are reported to options.onEdited (IL4018) and are not run again.
  */
 export async function applyMigrations(db: SqlDb, migrations: readonly Migration[], options: ApplyMigrationsOptions = {}): Promise<string[]> {
   const seen = new Set<string>();
   for (const m of migrations) {
     if (!MIGRATION_NAME.test(m.name) || seen.has(m.name)) {
-      throw new KairoError("KR4016", `Invalid or duplicate migration name "${m.name}".`, {
+      throw new InferloError("IL4016", `Invalid or duplicate migration name "${m.name}".`, {
         fix: "Migration names use letters, digits, _ and -, and must be unique, e.g. 0002_add_due_dates.",
         expose: true,
       });
     }
     seen.add(m.name);
   }
-  await db.$sql(`CREATE TABLE IF NOT EXISTS "kairo_migrations" ("name" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now(), "checksum" text)`);
-  // Tables created by Kairo 0.2 have no checksum column. Checked first, because ALTER TABLE locks the table.
-  const hasChecksum = await db.$sql(
-    `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'kairo_migrations' AND column_name = 'checksum'`,
+  // Databases migrated before the rename from Kairo keep their history: rename the old table once.
+  const legacy = await db.$sql(
+    `SELECT (to_regclass('"kairo_migrations"') IS NOT NULL AND to_regclass('"inferlo_migrations"') IS NULL) AS rename`,
   );
-  if (!hasChecksum.length) await db.$sql(`ALTER TABLE "kairo_migrations" ADD COLUMN IF NOT EXISTS "checksum" text`);
-  const done = new Map((await db.$sql(`SELECT "name", "checksum" FROM "kairo_migrations"`)).map((r) => [String(r.name), r.checksum == null ? null : String(r.checksum)]));
+  if (legacy[0]?.rename) await db.$sql(`ALTER TABLE "kairo_migrations" RENAME TO "inferlo_migrations"`);
+  await db.$sql(`CREATE TABLE IF NOT EXISTS "inferlo_migrations" ("name" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now(), "checksum" text)`);
+  // Tables created by Inferlo 0.2 have no checksum column. Checked first, because ALTER TABLE locks the table.
+  const hasChecksum = await db.$sql(
+    `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'inferlo_migrations' AND column_name = 'checksum'`,
+  );
+  if (!hasChecksum.length) await db.$sql(`ALTER TABLE "inferlo_migrations" ADD COLUMN IF NOT EXISTS "checksum" text`);
+  const done = new Map((await db.$sql(`SELECT "name", "checksum" FROM "inferlo_migrations"`)).map((r) => [String(r.name), r.checksum == null ? null : String(r.checksum)]));
   const sorted = [...migrations].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const sums = new Map(await Promise.all(sorted.map(async (m) => [m.name, await checksum(m.sql)] as const)));
   const edited: string[] = [];
@@ -390,7 +397,7 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
     if (!done.has(m.name)) continue;
     const recorded = done.get(m.name);
     // Applied before checksums were recorded: record the current file.
-    if (recorded === null) await db.$sql(`UPDATE "kairo_migrations" SET "checksum" = $1 WHERE "name" = $2 AND "checksum" IS NULL`, [sums.get(m.name), m.name]);
+    if (recorded === null) await db.$sql(`UPDATE "inferlo_migrations" SET "checksum" = $1 WHERE "name" = $2 AND "checksum" IS NULL`, [sums.get(m.name), m.name]);
     else if (recorded !== sums.get(m.name)) edited.push(m.name);
   }
   if (edited.length) options.onEdited?.(edited);
@@ -399,13 +406,13 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
     if (done.has(m.name)) continue;
     const ran = await db.$transaction(async (tx) => {
       await tx.$sql(`SELECT pg_advisory_xact_lock(${LOCK_KEY})`);
-      if ((await tx.$sql(`SELECT 1 FROM "kairo_migrations" WHERE "name" = $1`, [m.name])).length) return false;
+      if ((await tx.$sql(`SELECT 1 FROM "inferlo_migrations" WHERE "name" = $1`, [m.name])).length) return false;
       try {
         await tx.$sql(m.sql);
       } catch (error) {
         throw nullRowsError(error, m.name) ?? error;
       }
-      await tx.$sql(`INSERT INTO "kairo_migrations" ("name", "checksum") VALUES ($1, $2)`, [m.name, sums.get(m.name)]);
+      await tx.$sql(`INSERT INTO "inferlo_migrations" ("name", "checksum") VALUES ($1, $2)`, [m.name, sums.get(m.name)]);
       return true;
     });
     if (ran) applied.push(m.name);

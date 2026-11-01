@@ -1,6 +1,6 @@
 /**
- * Kairo: the TypeScript backend framework with built-in AI model support.
- * https://github.com/BrowserlessAPI/kairo
+ * Inferlo: the TypeScript backend framework with built-in AI model support.
+ * https://github.com/BrowserlessAPI/Inferlo
  */
 export { createApp } from "./app.ts";
 export type { App, AppConfig, AuthConfig, CorsConfig, Middleware, MiddlewareContext, RequestOptions, RouteSource, Logger } from "./app.ts";
@@ -34,7 +34,7 @@ export type { AI, AIConfig, GenerateOptions, GenerateResult, StreamResult, Usage
 
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
 export { env, setEnv } from "./env.ts";
-export { KairoError, httpError, notFound, forbidden, badRequest, docsUrl } from "./errors.ts";
+export { InferloError, httpError, notFound, forbidden, badRequest, docsUrl } from "./errors.ts";
 export { serve } from "./serve.ts";
-export { KAIRO_VERSION } from "./describe.ts";
+export { INFERLO_VERSION } from "./describe.ts";
 export type { AppDescription } from "./describe.ts";

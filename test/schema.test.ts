@@ -45,14 +45,14 @@ describe("schema", () => {
     assert.deepEqual(s.parse({ page: "2", open: "true", ids: "a,b" }, { coerce: true }), { page: 2, open: true, ids: ["a", "b"] });
   });
 
-  test("parse throws ValidationError with KR1001 and paths", () => {
+  test("parse throws ValidationError with IL1001 and paths", () => {
     const s = t.object({ user: t.object({ age: t.int() }) });
     try {
       s.parse({ user: { age: "x" } });
       assert.fail("should throw");
     } catch (error) {
       assert.ok(error instanceof ValidationError);
-      assert.equal(error.code, "KR1001");
+      assert.equal(error.code, "IL1001");
       assert.equal(error.status, 422);
       assert.deepEqual(error.issues[0]!.path, ["user", "age"]);
     }
@@ -70,7 +70,7 @@ describe("schema", () => {
     assert.deepEqual(Object.keys(s.omit("a").shape), ["b", "c"]);
     assert.deepEqual(s.partial().parse({}), {});
     assert.deepEqual(Object.keys(s.extend({ d: t.int() }).shape), ["a", "b", "c", "d"]);
-    assert.throws(() => (s as any).pick("zz"), /KR1003|does not exist/);
+    assert.throws(() => (s as any).pick("zz"), /IL1003|does not exist/);
   });
 
   test("JSON Schema output", () => {
@@ -95,7 +95,7 @@ describe("schema", () => {
     const M = model("notes", { text: t.string() });
     const r = M.create.safeParse({ text: "x", id: "abc" });
     assert.equal(r.ok, false);
-    assert.throws(() => model("Bad Name", {}), /KR4005/);
-    assert.throws(() => model("things", { id: t.string() }), /KR4006/);
+    assert.throws(() => model("Bad Name", {}), /IL4005/);
+    assert.throws(() => model("things", { id: t.string() }), /IL4006/);
   });
 });

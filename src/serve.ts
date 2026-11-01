@@ -71,9 +71,9 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
       }
       res.end();
     } catch (error) {
-      console.error("[kairo] server error", error);
+      console.error("[inferlo] server error", error);
       if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: { code: "KR9000", message: "Internal server error" } }));
+      res.end(JSON.stringify({ error: { code: "IL9000", message: "Internal server error" } }));
     }
   });
   await new Promise<void>((resolve, reject) => {

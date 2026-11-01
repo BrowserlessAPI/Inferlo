@@ -1,15 +1,15 @@
 /**
- * Kairo AI success benchmark.
+ * Inferlo AI success benchmark.
  *
- * Each task in bench/tasks/<id>/ starts from the `kairo new` project (plus optional setup/ files),
+ * Each task in bench/tasks/<id>/ starts from the `inferlo new` project (plus optional setup/ files),
  * gives an AI model the task prompt, the project's AGENTS.md and its source files, applies the
  * files the model returns, then runs the typecheck and the task's check.test.ts. A task passes
  * only if both succeed on the first try.
  *
  *   node bench/run.ts --verify                                  # apply reference solutions (CI)
  *   node bench/run.ts --baseline                                # no changes: every task must fail (CI)
- *   KAIRO_BENCH_MODEL=anthropic:claude-sonnet-4-5 ANTHROPIC_API_KEY=... node bench/run.ts
- *   KAIRO_BENCH_MODEL=local:qwen3-coder KAIRO_BENCH_BASE_URL=http://127.0.0.1:11434/v1 node bench/run.ts
+ *   INFERLO_BENCH_MODEL=anthropic:claude-sonnet-4-5 ANTHROPIC_API_KEY=... node bench/run.ts
+ *   INFERLO_BENCH_MODEL=local:qwen3-coder INFERLO_BENCH_BASE_URL=http://127.0.0.1:11434/v1 node bench/run.ts
  *
  * Options: --task <id>, --keep (keep work directories), --json
  */
@@ -47,7 +47,7 @@ async function copyTemplate(from: string, to: string) {
     const dest = path.join(to, entry.name.replace(/^_/, ".").replace(/\.tpl$/, ""));
     if (entry.isDirectory()) await copyTemplate(src, dest);
     else {
-      const text = (await readFile(src, "utf8")).replaceAll("{{name}}", "bench-app").replaceAll("{{kairoDependency}}", "file:../kairo").replaceAll("{{kairoVersion}}", "0.1.0");
+      const text = (await readFile(src, "utf8")).replaceAll("{{name}}", "bench-app").replaceAll("{{inferloDependency}}", "file:../inferlo").replaceAll("{{inferloVersion}}", "0.1.0");
       await writeFile(dest, text);
     }
   }
@@ -64,13 +64,13 @@ async function listFiles(dir: string, base = dir): Promise<string[]> {
 }
 
 async function prepare(taskId: string): Promise<string> {
-  const work = await mkdtemp(path.join(os.tmpdir(), `kairo-bench-${taskId}-`));
+  const work = await mkdtemp(path.join(os.tmpdir(), `inferlo-bench-${taskId}-`));
   await copyTemplate(path.join(repo, "templates", "app"), work);
   const setup = path.join(tasksDir, taskId, "setup");
   if (existsSync(setup)) await cp(setup, work, { recursive: true });
   await mkdir(path.join(work, "node_modules", "@types"), { recursive: true });
   await mkdir(path.join(work, "node_modules", "@browserlessapi"), { recursive: true });
-  await symlink(repo, path.join(work, "node_modules", "@browserlessapi", "kairo"), "dir");
+  await symlink(repo, path.join(work, "node_modules", "@browserlessapi", "inferlo"), "dir");
   await symlink(path.join(repo, "node_modules", "@types", "node"), path.join(work, "node_modules", "@types", "node"), "dir");
   return work;
 }
@@ -85,10 +85,10 @@ async function verify(work: string, taskId: string): Promise<{ typecheck: boolea
 function providerFor(id: string): Record<string, Provider> {
   const name = id.split(":")[0]!;
   const env = process.env;
-  if (env.KAIRO_BENCH_BASE_URL) return { [name]: openaiCompatible({ name, baseURL: env.KAIRO_BENCH_BASE_URL, apiKey: env.KAIRO_BENCH_API_KEY }) };
+  if (env.INFERLO_BENCH_BASE_URL) return { [name]: openaiCompatible({ name, baseURL: env.INFERLO_BENCH_BASE_URL, apiKey: env.INFERLO_BENCH_API_KEY }) };
   if (name === "anthropic") return { anthropic: anthropic({ apiKey: env.ANTHROPIC_API_KEY ?? "" }) };
   if (name === "openai") return { openai: openai({ apiKey: env.OPENAI_API_KEY ?? "" }) };
-  throw new Error(`No provider for "${name}". Set KAIRO_BENCH_BASE_URL for OpenAI-compatible servers.`);
+  throw new Error(`No provider for "${name}". Set INFERLO_BENCH_BASE_URL for OpenAI-compatible servers.`);
 }
 
 const Answer = t.object({
@@ -103,7 +103,7 @@ async function solveWithModel(work: string, taskId: string, prompt: string, mode
   const agents = await readFile(path.join(work, "AGENTS.md"), "utf8");
   const { object, usage } = await ai.generate({
     model: modelId,
-    system: `You are working on a backend built with the Kairo framework. Follow these project rules:\n\n${agents}`,
+    system: `You are working on a backend built with the Inferlo framework. Follow these project rules:\n\n${agents}`,
     prompt: `Task: ${prompt}\n\nProject files:\n\n${sources.join("\n\n")}\n\nReturn every file you create or change, with its full content.`,
     output: Answer,
     maxTokens: 16000,
@@ -122,9 +122,9 @@ async function solveWithModel(work: string, taskId: string, prompt: string, mode
 async function main() {
   const baseline = flag("baseline");
   const verifyMode = flag("verify") || baseline;
-  const modelId = process.env.KAIRO_BENCH_MODEL;
+  const modelId = process.env.INFERLO_BENCH_MODEL;
   if (!verifyMode && !modelId) {
-    console.log("Set KAIRO_BENCH_MODEL (e.g. anthropic:claude-sonnet-4-5) and the provider API key, or run with --verify.");
+    console.log("Set INFERLO_BENCH_MODEL (e.g. anthropic:claude-sonnet-4-5) and the provider API key, or run with --verify.");
     return;
   }
   if (!existsSync(path.join(repo, "dist", "index.js"))) {

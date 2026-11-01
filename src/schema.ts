@@ -1,11 +1,11 @@
 /**
- * Kairo schemas. One definition gives you runtime validation, TypeScript types,
+ * Inferlo schemas. One definition gives you runtime validation, TypeScript types,
  * JSON Schema (for OpenAPI, MCP tools and AI structured output) and database columns.
  *
  *   const User = t.object({ name: t.string().max(80), age: t.int().optional() })
  *   type User = Infer<typeof User>
  */
-import { KairoError, didYouMean } from "./errors.ts";
+import { InferloError, didYouMean } from "./errors.ts";
 
 export type Kind =
   | "string"
@@ -61,12 +61,12 @@ export interface ParseOptions {
   coerce?: boolean;
 }
 
-export class ValidationError extends KairoError {
+export class ValidationError extends InferloError {
   readonly issues: Issue[];
   constructor(issues: Issue[], where = "input") {
     const first = issues[0];
     const summary = first ? `${first.path.length ? first.path.join(".") + ": " : ""}${first.message}` : "invalid";
-    super("KR1001", `Invalid ${where}. ${summary}${issues.length > 1 ? ` (and ${issues.length - 1} more)` : ""}`, {
+    super("IL1001", `Invalid ${where}. ${summary}${issues.length > 1 ? ` (and ${issues.length - 1} more)` : ""}`, {
       status: 422,
       details: issues,
       fix: "Send data that matches the schema. Each entry in details names the exact path and problem.",
@@ -199,7 +199,7 @@ export class ObjectSchema<S extends Shape> extends Schema<ShapeOutput<S>, ShapeI
     const shape: Shape = {};
     for (const key of keys) {
       if (!(key in this.shape)) {
-        throw new KairoError("KR1003", `pick(): field "${key}" does not exist.${didYouMean(key, Object.keys(this.shape))}`, {
+        throw new InferloError("IL1003", `pick(): field "${key}" does not exist.${didYouMean(key, Object.keys(this.shape))}`, {
           fix: `Use one of: ${Object.keys(this.shape).join(", ")}`,
         });
       }

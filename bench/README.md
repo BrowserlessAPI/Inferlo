@@ -1,6 +1,6 @@
 # AI success benchmark
 
-Measures how often an AI model completes real backend tasks in Kairo correctly on the first try.
+Measures how often an AI model completes real backend tasks in Inferlo correctly on the first try.
 
 Each task in `tasks/<id>/` has:
 
@@ -9,16 +9,16 @@ Each task in `tasks/<id>/` has:
 - `check.test.ts`: the hidden test that decides pass or fail
 - `solution/`: a reference solution, used to prove the task is solvable
 
-The starting project is exactly what `kairo new` creates. The model receives the task, the project's `AGENTS.md` and every file in `src/`, and returns full file contents. A task passes when the typecheck and `check.test.ts` both pass.
+The starting project is exactly what `inferlo new` creates. The model receives the task, the project's `AGENTS.md` and every file in `src/`, and returns full file contents. A task passes when the typecheck and `check.test.ts` both pass.
 
 ```bash
 npm run build
 node bench/run.ts --verify      # every reference solution must pass
 node bench/run.ts --baseline    # with no changes every task must fail (checks really test something)
 
-KAIRO_BENCH_MODEL=anthropic:claude-sonnet-4-5 ANTHROPIC_API_KEY=... node bench/run.ts
-KAIRO_BENCH_MODEL=openai:gpt-5 OPENAI_API_KEY=... node bench/run.ts
-KAIRO_BENCH_MODEL=local:qwen3-coder KAIRO_BENCH_BASE_URL=http://127.0.0.1:11434/v1 node bench/run.ts
+INFERLO_BENCH_MODEL=anthropic:claude-sonnet-4-5 ANTHROPIC_API_KEY=... node bench/run.ts
+INFERLO_BENCH_MODEL=openai:gpt-5 OPENAI_API_KEY=... node bench/run.ts
+INFERLO_BENCH_MODEL=local:qwen3-coder INFERLO_BENCH_BASE_URL=http://127.0.0.1:11434/v1 node bench/run.ts
 ```
 
 Results are written to `results/`. Only publish numbers produced by this runner.

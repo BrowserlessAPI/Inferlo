@@ -1,15 +1,15 @@
 # Error codes
 
-Every Kairo error has a stable code. A code never changes meaning once released. API responses look like this:
+Every Inferlo error has a stable code. A code never changes meaning once released. API responses look like this:
 
 ```json
 {
   "error": {
-    "code": "KR1001",
+    "code": "IL1001",
     "message": "Invalid request body. title: Required.",
     "fix": "Send data that matches the schema. Each entry in details names the exact path and problem.",
     "details": [{ "path": ["title"], "code": "required", "message": "Required." }],
-    "docs": "https://github.com/BrowserlessAPI/kairo/blob/main/docs/errors.md#kr1001"
+    "docs": "https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/errors.md#il1001"
   }
 }
 ```
@@ -18,174 +18,174 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ## Validation (1xxx)
 
-### KR1001
+### IL1001
 **Invalid input (422).** A body, query string, path parameter, insert or update did not match its schema. `details` lists each problem with its `path` and an issue `code`: `required`, `invalid_type`, `too_short`, `too_long`, `too_small`, `too_big`, `invalid_enum`, `invalid_email`, `invalid_url`, `invalid_uuid`, `invalid_date`, `invalid_format`, `unknown_key`, `read_only`. `unknown_key` and `invalid_enum` include a "Did you mean" hint.
 
-### KR1003
+### IL1003
 **pick() named a field that does not exist.** Check the spelling against the model.
 
 ## Routing (2xxx)
 
-### KR2001
+### IL2001
 **No route matches (404).** The message names the closest route path.
 
-### KR2002
+### IL2002
 **Method not allowed (405).** The path exists with other methods, listed in the `Allow` header.
 
-### KR2003
+### IL2003
 **Request body is not valid JSON (400).** Send JSON with `Content-Type: application/json`.
 
-### KR2004
+### IL2004
 **Request body too large (413).** Raise `createApp({ maxBodySize })` if needed.
 
 ## Auth (3xxx)
 
-### KR3001
+### IL3001
 **Sign in required (401).** The route is private (the default) and `auth.resolve` returned no user.
 
-### KR3002
+### IL3002
 **Forbidden (403).** The user lacks the role the route requires (`auth: "admin"`), or a handler threw `forbidden()`.
 
-### KR3003
+### IL3003
 **Private routes but no auth configured.** Raised by `createApp` at startup. Either add `auth: "public"` to routes anyone may call, or pass `createApp({ auth })`.
 
 ## Database (4xxx)
 
-### KR4001
+### IL4001
 **Record not found (404).** Raised by `db.<table>.get(id)`, `update(id)` and `notFound()`.
 
-### KR4002
+### IL4002
 **Unknown table.** `db.<name>` is not a registered model. Add the model to `createApp({ models })`.
 
-### KR4003
+### IL4003
 **Unknown field or operator in a query.** The message suggests the closest field. Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `like`, `ilike`, `isNull`.
 
-### KR4004
+### IL4004
 **Unique value already exists (409).** A field marked `.unique()` already has this value.
 
-### KR4005
+### IL4005
 **Invalid table or field name.** Tables: lowercase letters, digits and underscores. Fields: camelCase.
 
-### KR4006
-**Model defines id, createdAt or updatedAt.** Kairo adds these automatically. Remove them.
+### IL4006
+**Model defines id, createdAt or updatedAt.** Inferlo adds these automatically. Remove them.
 
-### KR4007
+### IL4007
 **deleteMany() without a filter.** Pass a `where` filter to avoid deleting every row by accident.
 
-### KR4008
+### IL4008
 **Raw SQL not supported by this adapter.** Use `postgres()`.
 
-### KR4009
+### IL4009
 **postgres() has no connection URL.** Pass `postgres({ url: env("DATABASE_URL") })`.
 
-### KR4010
+### IL4010
 **The pg package is not installed.** Run `npm install pg`.
 
-### KR4011
+### IL4011
 **Foreign key violation (409).** The referenced row does not exist, or the row is still referenced elsewhere.
 
-### KR4012
-**Table missing.** Run `kairo db push`.
+### IL4012
+**Table missing.** Run `inferlo db push`.
 
 ## AI (5xxx)
 
-### KR5001
+### IL5001
 **AI not configured, or unknown model alias or provider.** Configure `createApp({ ai: { providers, models } })`. The message suggests the closest alias.
 
-### KR5002
-**Structured output did not match the schema (502).** Kairo asked the model to repair its answer and it still failed. Simplify the schema, add `.describe()` hints, or use a stronger model.
+### IL5002
+**Structured output did not match the schema (502).** Inferlo asked the model to repair its answer and it still failed. Simplify the schema, add `.describe()` hints, or use a stronger model.
 
-### KR5003
+### IL5003
 **Every model in the fallback list failed (502).** `details` (server log) lists each failure.
 
-### KR5004
+### IL5004
 **AI usage blocked (402).** `ai.allow` returned false for this `for` id, for example because credits ran out.
 
-### KR5005
+### IL5005
 **Provider does not support this operation** (streaming or embeddings).
 
-### KR5006
+### IL5006
 **Provider HTTP error.** 401/403 means a bad API key. Timeouts, 429 and 5xx are retried on the next fallback model.
 
-### KR5007
+### IL5007
 **No prompt.** Pass `prompt` or `messages`.
 
-### KR5008
+### IL5008
 **A stream was read twice.** Call `ai.stream()` again.
 
 ## App configuration (6xxx)
 
-### KR6001
+### IL6001
 **Duplicate route.** The same method and path (ignoring parameter names) is defined twice.
 
-### KR6003
+### IL6003
 **Route path must start with "/".**
 
-### KR6004
+### IL6004
 **Two models share a name.**
 
-### KR6005
+### IL6005
 **t.ref() points to a model that is not registered.**
 
-### KR6006
+### IL6006
 **Two route exports share a name.** Names are used for MCP tools and `describe`.
 
 ## Environment (7xxx)
 
-### KR7001
+### IL7001
 **Environment variable not set.** Set it, or pass a default: `env("NAME", { default: "..." })`.
 
-### KR7002
+### IL7002
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
-### KR4013
-**Migration change not supported yet.** `kairo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and default and required changes with `--allow-change` (KR4019). Your models change an existing column's type, enum values or reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
+### IL4013
+**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and default and required changes with `--allow-change` (IL4019). Your models change an existing column's type, enum values or reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
 
-### KR4014
+### IL4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
 
-### KR4015
-**Invalid migration snapshot.** `migrations/snapshot.json` is not the file written by `kairo db migrate`. Restore it from version control; do not edit it by hand.
+### IL4015
+**Invalid migration snapshot.** `migrations/snapshot.json` is not the file written by `inferlo db migrate`. Restore it from version control; do not edit it by hand.
 
-### KR4016
+### IL4016
 **Invalid or duplicate migration name.** Migration names use letters, digits, `_` and `-` and must be unique, e.g. `0002_add_due_dates`.
 
-### KR4017
-**Migration drops data.** Your models no longer have a table, column or index that the last migration created. `details.drops` lists them. If you mean to delete that data, run `kairo db migrate --allow-drop` (or pass `{ allowDrop: true }` to `planMigration`) and review the file. Otherwise restore the removed model, field or index. A rename is not a drop: undo it and write the rename SQL yourself.
+### IL4017
+**Migration drops data.** Your models no longer have a table, column or index that the last migration created. `details.drops` lists them. If you mean to delete that data, run `inferlo db migrate --allow-drop` (or pass `{ allowDrop: true }` to `planMigration`) and review the file. Otherwise restore the removed model, field or index. A rename is not a drop: undo it and write the rename SQL yourself.
 
-### KR4018
-**Applied migration file was edited** (warning, not an error). `kairo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `kairo db migrate <name>`.
+### IL4018
+**Applied migration file was edited** (warning, not an error). `inferlo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `inferlo db migrate <name>`.
 
-### KR4019
-**Migration changes columns.** Your models change the default of an existing column or make it required or optional. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `kairo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
+### IL4019
+**Migration changes columns.** Your models change the default of an existing column or make it required or optional. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `inferlo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
 
-### KR4020
-**Migration makes a column required, but rows have NULL in it.** `kairo db migrate --apply` ran `SET NOT NULL` (or another statement that needs a value) and the column still has NULL rows. The migration was rolled back and not recorded. `details` has `migration`, `table` and `column`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = <value> WHERE "column" IS NULL;` before the `SET NOT NULL`, or give the field a fixed `.default(value)` and generate the migration again. Or keep the field optional.
+### IL4020
+**Migration makes a column required, but rows have NULL in it.** `inferlo db migrate --apply` ran `SET NOT NULL` (or another statement that needs a value) and the column still has NULL rows. The migration was rolled back and not recorded. `details` has `migration`, `table` and `column`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = <value> WHERE "column" IS NULL;` before the `SET NOT NULL`, or give the field a fixed `.default(value)` and generate the migration again. Or keep the field optional.
 
 ## CLI (8xxx)
 
-### KR8000
-**Unknown command.** Run `kairo help`.
+### IL8000
+**Unknown command.** Run `inferlo help`.
 
-### KR8001
-**App entry or server file not found.** Default entry is `src/app.ts`; set `"kairo": { "entry": "..." }` in package.json or pass `--entry`.
+### IL8001
+**App entry or server file not found.** Default entry is `src/app.ts`; set `"inferlo": { "entry": "..." }` in package.json or pass `--entry`.
 
-### KR8002
+### IL8002
 **Entry file does not export an app.** Add `export const app = createApp({ ... })`.
 
-### KR8003
-**Unknown db command.** Use `kairo db push` or `kairo db migrate`.
+### IL8003
+**Unknown db command.** Use `inferlo db push` or `inferlo db migrate`.
 
-### KR8004
-**Missing project directory** for `kairo new`.
+### IL8004
+**Missing project directory** for `inferlo new`.
 
-### KR8005
+### IL8005
 **Target already exists.**
 
-### KR8006
-**Unknown generator.** Use `kairo add resource <plural_name>`.
+### IL8006
+**Unknown generator.** Use `inferlo add resource <plural_name>`.
 
 ## Internal (9xxx)
 
-### KR9000
-**Unexpected error (500).** Something threw that was not a Kairo error. The full error is logged on the server; set `createApp({ exposeErrors: true })` in development to include the message in responses.
+### IL9000
+**Unexpected error (500).** Something threw that was not an Inferlo error. The full error is logged on the server; set `createApp({ exposeErrors: true })` in development to include the message in responses.

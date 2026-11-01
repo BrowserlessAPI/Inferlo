@@ -1,16 +1,16 @@
 {
-  "name": "@browserlessapi/kairo",
-  "version": "0.2.0",
+  "name": "@browserlessapi/inferlo",
+  "version": "0.3.0",
   "description": "The TypeScript backend framework with built-in AI model support: Anthropic, OpenAI, Gemini, Ollama and OpenAI-compatible models, plus routing, database, validation, auth and MCP in one package.",
   "type": "module",
   "license": "MIT",
   "author": "BrowserlessAPI",
-  "homepage": "https://github.com/BrowserlessAPI/kairo#readme",
+  "homepage": "https://github.com/BrowserlessAPI/Inferlo#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BrowserlessAPI/kairo.git"
+    "url": "git+https://github.com/BrowserlessAPI/Inferlo.git"
   },
-  "bugs": "https://github.com/BrowserlessAPI/kairo/issues",
+  "bugs": "https://github.com/BrowserlessAPI/Inferlo/issues",
   "keywords": [
     "typescript",
     "backend",
@@ -45,7 +45,7 @@
     }
   },
   "bin": {
-    "kairo": "./dist/cli/main.js"
+    "inferlo": "./dist/cli/main.js"
   },
   "files": [
     "dist",

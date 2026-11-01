@@ -1,5 +1,5 @@
 /**
- * Auth helpers. Kairo does not force a login system on you: auth.resolve(req) returns the user.
+ * Auth helpers. Inferlo does not force a login system on you: auth.resolve(req) returns the user.
  *
  *   auth: bearer(async (token, { db }) => {
  *     const key = await db.api_keys.findOne({ hash: await hashToken(token) })

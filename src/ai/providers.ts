@@ -3,7 +3,7 @@
  * openaiCompatible() covers OpenAI, DeepSeek, Qwen (DashScope), Groq, Together, OpenRouter,
  * Ollama, vLLM, LM Studio and any other server that speaks the Chat Completions API.
  */
-import { KairoError } from "../errors.ts";
+import { InferloError } from "../errors.ts";
 
 export interface Message {
   role: "system" | "user" | "assistant";
@@ -40,11 +40,11 @@ export interface Provider {
 }
 
 /** Raised when a provider call fails. retryable errors move on to the next fallback model. */
-export class ProviderError extends KairoError {
+export class ProviderError extends InferloError {
   readonly retryable: boolean;
   constructor(provider: string, status: number, body: string) {
     const retryable = status === 0 || status === 408 || status === 409 || status === 429 || status >= 500;
-    super("KR5006", `${provider} returned ${status || "a network error"}: ${body.slice(0, 300)}`, {
+    super("IL5006", `${provider} returned ${status || "a network error"}: ${body.slice(0, 300)}`, {
       status: 502,
       expose: false,
       fix: status === 401 || status === 403 ? `Check the API key for ${provider}.` : retryable ? "Add a fallback model to the alias in createApp({ ai })." : undefined,

@@ -1,11 +1,11 @@
 # Getting started
 
-Kairo needs Node.js 22.18 or newer (or Bun 1.3+). TypeScript runs directly, with no build step.
+Inferlo needs Node.js 22.18 or newer (or Bun 1.3+). TypeScript runs directly, with no build step.
 
 ## Create a project
 
 ```bash
-npx @browserlessapi/kairo new my-app
+npx @browserlessapi/inferlo new my-app
 cd my-app
 npm install
 npm run dev
@@ -35,7 +35,7 @@ AGENTS.md          rules for AI coding agents
 ## The whole framework in one file
 
 ```ts
-import { createApp, model, route, t, bearer } from "@browserlessapi/kairo";
+import { createApp, model, route, t, bearer } from "@browserlessapi/inferlo";
 
 export const User = model("users", {
   email: t.email().unique(),
@@ -51,7 +51,7 @@ export const Todo = model("todos", {
 export const models = [User, Todo] as const;
 
 // Register once so ctx.db and ctx.user are typed in every handler.
-declare module "@browserlessapi/kairo" {
+declare module "@browserlessapi/inferlo" {
   interface Register {
     models: typeof models;
     user: { id: string };

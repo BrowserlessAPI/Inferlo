@@ -1,9 +1,9 @@
 name: Release
 
-# Publishes @browserlessapi/kairo to npm when package.json on main has a version that is not
+# Publishes @browserlessapi/inferlo to npm when package.json on main has a version that is not
 # on npm yet (or when run by hand), then creates the vX.Y.Z tag and GitHub release.
 # Needs the repository secret NPM_TOKEN: an npm granular access token with
-# read and write access to @browserlessapi/kairo and "Bypass two-factor authentication" enabled.
+# read and write access to @browserlessapi/inferlo and "Bypass two-factor authentication" enabled.
 
 on:
   push:
@@ -23,12 +23,12 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: kairo_test
+          POSTGRES_DB: inferlo_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      KAIRO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/kairo_test
+      INFERLO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/inferlo_test
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -47,9 +47,9 @@ jobs:
         run: |
           version="$(node -p "require('./package.json').version")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          if npm view "@browserlessapi/kairo@$version" version >/dev/null 2>&1; then
+          if npm view "@browserlessapi/inferlo@$version" version >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Already published::@browserlessapi/kairo@$version is already on npm; nothing to publish."
+            echo "::notice title=Already published::@browserlessapi/inferlo@$version is already on npm; nothing to publish."
           fi
       - name: Check npm token
         if: steps.exists.outputs.skip != 'true'
@@ -76,6 +76,12 @@ jobs:
             echo "::error title=npm publish failed::${msg:-see the Publish to npm step log}"
             exit 1
           fi
+      - name: Point the old package name to the new one
+        if: steps.exists.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm deprecate "@browserlessapi/kairo" "Kairo is now Inferlo. Install @browserlessapi/inferlo instead." || true
       - name: Tag and GitHub release
         if: steps.exists.outputs.skip != 'true'
         env:
@@ -83,4 +89,4 @@ jobs:
           VERSION: ${{ steps.exists.outputs.version }}
         run: |
           awk -v v="$VERSION" '$0 ~ "^## "v" " {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
-          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Kairo v$VERSION" --notes-file notes.md || echo "Release v$VERSION already exists"
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Inferlo v$VERSION" --notes-file notes.md || echo "Release v$VERSION already exists"

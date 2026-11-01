@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * kairo CLI. Every command supports --json for machine-readable output, so AI coding agents
+ * inferlo CLI. Every command supports --json for machine-readable output, so AI coding agents
  * can drive it directly.
  */
 import { spawn } from "node:child_process";
@@ -8,16 +8,16 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { KairoError } from "../errors.ts";
-import { KAIRO_VERSION } from "../describe.ts";
+import { InferloError } from "../errors.ts";
+import { INFERLO_VERSION } from "../describe.ts";
 import { applyMigrations, planMigration } from "../db/migrate.ts";
 
-const HELP = `kairo ${KAIRO_VERSION}
+const HELP = `inferlo ${INFERLO_VERSION}
 
-Usage: kairo <command> [options]
+Usage: inferlo <command> [options]
 
 Commands:
-  new <dir>                Create a new Kairo project
+  new <dir>                Create a new Inferlo project
   dev                      Run the server and restart on changes (src/server.ts)
   describe                 Print the app map: routes, models, auth, AI
   check                    Typecheck, load the app and run tests
@@ -28,11 +28,11 @@ Commands:
   db migrate --apply       Run pending migration files
   openapi [--out file]     Print or write the OpenAPI document
   add resource <name>      Generate a model plus list/get/create/update/delete routes
-  version                  Print the Kairo version
+  version                  Print the Inferlo version
 
 Options:
   --json                   Machine-readable output (for AI agents and scripts)
-  --entry <file>           App module (default: package.json "kairo.entry" or src/app.ts)
+  --entry <file>           App module (default: package.json "inferlo.entry" or src/app.ts)
 `;
 
 interface Args {
@@ -66,21 +66,21 @@ async function readPackage(dir = cwd): Promise<Record<string, any> | undefined> 
 
 async function entryFile(args: Args): Promise<string> {
   const pkg = await readPackage();
-  const file = (args.flags.entry as string) || pkg?.kairo?.entry || "src/app.ts";
+  const file = (args.flags.entry as string) || pkg?.inferlo?.entry || pkg?.kairo?.entry || "src/app.ts";
   return path.resolve(cwd, file);
 }
 
 async function loadApp(args: Args): Promise<any> {
   const file = await entryFile(args);
   if (!existsSync(file)) {
-    throw new KairoError("KR8001", `App entry ${path.relative(cwd, file)} not found.`, {
-      fix: 'Create src/app.ts exporting `app`, pass --entry <file>, or set "kairo": { "entry": "..." } in package.json.',
+    throw new InferloError("IL8001", `App entry ${path.relative(cwd, file)} not found.`, {
+      fix: 'Create src/app.ts exporting `app`, pass --entry <file>, or set "inferlo": { "entry": "..." } in package.json.',
     });
   }
   const mod = await import(pathToFileURL(file).href);
   const app = mod.app ?? mod.default;
   if (!app || typeof app.describe !== "function") {
-    throw new KairoError("KR8002", `${path.relative(cwd, file)} does not export a Kairo app.`, { fix: "Add: export const app = createApp({ ... })" });
+    throw new InferloError("IL8002", `${path.relative(cwd, file)} does not export an Inferlo app.`, { fix: "Add: export const app = createApp({ ... })" });
   }
   return app;
 }
@@ -107,7 +107,7 @@ async function cmdDescribe(args: Args) {
   const app = await loadApp(args);
   const d = app.describe();
   print(d, Boolean(args.flags.json), () => {
-    const lines = [`${d.name} ${d.version}  (kairo ${d.kairo}, db: ${d.database}, auth: ${d.auth ? "on" : "off"})`, "", "Models"];
+    const lines = [`${d.name} ${d.version}  (inferlo ${d.inferlo}, db: ${d.database}, auth: ${d.auth ? "on" : "off"})`, "", "Models"];
     for (const m of d.models) {
       lines.push(`  ${m.name}`);
       for (const [k, f] of Object.entries<any>(m.fields)) {
@@ -135,7 +135,7 @@ async function cmdOpenapi(args: Args) {
 
 async function cmdDb(args: Args) {
   if (args._[1] === "migrate") return cmdMigrate(args);
-  if (args._[1] !== "push") throw new KairoError("KR8003", `Unknown db command "${args._[1] ?? ""}".`, { fix: "Use: kairo db push [--dry-run] or kairo db migrate [name] [--dry-run | --apply]" });
+  if (args._[1] !== "push") throw new InferloError("IL8003", `Unknown db command "${args._[1] ?? ""}".`, { fix: "Use: inferlo db push [--dry-run] or inferlo db migrate [name] [--dry-run | --apply]" });
   const app = await loadApp(args);
   const dryRun = Boolean(args.flags["dry-run"]);
   const statements: string[] = await app.db.$sync({ dryRun });
@@ -165,7 +165,7 @@ async function cmdMigrate(args: Args) {
       if (edited.length && !json) {
         const files = edited.map((name) => `${MIGRATIONS_DIR}/${name}.sql`).join(", ");
         console.error(
-          `Warning KR4018: ${files} ${edited.length > 1 ? "were" : "was"} edited after being applied, so the change was not run. Restore the applied SQL (git checkout) and put the change in a new migration: kairo db migrate <name>`,
+          `Warning IL4018: ${files} ${edited.length > 1 ? "were" : "was"} edited after being applied, so the change was not run. Restore the applied SQL (git checkout) and put the change in a new migration: inferlo db migrate <name>`,
         );
       }
       print({ ok: true, applied, edited }, json, () => (applied.length ? `Applied:\n${applied.map((a) => `  ${a}`).join("\n")}` : "No pending migrations."));
@@ -198,10 +198,10 @@ async function cmdMigrate(args: Args) {
     await mkdir(dir, { recursive: true });
     const warning =
       (plan.drops.length ? `-- WARNING: this migration deletes data (${plan.drops.join(", ")}). Back up first.\n` : "") +
-      (plan.changes.length ? `-- This migration changes columns: ${plan.changes.join(", ")}. Making a column required fails (KR4020) if rows still have NULL in it.\n` : "");
-    await writeFile(path.join(cwd, file), `-- Generated by kairo db migrate. Review before applying with: kairo db migrate --apply\n${warning}\n${plan.statements.join(";\n\n")};\n`);
+      (plan.changes.length ? `-- This migration changes columns: ${plan.changes.join(", ")}. Making a column required fails (IL4020) if rows still have NULL in it.\n` : "");
+    await writeFile(path.join(cwd, file), `-- Generated by inferlo db migrate. Review before applying with: inferlo db migrate --apply\n${warning}\n${plan.statements.join(";\n\n")};\n`);
     await writeFile(snapshotFile, JSON.stringify(plan.snapshot, null, 2) + "\n");
-    print({ ok: true, dryRun: false, file, statements: plan.statements, drops: plan.drops, changes: plan.changes }, json, () => `Wrote ${file}${dropNote}\nReview it, then run: kairo db migrate --apply`);
+    print({ ok: true, dryRun: false, file, statements: plan.statements, drops: plan.drops, changes: plan.changes }, json, () => `Wrote ${file}${dropNote}\nReview it, then run: inferlo db migrate --apply`);
   } finally {
     await app.db.$close();
   }
@@ -226,7 +226,7 @@ async function cmdCheck(args: Args) {
       await fn(step);
     } catch (error) {
       step.ok = false;
-      const e = error as KairoError;
+      const e = error as InferloError;
       step.errors.push({ code: e.code, message: e.message ?? String(error), fix: e.fix });
     }
     step.durationMs = Date.now() - start;
@@ -284,8 +284,8 @@ async function cmdCheck(args: Args) {
 
 async function cmdDev(args: Args) {
   const pkg = await readPackage();
-  const server = path.resolve(cwd, (args.flags.entry as string) || pkg?.kairo?.server || "src/server.ts");
-  if (!existsSync(server)) throw new KairoError("KR8001", `Server file ${path.relative(cwd, server)} not found.`, { fix: "Create src/server.ts that calls app.listen()." });
+  const server = path.resolve(cwd, (args.flags.entry as string) || pkg?.inferlo?.server || pkg?.kairo?.server || "src/server.ts");
+  if (!existsSync(server)) throw new InferloError("IL8001", `Server file ${path.relative(cwd, server)} not found.`, { fix: "Create src/server.ts that calls app.listen()." });
   const isBun = Boolean((globalThis as { Bun?: unknown }).Bun);
   const cmd = isBun ? "bun" : process.execPath;
   const argv = isBun ? ["--watch", server] : ["--watch", "--env-file-if-exists=.env", server];
@@ -315,12 +315,12 @@ async function copyTemplate(from: string, to: string, vars: Record<string, strin
 
 async function cmdNew(args: Args) {
   const dir = args._[1];
-  if (!dir) throw new KairoError("KR8004", "Missing project directory.", { fix: "Use: kairo new my-app" });
+  if (!dir) throw new InferloError("IL8004", "Missing project directory.", { fix: "Use: inferlo new my-app" });
   const target = path.resolve(cwd, dir);
-  if (existsSync(target) && (await readdir(target)).length) throw new KairoError("KR8005", `${dir} already exists and is not empty.`);
+  if (existsSync(target) && (await readdir(target)).length) throw new InferloError("IL8005", `${dir} already exists and is not empty.`);
   const name = path.basename(target).toLowerCase().replace(/[^a-z0-9-]/g, "-");
   const created: string[] = [];
-  await copyTemplate(path.join(templatesDir, "app"), target, { name, kairoVersion: KAIRO_VERSION, kairoDependency: `^${KAIRO_VERSION}` }, created);
+  await copyTemplate(path.join(templatesDir, "app"), target, { name, inferloVersion: INFERLO_VERSION, inferloDependency: `^${INFERLO_VERSION}` }, created);
   print({ ok: true, dir, files: created.map((f) => path.relative(cwd, f)) }, Boolean(args.flags.json), () =>
     [`Created ${dir}`, "", "Next:", `  cd ${dir}`, "  npm install", "  npm run dev", "", "AGENTS.md explains the conventions to AI coding agents."].join("\n"),
   );
@@ -337,13 +337,13 @@ function singularOf(name: string): string {
 async function cmdAdd(args: Args) {
   const kind = args._[1];
   const raw = args._[2];
-  if (kind !== "resource" || !raw) throw new KairoError("KR8006", "Use: kairo add resource <plural_name>, e.g. kairo add resource invoices");
+  if (kind !== "resource" || !raw) throw new InferloError("IL8006", "Use: inferlo add resource <plural_name>, e.g. inferlo add resource invoices");
   const table = raw.toLowerCase().replace(/-/g, "_");
-  if (!/^[a-z][a-z0-9_]*$/.test(table)) throw new KairoError("KR4005", `"${raw}" is not a valid table name.`, { fix: "Use lowercase letters, digits and underscores." });
+  if (!/^[a-z][a-z0-9_]*$/.test(table)) throw new InferloError("IL4005", `"${raw}" is not a valid table name.`, { fix: "Use lowercase letters, digits and underscores." });
   const Model = pascal(singularOf(table));
   const routesDir = path.join(cwd, "src", "routes");
   const routeFile = path.join(routesDir, `${table}.ts`);
-  if (existsSync(routeFile)) throw new KairoError("KR8005", `src/routes/${table}.ts already exists.`);
+  if (existsSync(routeFile)) throw new InferloError("IL8005", `src/routes/${table}.ts already exists.`);
   const changes: string[] = [];
   const manual: string[] = [];
 
@@ -351,15 +351,15 @@ async function cmdAdd(args: Args) {
   const modelCode = `export const ${Model} = model("${table}", {\n  name: t.string().max(200),\n  ownerId: t.ref("users"),\n});\n`;
   if (existsSync(modelsFile)) {
     let text = await readFile(modelsFile, "utf8");
-    if (text.includes("// kairo:models")) {
-      text = text.replace("// kairo:models", `${modelCode}\n// kairo:models`);
+    if (text.includes("// inferlo:models")) {
+      text = text.replace("// inferlo:models", `${modelCode}\n// inferlo:models`);
       text = text.replace(/export const models = \[([^\]]*)\]/, (m, list: string) => `export const models = [${list.trim() ? list.trim().replace(/,\s*$/, "") + ", " : ""}${Model}]`);
       await writeFile(modelsFile, text);
       changes.push("src/models.ts");
     } else manual.push(`Add to src/models.ts:\n${modelCode}\nand add ${Model} to the models array.`);
   } else manual.push(`Create the ${Model} model:\n${modelCode}`);
 
-  const routeCode = `import { route, t, notFound } from "@browserlessapi/kairo";
+  const routeCode = `import { route, t, notFound } from "@browserlessapi/inferlo";
 import { ${Model} } from "../models.ts";
 
 const IdParams = t.object({ id: t.uuid() });
@@ -412,7 +412,7 @@ export const delete${Model} = route
   const appFile = path.join(cwd, "src", "app.ts");
   if (existsSync(appFile)) {
     let text = await readFile(appFile, "utf8");
-    if (text.includes("// kairo:routes")) {
+    if (text.includes("// inferlo:routes")) {
       text = text.replace(/^(import .*\n)(?![\s\S]*^import )/m, `$1import * as ${table} from "./routes/${table}.ts";\n`);
       text = text.replace(/routes: \[([^\]]*)\]/, (_m, list: string) => `routes: [${list.trim() ? list.trim().replace(/,\s*$/, "") + ", " : ""}${table}]`);
       await writeFile(appFile, text);
@@ -421,7 +421,7 @@ export const delete${Model} = route
   }
 
   print({ ok: true, changed: changes, manual }, Boolean(args.flags.json), () =>
-    [`Updated: ${changes.join(", ")}`, ...manual.map((m) => `\nTo do:\n${m}`), "", "Then run: kairo db push && kairo check"].join("\n"),
+    [`Updated: ${changes.join(", ")}`, ...manual.map((m) => `\nTo do:\n${m}`), "", "Then run: inferlo db push && inferlo check"].join("\n"),
   );
 }
 
@@ -449,22 +449,22 @@ async function main() {
       case "version":
       case "--version":
       case "-v":
-        return console.log(KAIRO_VERSION);
+        return console.log(INFERLO_VERSION);
       case undefined:
       case "help":
       case "--help":
       case "-h":
         return console.log(HELP);
       default:
-        throw new KairoError("KR8000", `Unknown command "${command}".`, { fix: "Run kairo help to see all commands." });
+        throw new InferloError("IL8000", `Unknown command "${command}".`, { fix: "Run inferlo help to see all commands." });
     }
   } catch (error) {
     const json = Boolean(args.flags.json);
-    if (error instanceof KairoError) {
+    if (error instanceof InferloError) {
       if (json) console.log(JSON.stringify({ ok: false, ...error.toJSON(), message: error.message }, null, 2));
       else console.error(error.format());
     } else {
-      if (json) console.log(JSON.stringify({ ok: false, error: { code: "KR9000", message: String((error as Error)?.message ?? error) } }, null, 2));
+      if (json) console.log(JSON.stringify({ ok: false, error: { code: "IL9000", message: String((error as Error)?.message ?? error) } }, null, 2));
       else console.error(error);
     }
     process.exitCode = 1;

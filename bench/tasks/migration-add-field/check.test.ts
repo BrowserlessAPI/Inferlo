@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
-import { createApp, memory, planMigration } from "@browserlessapi/kairo";
-import { readJson } from "@browserlessapi/kairo/testing";
+import { createApp, memory, planMigration } from "@browserlessapi/inferlo";
+import { readJson } from "@browserlessapi/inferlo/testing";
 import { models } from "../src/models.ts";
 import * as notes from "../src/routes/notes.ts";
 

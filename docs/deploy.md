@@ -1,12 +1,12 @@
 # Deployment
 
-A Kairo app is a standard `fetch(Request) => Response` handler, so it runs anywhere.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so it runs anywhere.
 
 ## Linux server (Node.js)
 
 ```bash
 npm ci --omit=dev
-DATABASE_URL=postgres://... npx kairo db migrate --apply   # or kairo db push if you do not use migrations
+DATABASE_URL=postgres://... npx inferlo db migrate --apply   # or inferlo db push if you do not use migrations
 DATABASE_URL=postgres://... PORT=3000 node src/server.ts
 ```
 

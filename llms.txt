@@ -1,27 +1,27 @@
-# Kairo
+# Inferlo
 
-> Kairo is a batteries-included TypeScript backend framework with built-in AI model support (Anthropic, OpenAI, Gemini, Ollama and OpenAI-compatible providers with fallback, structured output, streaming, embeddings and usage tracking), plus routes, schemas, database (PostgreSQL and in-memory), auth, an MCP server and OpenAPI, with zero runtime dependencies. Runs on Node.js 22.18+, Bun, Deno and edge runtimes. Package: @browserlessapi/kairo.
+> Inferlo is a batteries-included TypeScript backend framework with built-in AI model support (Anthropic, OpenAI, Gemini, Ollama and OpenAI-compatible providers with fallback, structured output, streaming, embeddings and usage tracking), plus routes, schemas, database (PostgreSQL and in-memory), auth, an MCP server and OpenAPI, with zero runtime dependencies. Runs on Node.js 22.18+, Bun, Deno and edge runtimes. Package: @browserlessapi/inferlo.
 
-Key rules: routes are private unless `auth: "public"`; validate input with `t.*` schemas; use `db.<table>` methods (never string-built SQL); every model has id, createdAt, updatedAt automatically; relative imports end in `.ts`; run `kairo describe --json` to see an app and `kairo check --json` after changes.
+Key rules: routes are private unless `auth: "public"`; validate input with `t.*` schemas; use `db.<table>` methods (never string-built SQL); every model has id, createdAt, updatedAt automatically; relative imports end in `.ts`; run `inferlo describe --json` to see an app and `inferlo check --json` after changes.
 
 ## Docs
 
-- [Getting started](https://github.com/BrowserlessAPI/kairo/blob/main/docs/getting-started.md): install, project layout, minimal app
-- [Schemas](https://github.com/BrowserlessAPI/kairo/blob/main/docs/schema.md): t.* types, modifiers, validation, JSON Schema
-- [Models and database](https://github.com/BrowserlessAPI/kairo/blob/main/docs/database.md): model(), queries, adapters, db push, transactions
-- [Routes](https://github.com/BrowserlessAPI/kairo/blob/main/docs/routes.md): options, handler context, return values, errors, middleware
-- [Auth](https://github.com/BrowserlessAPI/kairo/blob/main/docs/auth.md): auth.resolve, roles, bearer API keys, passwords
-- [AI](https://github.com/BrowserlessAPI/kairo/blob/main/docs/ai.md): providers, aliases and fallback, structured output, streaming, embeddings, usage and budgets
-- [MCP, OpenAPI and describe](https://github.com/BrowserlessAPI/kairo/blob/main/docs/mcp.md)
-- [CLI](https://github.com/BrowserlessAPI/kairo/blob/main/docs/cli.md)
-- [Testing](https://github.com/BrowserlessAPI/kairo/blob/main/docs/testing.md)
-- [Deployment](https://github.com/BrowserlessAPI/kairo/blob/main/docs/deploy.md)
-- [Error codes](https://github.com/BrowserlessAPI/kairo/blob/main/docs/errors.md): every KRxxxx code with its fix
+- [Getting started](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/getting-started.md): install, project layout, minimal app
+- [Schemas](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/schema.md): t.* types, modifiers, validation, JSON Schema
+- [Models and database](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/database.md): model(), queries, adapters, db push, transactions
+- [Routes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/routes.md): options, handler context, return values, errors, middleware
+- [Auth](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/auth.md): auth.resolve, roles, bearer API keys, passwords
+- [AI](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/ai.md): providers, aliases and fallback, structured output, streaming, embeddings, usage and budgets
+- [MCP, OpenAPI and describe](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/mcp.md)
+- [CLI](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/cli.md)
+- [Testing](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/testing.md)
+- [Deployment](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/deploy.md)
+- [Error codes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/errors.md): every KRxxxx code with its fix
 
 ## Full text
 
-- [llms-full.txt](https://raw.githubusercontent.com/BrowserlessAPI/kairo/main/llms-full.txt): all docs in one file
+- [llms-full.txt](https://raw.githubusercontent.com/BrowserlessAPI/Inferlo/main/llms-full.txt): all docs in one file
 
 ## Example
 
-- [Helpdesk with AI triage](https://github.com/BrowserlessAPI/kairo/tree/main/examples/helpdesk)
+- [Helpdesk with AI triage](https://github.com/BrowserlessAPI/Inferlo/tree/main/examples/helpdesk)

@@ -1,5 +1,5 @@
-import { anthropic, bearer, createApp, env, hashToken, memory, openai } from "@browserlessapi/kairo";
-import { postgres } from "@browserlessapi/kairo/postgres";
+import { anthropic, bearer, createApp, env, hashToken, memory, openai } from "@browserlessapi/inferlo";
+import { postgres } from "@browserlessapi/inferlo/postgres";
 import { models } from "./models.ts";
 import * as health from "./routes/health.ts";
 import * as notes from "./routes/notes.ts";
@@ -10,7 +10,7 @@ export const app = createApp({
   name: "{{name}}",
   version: "0.1.0",
   models,
-  // kairo:routes
+  // inferlo:routes
   routes: [health, notes],
   db: databaseUrl ? postgres({ url: databaseUrl }) : memory(),
 

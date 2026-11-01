@@ -5,8 +5,8 @@ Tests call the app in-process with `app.request`, so there is no server or port.
 ```ts
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createApp, memory, mockProvider } from "@browserlessapi/kairo";
-import { readJson } from "@browserlessapi/kairo/testing";
+import { createApp, memory, mockProvider } from "@browserlessapi/inferlo";
+import { readJson } from "@browserlessapi/inferlo/testing";
 import { models } from "../src/models.ts";
 import * as notes from "../src/routes/notes.ts";
 

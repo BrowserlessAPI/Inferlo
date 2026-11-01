@@ -1,6 +1,6 @@
 # Auth
 
-Routes are private by default. Kairo does not force a login system on you: you give `createApp` an `auth.resolve(req)` that returns the user, and Kairo enforces route access.
+Routes are private by default. Inferlo does not force a login system on you: you give `createApp` an `auth.resolve(req)` that returns the user, and Inferlo enforces route access.
 
 ```ts
 createApp({
@@ -13,7 +13,7 @@ createApp({
 });
 ```
 
-If any route is private and no `auth` is configured, `createApp` throws KR3003 at startup, so a missing auth setup can never silently expose routes.
+If any route is private and no `auth` is configured, `createApp` throws IL3003 at startup, so a missing auth setup can never silently expose routes.
 
 ## Route access
 
@@ -26,7 +26,7 @@ route.delete("/users/:id", { auth: "admin" }) // users whose roles include "admi
 ## API keys with bearer()
 
 ```ts
-import { bearer, hashToken, createToken } from "@browserlessapi/kairo";
+import { bearer, hashToken, createToken } from "@browserlessapi/inferlo";
 
 createApp({
   auth: bearer(async (token, { db }) => {
@@ -47,7 +47,7 @@ await db.api_keys.insert({ userId, hash: await hashToken(token) });
 ## Passwords
 
 ```ts
-import { hashPassword, verifyPassword } from "@browserlessapi/kairo";
+import { hashPassword, verifyPassword } from "@browserlessapi/inferlo";
 
 const stored = await hashPassword(password);      // PBKDF2-SHA256, 210,000 iterations
 const ok = await verifyPassword(password, stored);

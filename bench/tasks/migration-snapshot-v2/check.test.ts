@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
-import { createApp, memory, planMigration } from "@browserlessapi/kairo";
+import { createApp, memory, planMigration } from "@browserlessapi/inferlo";
 import { models, Note } from "../src/models.ts";
 
 const normalize = (sql: string) => sql.replace(/--.*$/gm, "").replace(/\s+/g, " ").replace(/\s*;\s*/g, ";").trim().toLowerCase();
@@ -21,10 +21,10 @@ test("migration file matches the models and the snapshot is saved in the current
   const file = new URL("../migrations/0002_add_due_at.sql", import.meta.url);
   assert.ok(existsSync(file), "migrations/0002_add_due_at.sql is missing");
   const snapshot = JSON.parse(readFileSync(new URL("../migrations/snapshot.json", import.meta.url), "utf8"));
-  assert.equal(snapshot.kairo, 2, "migrations/snapshot.json is not in the current format (kairo: 2)");
+  assert.equal(snapshot.inferlo, 2, "migrations/snapshot.json is not in the current format (inferlo: 2)");
   const plan = planMigration(models, snapshot);
   assert.deepEqual(plan.statements, [], "migrations/snapshot.json does not match the models");
-  assert.deepEqual(snapshot, plan.snapshot, "migrations/snapshot.json is not what kairo db migrate would write");
+  assert.deepEqual(snapshot, plan.snapshot, "migrations/snapshot.json is not what inferlo db migrate would write");
   const sql = normalize(readFileSync(file, "utf8"));
   assert.ok(sql.includes(normalize('ALTER TABLE "notes" ADD COLUMN IF NOT EXISTS "due_at" timestamptz')), `unexpected migration SQL: ${sql}`);
 });

@@ -1,4 +1,4 @@
 {
   "title": "Add a field with a migration to a project with an old snapshot",
-  "prompt": "Add an optional `dueAt` date field to notes. This project deploys with migrations, and its migrations/snapshot.json was written by Kairo 0.2.0 (\"kairo\": 1). Add the migration file migrations/0002_add_due_at.sql with exactly the SQL `kairo db migrate add_due_at` would generate, and update migrations/snapshot.json exactly the way that command would (it saves the snapshot in the current format), so that running `kairo db migrate` afterwards finds no changes. You cannot run commands."
+  "prompt": "Add an optional `dueAt` date field to notes. This project deploys with migrations, and its migrations/snapshot.json was written by Inferlo 0.2.0 (\"inferlo\": 1). Add the migration file migrations/0002_add_due_at.sql with exactly the SQL `inferlo db migrate add_due_at` would generate, and update migrations/snapshot.json exactly the way that command would (it saves the snapshot in the current format), so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands."
 }

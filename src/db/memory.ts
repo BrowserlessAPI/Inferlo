@@ -1,8 +1,8 @@
 /**
  * In-memory adapter for tests, prototypes and examples. Data is lost when the process exits.
- * Enforces unique fields the same way Postgres does (KR4004, HTTP 409).
+ * Enforces unique fields the same way Postgres does (IL4004, HTTP 409).
  */
-import { KairoError } from "../errors.ts";
+import { InferloError } from "../errors.ts";
 import type { AnyModel } from "../model.ts";
 import type { Adapter, Condition, DbRecord, Query } from "./types.ts";
 
@@ -67,7 +67,7 @@ export function memory(): Adapter {
       if (!schema.def.unique || candidate[field] == null) continue;
       const clash = rowsOf(model).find((r) => r.id !== ignoreId && compare(r[field], candidate[field]) === 0);
       if (clash) {
-        throw new KairoError("KR4004", `A ${model.name} row with this ${field} already exists.`, { status: 409, details: { table: model.name, field } });
+        throw new InferloError("IL4004", `A ${model.name} row with this ${field} already exists.`, { status: 409, details: { table: model.name, field } });
       }
     }
   };

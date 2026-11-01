@@ -1,4 +1,4 @@
-import { notFound, route, t } from "@browserlessapi/kairo";
+import { notFound, route, t } from "@browserlessapi/inferlo";
 import { Note } from "../models.ts";
 
 const IdParams = t.object({ id: t.uuid() });

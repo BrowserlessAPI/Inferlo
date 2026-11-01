@@ -9,7 +9,7 @@
  *
  * Every model gets id (uuid), createdAt and updatedAt automatically.
  */
-import { KairoError } from "./errors.ts";
+import { InferloError } from "./errors.ts";
 import { ObjectSchema, Schema, t, type Def, type Shape, type ShapeInput, type ShapeOutput, type PartialShape } from "./schema.ts";
 
 const TABLE_NAME = /^[a-z][a-z0-9_]{0,62}$/;
@@ -44,19 +44,19 @@ export class Model<N extends string = string, S extends Shape = Shape> {
 
   constructor(name: N, fields: S) {
     if (!TABLE_NAME.test(name)) {
-      throw new KairoError("KR4005", `Model name "${name}" is not a valid table name.`, {
+      throw new InferloError("IL4005", `Model name "${name}" is not a valid table name.`, {
         fix: 'Use lowercase letters, digits and underscores, starting with a letter, e.g. model("support_tickets", {...}).',
       });
     }
     for (const key of Object.keys(fields)) {
       if (RESERVED.has(key)) {
-        throw new KairoError("KR4006", `Model "${name}" defines "${key}", which Kairo adds automatically.`, {
+        throw new InferloError("IL4006", `Model "${name}" defines "${key}", which Inferlo adds automatically.`, {
           fix: `Remove "${key}" from the model. Every model already has id, createdAt and updatedAt.`,
         });
       }
       if (!FIELD_NAME.test(key)) {
-        throw new KairoError("KR4005", `Field "${name}.${key}" is not a valid field name.`, {
-          fix: "Use camelCase letters and digits, e.g. ownerId. Kairo stores it as owner_id.",
+        throw new InferloError("IL4005", `Field "${name}.${key}" is not a valid field name.`, {
+          fix: "Use camelCase letters and digits, e.g. ownerId. Inferlo stores it as owner_id.",
         });
       }
     }

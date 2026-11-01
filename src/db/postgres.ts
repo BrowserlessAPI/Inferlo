@@ -1,13 +1,13 @@
 /**
  * PostgreSQL adapter (uses the `pg` package: npm install pg).
  *
- *   import { postgres } from "@browserlessapi/kairo/postgres"
+ *   import { postgres } from "@browserlessapi/inferlo/postgres"
  *   createApp({ db: postgres({ url: env("DATABASE_URL") }), ... })
  *
  * Every value is sent as a query parameter. Identifiers come only from model definitions,
  * which are validated, and are always quoted.
  */
-import { KairoError } from "../errors.ts";
+import { InferloError } from "../errors.ts";
 import { columnName, type AnyModel } from "../model.ts";
 import type { AnySchema } from "../schema.ts";
 import type { Adapter, Condition, DbRecord, Query } from "./types.ts";
@@ -153,7 +153,7 @@ export function postgres(options: PostgresOptions = {}): Adapter {
   const getPool = async (): Promise<PoolLike> => {
     if (pool) return pool;
     if (!options.url) {
-      throw new KairoError("KR4009", "postgres() needs a connection URL.", {
+      throw new InferloError("IL4009", "postgres() needs a connection URL.", {
         fix: 'Pass postgres({ url: env("DATABASE_URL") }) and set DATABASE_URL, e.g. postgres://user:pass@localhost:5432/app',
       });
     }
@@ -161,7 +161,7 @@ export function postgres(options: PostgresOptions = {}): Adapter {
     try {
       pg = (await import("pg" as string)) as typeof pg;
     } catch (cause) {
-      throw new KairoError("KR4010", "The pg package is not installed.", { fix: "Run: npm install pg", cause });
+      throw new InferloError("IL4010", "The pg package is not installed.", { fix: "Run: npm install pg", cause });
     }
     const Pool = pg.Pool ?? pg.default!.Pool;
     pool = new Pool({ connectionString: options.url, max: options.max ?? 10 });
@@ -182,7 +182,7 @@ function createPgAdapter(
   close: () => Promise<void>,
 ): Adapter {
   const run = async (text: string, params: unknown[] = []) => {
-    if (debug) console.log(`[kairo:sql] ${text.replace(/\s+/g, " ")} (${params.length} params)`);
+    if (debug) console.log(`[inferlo:sql] ${text.replace(/\s+/g, " ")} (${params.length} params)`);
     try {
       return await (await client()).query(text, params);
     } catch (error) {
@@ -331,17 +331,17 @@ function createPgAdapter(
 function translate(error: unknown): unknown {
   const e = error as { code?: string; detail?: string; table?: string; constraint?: string; message?: string };
   if (e && e.code === "23505") {
-    return new KairoError("KR4004", "A row with this value already exists.", { status: 409, details: { table: e.table, constraint: e.constraint }, cause: error });
+    return new InferloError("IL4004", "A row with this value already exists.", { status: 409, details: { table: e.table, constraint: e.constraint }, cause: error });
   }
   if (e && e.code === "23503") {
-    return new KairoError("KR4011", "This references a row that does not exist (or is still referenced elsewhere).", {
+    return new InferloError("IL4011", "This references a row that does not exist (or is still referenced elsewhere).", {
       status: 409,
       details: { table: e.table, constraint: e.constraint },
       cause: error,
     });
   }
   if (e && e.code === "42P01") {
-    return new KairoError("KR4012", `Table missing: ${e.message}`, { fix: "Run: kairo db push", cause: error });
+    return new InferloError("IL4012", `Table missing: ${e.message}`, { fix: "Run: inferlo db push", cause: error });
   }
   return error;
 }

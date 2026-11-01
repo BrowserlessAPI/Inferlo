@@ -1,4 +1,4 @@
-import { createToken, env, hashToken } from "@browserlessapi/kairo";
+import { createToken, env, hashToken } from "@browserlessapi/inferlo";
 import { app } from "./app.ts";
 
 await app.db.$sync();

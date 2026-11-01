@@ -6,7 +6,7 @@
  *   env.int("PORT", { default: 3000 })
  *   env.bool("DEBUG", { default: false })
  */
-import { KairoError } from "./errors.ts";
+import { InferloError } from "./errors.ts";
 
 let overrides: Record<string, string | undefined> | undefined;
 
@@ -29,8 +29,8 @@ function read(name: string): string | undefined {
   return undefined;
 }
 
-function missing(name: string): KairoError {
-  return new KairoError("KR7001", `Environment variable ${name} is not set.`, {
+function missing(name: string): InferloError {
+  return new InferloError("IL7001", `Environment variable ${name} is not set.`, {
     fix: `Set ${name} in your environment or .env file, or pass a default: env("${name}", { default: "..." }).`,
   });
 }
@@ -59,7 +59,7 @@ export const env: EnvFn = Object.assign(
         throw missing(name);
       }
       const n = Number(value);
-      if (!Number.isInteger(n)) throw new KairoError("KR7002", `Environment variable ${name} must be a whole number, got "${value}".`);
+      if (!Number.isInteger(n)) throw new InferloError("IL7002", `Environment variable ${name} must be a whole number, got "${value}".`);
       return n;
     },
     bool(name: string, options: { default?: boolean } = {}): boolean {
@@ -70,7 +70,7 @@ export const env: EnvFn = Object.assign(
       }
       if (["1", "true", "yes", "on"].includes(value)) return true;
       if (["0", "false", "no", "off"].includes(value)) return false;
-      throw new KairoError("KR7002", `Environment variable ${name} must be true or false, got "${value}".`);
+      throw new InferloError("IL7002", `Environment variable ${name} must be true or false, got "${value}".`);
     },
   },
 );

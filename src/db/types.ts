@@ -18,7 +18,7 @@ export interface Query {
 export type DbRecord = Record<string, unknown>;
 
 /**
- * Storage backend. Kairo ships memory() and postgres(). Adapters receive validated,
+ * Storage backend. Inferlo ships memory() and postgres(). Adapters receive validated,
  * already-normalised data with camelCase field names.
  */
 export interface Adapter {

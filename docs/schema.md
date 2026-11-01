@@ -3,7 +3,7 @@
 `t` builds schemas. One schema gives you runtime validation, a TypeScript type, JSON Schema (for OpenAPI, MCP tools and AI structured output) and a database column.
 
 ```ts
-import { t, type Infer } from "@browserlessapi/kairo";
+import { t, type Infer } from "@browserlessapi/inferlo";
 
 const Signup = t.object({
   email: t.email(),
@@ -64,9 +64,9 @@ This catches typos and invented fields early. Call `.strip()` to drop unknown ke
 ## Validating
 
 ```ts
-Signup.parse(input);        // returns typed data or throws ValidationError (KR1001, HTTP 422)
+Signup.parse(input);        // returns typed data or throws ValidationError (IL1001, HTTP 422)
 Signup.safeParse(input);    // { ok: true, value } or { ok: false, issues }
 Signup.toJSONSchema();      // JSON Schema object
 ```
 
-Pass `{ coerce: true }` to convert strings to numbers, booleans and arrays (Kairo does this automatically for query strings and path parameters).
+Pass `{ coerce: true }` to convert strings to numbers, booleans and arrays (Inferlo does this automatically for query strings and path parameters).

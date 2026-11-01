@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { createDb, KairoError, memory, type Adapter } from "../src/index.ts";
+import { createDb, InferloError, memory, type Adapter } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
 import { models } from "./helpers.ts";
 
-const PG_URL = process.env.KAIRO_TEST_DATABASE_URL;
+const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 
 const adapters: [string, () => Adapter][] = [["memory", () => memory()]];
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
@@ -41,15 +41,15 @@ for (const [name, make] of adapters) {
 
     test("validation runs on insert and update", async () => {
       const a = await db.authors.insert({ name: "B", email: "b@example.com" });
-      await assert.rejects(db.posts.insert({ title: "", body: "x", authorId: a.id }), /KR1001|at least 1/);
+      await assert.rejects(db.posts.insert({ title: "", body: "x", authorId: a.id }), /IL1001|at least 1/);
       const p = await db.posts.insert({ title: "ok", body: "x", authorId: a.id });
       await assert.rejects(db.posts.update(p.id, { views: 1.5 } as never), /whole number/);
       await assert.rejects(db.posts.update(p.id, { id: "x" } as never), /Unknown field|unknown/i);
     });
 
-    test("unique fields raise KR4004 (409)", async () => {
+    test("unique fields raise IL4004 (409)", async () => {
       await db.authors.insert({ name: "C", email: "c@example.com" });
-      await assert.rejects(db.authors.insert({ name: "C2", email: "c@example.com" }), (e: unknown) => e instanceof KairoError && e.code === "KR4004" && e.status === 409);
+      await assert.rejects(db.authors.insert({ name: "C2", email: "c@example.com" }), (e: unknown) => e instanceof InferloError && e.code === "IL4004" && e.status === 409);
     });
 
     test("findMany with operators, order, limit and offset", async () => {
@@ -71,7 +71,7 @@ for (const [name, make] of adapters) {
     });
 
     test("unknown fields in where give a did-you-mean error", async () => {
-      await assert.rejects(db.posts.findMany({ where: { titel: "x" } as never }), (e: unknown) => e instanceof KairoError && e.code === "KR4003" && /Did you mean "title"/.test(e.message));
+      await assert.rejects(db.posts.findMany({ where: { titel: "x" } as never }), (e: unknown) => e instanceof InferloError && e.code === "IL4003" && /Did you mean "title"/.test(e.message));
       await assert.rejects(db.posts.findMany({ where: { title: { equals: "x" } } as never }), /Unknown operator "equals"/);
     });
 
@@ -82,17 +82,17 @@ for (const [name, make] of adapters) {
       assert.equal(u.published, true);
       assert.ok(u.updatedAt.getTime() >= p.updatedAt.getTime());
       assert.equal(u.publishedAt?.toISOString(), "2026-01-01T00:00:00.000Z");
-      await assert.rejects(db.posts.update("33333333-3333-4333-8333-333333333333", { views: 1 }), /KR4001|not found/);
+      await assert.rejects(db.posts.update("33333333-3333-4333-8333-333333333333", { views: 1 }), /IL4001|not found/);
       await db.posts.insert({ title: "t2", body: "b", authorId: a.id });
       const many = await db.posts.updateMany({ authorId: a.id }, { views: 7 });
       assert.equal(many.length, 2);
       assert.equal(await db.posts.delete(p.id), true);
       assert.equal(await db.posts.delete(p.id), false);
-      await assert.rejects(db.posts.deleteMany({}), /KR4007|needs a where/);
+      await assert.rejects(db.posts.deleteMany({}), /IL4007|needs a where/);
       assert.equal(await db.posts.deleteMany({ authorId: a.id }), 1);
     });
 
-    test("unknown table gives KR4002", () => {
+    test("unknown table gives IL4002", () => {
       assert.throws(() => (db as any).post, /db.post does not exist. Did you mean "posts"/);
     });
 

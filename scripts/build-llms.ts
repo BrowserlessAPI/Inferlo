@@ -6,7 +6,7 @@ import { readFile, writeFile } from "node:fs/promises";
 const order = ["getting-started", "schema", "database", "routes", "auth", "ai", "mcp", "cli", "testing", "deploy", "errors"];
 const root = new URL("..", import.meta.url);
 
-const parts = [`# Kairo: full documentation\n\nGenerated from README.md and docs/. Source: https://github.com/BrowserlessAPI/kairo\n`];
+const parts = [`# Inferlo: full documentation\n\nGenerated from README.md and docs/. Source: https://github.com/BrowserlessAPI/Inferlo\n`];
 parts.push(await readFile(new URL("README.md", root), "utf8"));
 for (const name of order) parts.push(await readFile(new URL(`docs/${name}.md`, root), "utf8"));
 const output = parts.map((p) => p.trim()).join("\n\n---\n\n") + "\n";

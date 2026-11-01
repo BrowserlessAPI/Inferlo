@@ -1,5 +1,5 @@
 /**
- * Kairo AI: one API for every model provider, with model aliases, automatic fallback,
+ * Inferlo AI: one API for every model provider, with model aliases, automatic fallback,
  * typed structured output, streaming, embeddings, usage tracking and budgets.
  *
  *   ai: {
@@ -9,7 +9,7 @@
  *
  *   const { object } = await ctx.ai.generate({ model: "fast", prompt, output: Triage })
  */
-import { KairoError, didYouMean } from "../errors.ts";
+import { InferloError, didYouMean } from "../errors.ts";
 import { type AnySchema, type Infer, toJSONSchema } from "../schema.ts";
 import { ProviderError, type Message, type Provider, type ProviderUsage } from "./providers.ts";
 
@@ -44,13 +44,13 @@ export interface AIConfig {
   models?: Record<string, string | string[]>;
   /** Alias or id used when a call does not name a model. */
   defaultModel?: string;
-  /** Prices per model id ("anthropic:claude-haiku-4-5") for cost tracking. Kairo ships no prices because they change. */
+  /** Prices per model id ("anthropic:claude-haiku-4-5") for cost tracking. Inferlo ships no prices because they change. */
   pricing?: Record<string, Pricing>;
   /** Called after every call. Store it, bill it, log it. */
   onUsage?: (usage: Usage) => void | Promise<void>;
   /**
    * Called before a call that has `for` set. Return false (or throw) to block it,
-   * e.g. when a user has used up their credits. Blocked calls raise KR5004 (HTTP 402).
+   * e.g. when a user has used up their credits. Blocked calls raise IL5004 (HTTP 402).
    */
   allow?: (info: { for: string; model: string }) => boolean | Promise<boolean>;
 }
@@ -112,7 +112,7 @@ function buildMessages(o: GenerateOptions<any>): Message[] {
   if (o.messages) messages.push(...o.messages);
   if (o.prompt !== undefined) messages.push({ role: "user", content: o.prompt });
   if (!messages.some((m) => m.role !== "system")) {
-    throw new KairoError("KR5007", "ai.generate() needs a prompt or messages.", { fix: 'Pass prompt: "..." or messages: [{ role: "user", content: "..." }].' });
+    throw new InferloError("IL5007", "ai.generate() needs a prompt or messages.", { fix: 'Pass prompt: "..." or messages: [{ role: "user", content: "..." }].' });
   }
   return messages;
 }
@@ -140,23 +140,23 @@ export function createAI(config?: AIConfig): AI {
   const resolve = (requested: string | undefined): Target[] => {
     const name = requested ?? config?.defaultModel ?? (Object.keys(aliases)[0] as string | undefined);
     if (!Object.keys(providers).length) {
-      throw new KairoError("KR5001", "No AI providers are configured.", {
+      throw new InferloError("IL5001", "No AI providers are configured.", {
         fix: 'Add createApp({ ai: { providers: { anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }) }, models: { fast: "anthropic:claude-haiku-4-5" } } }).',
       });
     }
-    if (!name) throw new KairoError("KR5001", "No model given and no default model configured.", { fix: 'Pass model: "provider:model" or set ai.defaultModel.' });
+    if (!name) throw new InferloError("IL5001", "No model given and no default model configured.", { fix: 'Pass model: "provider:model" or set ai.defaultModel.' });
     const ids = aliases[name] ?? [name];
     return ids.map((id) => {
       const colon = id.indexOf(":");
       if (colon === -1) {
-        throw new KairoError("KR5001", `Unknown model or alias "${id}".${didYouMean(id, Object.keys(aliases))}`, {
+        throw new InferloError("IL5001", `Unknown model or alias "${id}".${didYouMean(id, Object.keys(aliases))}`, {
           fix: `Use an alias (${Object.keys(aliases).join(", ") || "none configured"}) or "provider:model", e.g. "anthropic:claude-haiku-4-5".`,
         });
       }
       const providerName = id.slice(0, colon);
       const provider = providers[providerName];
       if (!provider) {
-        throw new KairoError("KR5001", `AI provider "${providerName}" is not configured.${didYouMean(providerName, Object.keys(providers))}`, {
+        throw new InferloError("IL5001", `AI provider "${providerName}" is not configured.${didYouMean(providerName, Object.keys(providers))}`, {
           fix: `Configured providers: ${Object.keys(providers).join(", ")}.`,
         });
       }
@@ -174,7 +174,7 @@ export function createAI(config?: AIConfig): AI {
     try {
       await config?.onUsage?.(usage);
     } catch (error) {
-      console.error("[kairo] ai.onUsage failed:", error);
+      console.error("[inferlo] ai.onUsage failed:", error);
     }
   };
 
@@ -184,10 +184,10 @@ export function createAI(config?: AIConfig): AI {
     try {
       allowed = await config.allow({ for: forId, model });
     } catch (error) {
-      if (error instanceof KairoError) throw error;
+      if (error instanceof InferloError) throw error;
       allowed = false;
     }
-    if (!allowed) throw new KairoError("KR5004", "AI usage limit reached.", { status: 402, fix: "Add credits or raise this account's limit." });
+    if (!allowed) throw new InferloError("IL5004", "AI usage limit reached.", { status: 402, fix: "Add credits or raise this account's limit." });
   };
 
   /** Try each target in order, moving on only for retryable provider errors. */
@@ -204,7 +204,7 @@ export function createAI(config?: AIConfig): AI {
         throw error;
       }
     }
-    throw new KairoError("KR5003", `All models failed: ${targets.map((t) => t.id).join(", ")}.`, { status: 502, expose: false, details: errors });
+    throw new InferloError("IL5003", `All models failed: ${targets.map((t) => t.id).join(", ")}.`, { status: 502, expose: false, details: errors });
   };
 
   const ai: AI = {
@@ -275,7 +275,7 @@ export function createAI(config?: AIConfig): AI {
           convo.push({ role: "assistant", content: response.text }, { role: "user", content: `That JSON does not match the schema: ${lastIssues}. Reply with corrected JSON only.` });
           if (attempt === attempts - 1) await record(usage);
         }
-        throw new KairoError("KR5002", `Model ${target.id} did not return output matching the schema. ${lastIssues}`, {
+        throw new InferloError("IL5002", `Model ${target.id} did not return output matching the schema. ${lastIssues}`, {
           status: 502,
           expose: false,
           fix: "Simplify the output schema, add .describe() hints to fields, or use a stronger model.",
@@ -294,7 +294,7 @@ export function createAI(config?: AIConfig): AI {
       let consumed = false;
 
       async function* run(): AsyncGenerator<string> {
-        if (consumed) throw new KairoError("KR5008", "A stream can only be read once.", { fix: "Call ai.stream() again, or use await stream.text()." });
+        if (consumed) throw new InferloError("IL5008", "A stream can only be read once.", { fix: "Call ai.stream() again, or use await stream.text()." });
         consumed = true;
         const targets = resolve(options.model);
         await guard(options.for, requested);
@@ -305,7 +305,7 @@ export function createAI(config?: AIConfig): AI {
           for (let i = 0; i < targets.length; i++) {
             const target = targets[i]!;
             if (!target.provider.stream) {
-              throw new KairoError("KR5005", `Provider "${target.providerName}" does not support streaming.`);
+              throw new InferloError("IL5005", `Provider "${target.providerName}" does not support streaming.`);
             }
             let usage: ProviderUsage = { inputTokens: 0, outputTokens: 0 };
             try {
@@ -357,10 +357,10 @@ export function createAI(config?: AIConfig): AI {
                 }
                 controller.enqueue(encoder.encode(`event: text\ndata: ${JSON.stringify(value)}\n\n`));
               } catch (error) {
-                const code = error instanceof KairoError ? error.code : "KR9000";
+                const code = error instanceof InferloError ? error.code : "IL9000";
                 controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ code })}\n\n`));
                 controller.close();
-                console.error("[kairo] stream failed:", error);
+                console.error("[inferlo] stream failed:", error);
               }
             },
             cancel() {
@@ -382,7 +382,7 @@ export function createAI(config?: AIConfig): AI {
       const input = Array.isArray(options.input) ? options.input : [options.input];
       const started = Date.now();
       return withFallback(targets, async (target) => {
-        if (!target.provider.embed) throw new KairoError("KR5005", `Provider "${target.providerName}" does not support embeddings.`);
+        if (!target.provider.embed) throw new InferloError("IL5005", `Provider "${target.providerName}" does not support embeddings.`);
         const result = await target.provider.embed({ model: target.model, input, signal: options.signal });
         const usage: Usage = { requested, model: target.id, ...result.usage, cost: cost(target.id, result.usage), for: options.for, kind: "embed", durationMs: Date.now() - started };
         await record(usage);

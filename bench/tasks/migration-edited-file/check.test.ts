@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
-import { model, planMigration } from "@browserlessapi/kairo";
+import { model, planMigration } from "@browserlessapi/inferlo";
 import { ApiKey, models, Note, User } from "../src/models.ts";
 
 const normalize = (sql: string) => sql.replace(/--.*$/gm, "").replace(/\s+/g, " ").replace(/\s*;\s*/g, ";").replace(/\s*([(),])\s*/g, "$1").trim().toLowerCase();

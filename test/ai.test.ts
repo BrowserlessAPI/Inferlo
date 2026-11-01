@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { anthropic, createAI, createApp, KairoError, mockProvider, openai, route, t, type Usage } from "../src/index.ts";
+import { anthropic, createAI, createApp, InferloError, mockProvider, openai, route, t, type Usage } from "../src/index.ts";
 import { readEvents, readJson } from "../src/testing.ts";
 
 const Triage = t.object({ priority: t.enum(["low", "urgent"]), summary: t.string().max(50) });
@@ -27,7 +27,7 @@ describe("ai", () => {
     assert.deepEqual(object, { priority: "urgent", summary: "Server down" });
   });
 
-  test("invalid structured output is repaired once, then fails with KR5002", async () => {
+  test("invalid structured output is repaired once, then fails with IL5002", async () => {
     let calls = 0;
     const flaky = mockProvider({ respond: () => (++calls === 1 ? '{"priority":"meh","summary":"x"}' : '{"priority":"low","summary":"fixed"}') });
     const ai = createAI({ providers: { mock: flaky }, models: { fast: "mock:x" } });
@@ -36,7 +36,7 @@ describe("ai", () => {
     assert.match(flaky.calls[1]!.messages.at(-1)!.content, /does not match the schema/);
 
     const broken = createAI({ providers: { mock: mockProvider({ respond: () => "not json" }) }, models: { fast: "mock:x" } });
-    await assert.rejects(broken.generate({ model: "fast", prompt: "p", output: Triage }), (e: unknown) => e instanceof KairoError && e.code === "KR5002");
+    await assert.rejects(broken.generate({ model: "fast", prompt: "p", output: Triage }), (e: unknown) => e instanceof InferloError && e.code === "IL5002");
   });
 
   test("falls back to the next model on provider errors", async () => {
@@ -50,20 +50,20 @@ describe("ai", () => {
   test("does not fall back on auth errors", async () => {
     const failing = openai({ apiKey: "bad", fetch: async () => new Response("unauthorized", { status: 401 }) });
     const ai = createAI({ providers: { openai: failing, mock: mockProvider({ respond: () => "x" }) }, models: { fast: ["openai:gpt", "mock:m"] } });
-    await assert.rejects(ai.generate({ model: "fast", prompt: "x" }), /KR5006|401/);
+    await assert.rejects(ai.generate({ model: "fast", prompt: "x" }), /IL5006|401/);
   });
 
-  test("budgets block calls with KR5004", async () => {
+  test("budgets block calls with IL5004", async () => {
     const ai = createAI({ providers: { mock: mockProvider({ respond: () => "x" }) }, models: { fast: "mock:m" }, allow: ({ for: who }) => who !== "broke" });
     await ai.generate({ model: "fast", prompt: "x", for: "rich" });
-    await assert.rejects(ai.generate({ model: "fast", prompt: "x", for: "broke" }), (e: unknown) => e instanceof KairoError && e.code === "KR5004" && e.status === 402);
+    await assert.rejects(ai.generate({ model: "fast", prompt: "x", for: "broke" }), (e: unknown) => e instanceof InferloError && e.code === "IL5004" && e.status === 402);
   });
 
   test("helpful errors for unknown aliases and providers", async () => {
     const ai = createAI({ providers: { mock: mockProvider({ respond: () => "x" }) }, models: { fast: "mock:m" } });
     await assert.rejects(ai.generate({ model: "fsat", prompt: "x" }), /Did you mean "fast"/);
     await assert.rejects(ai.generate({ model: "openai:gpt", prompt: "x" }), /provider "openai" is not configured/);
-    await assert.rejects(createAI().generate({ prompt: "x" }), /KR5001|No AI providers/);
+    await assert.rejects(createAI().generate({ prompt: "x" }), /IL5001|No AI providers/);
   });
 
   test("streaming yields chunks and builds an SSE response", async () => {

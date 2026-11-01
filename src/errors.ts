@@ -1,15 +1,15 @@
 /**
- * Every error Kairo raises has a stable code, a plain cause, a suggested fix and a docs link.
+ * Every error Inferlo raises has a stable code, a plain cause, a suggested fix and a docs link.
  * Error codes never change meaning once released, so AI models and humans can rely on them.
  */
 
-export const DOCS_BASE = "https://github.com/BrowserlessAPI/kairo/blob/main/docs/errors.md";
+export const DOCS_BASE = "https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/errors.md";
 
 export function docsUrl(code: string): string {
   return `${DOCS_BASE}#${code.toLowerCase()}`;
 }
 
-export interface KairoErrorOptions {
+export interface InferloErrorOptions {
   status?: number;
   fix?: string;
   details?: unknown;
@@ -18,16 +18,16 @@ export interface KairoErrorOptions {
   expose?: boolean;
 }
 
-export class KairoError extends Error {
+export class InferloError extends Error {
   readonly code: string;
   readonly status: number;
   readonly fix: string | undefined;
   readonly details: unknown;
   readonly expose: boolean;
 
-  constructor(code: string, message: string, options: KairoErrorOptions = {}) {
+  constructor(code: string, message: string, options: InferloErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
-    this.name = `KairoError[${code}]`;
+    this.name = `InferloError[${code}]`;
     this.code = code;
     this.status = options.status ?? 500;
     this.fix = options.fix;
@@ -57,20 +57,20 @@ export class KairoError extends Error {
 }
 
 /** Throw from a handler to return an HTTP error with your own code and message. */
-export function httpError(status: number, message: string, options: { code?: string; fix?: string; details?: unknown } = {}): KairoError {
-  return new KairoError(options.code ?? `HTTP${status}`, message, { status, fix: options.fix, details: options.details, expose: true });
+export function httpError(status: number, message: string, options: { code?: string; fix?: string; details?: unknown } = {}): InferloError {
+  return new InferloError(options.code ?? `HTTP${status}`, message, { status, fix: options.fix, details: options.details, expose: true });
 }
 
-export function notFound(message = "Not found", details?: unknown): KairoError {
-  return new KairoError("KR4001", message, { status: 404, details });
+export function notFound(message = "Not found", details?: unknown): InferloError {
+  return new InferloError("IL4001", message, { status: 404, details });
 }
 
-export function forbidden(message = "You do not have permission to do this."): KairoError {
-  return new KairoError("KR3002", message, { status: 403 });
+export function forbidden(message = "You do not have permission to do this."): InferloError {
+  return new InferloError("IL3002", message, { status: 403 });
 }
 
-export function badRequest(message: string, details?: unknown): KairoError {
-  return new KairoError("HTTP400", message, { status: 400, details });
+export function badRequest(message: string, details?: unknown): InferloError {
+  return new InferloError("HTTP400", message, { status: 400, details });
 }
 
 /** Closest candidate by edit distance, used for "did you mean" hints. */

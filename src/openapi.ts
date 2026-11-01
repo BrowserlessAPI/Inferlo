@@ -9,7 +9,7 @@ const errorSchema: JSONSchema = {
     error: {
       type: "object",
       properties: {
-        code: { type: "string", examples: ["KR1001"] },
+        code: { type: "string", examples: ["IL1001"] },
         message: { type: "string" },
         fix: { type: "string" },
         details: {},
@@ -48,12 +48,12 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
       requestBody: o.body ? { required: !o.body.def.optional, content: { "application/json": { schema: o.body.toJSONSchema() } } } : undefined,
       responses: {
         "200": { description: "Success", content: o.response ? { "application/json": { schema: o.response.toJSONSchema() } } : undefined },
-        ...(o.body || o.query || o.params ? { "422": { description: "Validation failed (KR1001)", content: { "application/json": { schema: errorSchema } } } } : {}),
-        ...(!isPublic ? { "401": { description: "Sign in required (KR3001)", content: { "application/json": { schema: errorSchema } } } } : {}),
+        ...(o.body || o.query || o.params ? { "422": { description: "Validation failed (IL1001)", content: { "application/json": { schema: errorSchema } } } } : {}),
+        ...(!isPublic ? { "401": { description: "Sign in required (IL3001)", content: { "application/json": { schema: errorSchema } } } } : {}),
       },
       security: !isPublic && options.auth ? [{ bearerAuth: [] }] : undefined,
-      "x-kairo-auth": o.auth ?? "user",
-      "x-kairo-tool": o.tool ? toolName(route) : undefined,
+      "x-inferlo-auth": o.auth ?? "user",
+      "x-inferlo-tool": o.tool ? toolName(route) : undefined,
     };
     for (const key of Object.keys(operation)) if (operation[key] === undefined) delete operation[key];
     (paths[openPath] ??= {})[route.method.toLowerCase()] = operation;

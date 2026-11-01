@@ -1,4 +1,4 @@
 {
   "title": "Make a field required with a migration",
-  "prompt": "Every note should have a body: make the `body` field of notes required, with an empty string as its default, so notes created without a body get \"\". This project deploys with migrations: add the migration file migrations/0002_require_body.sql with exactly the SQL `kairo db migrate require_body --allow-change` would generate (existing notes with no body must get the default), and update migrations/snapshot.json the same way, so that running `kairo db migrate` afterwards finds no changes. You cannot run commands."
+  "prompt": "Every note should have a body: make the `body` field of notes required, with an empty string as its default, so notes created without a body get \"\". This project deploys with migrations: add the migration file migrations/0002_require_body.sql with exactly the SQL `inferlo db migrate require_body --allow-change` would generate (existing notes with no body must get the default), and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands."
 }

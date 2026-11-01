@@ -1,7 +1,7 @@
 # Routes
 
 ```ts
-import { route, t, notFound } from "@browserlessapi/kairo";
+import { route, t, notFound } from "@browserlessapi/inferlo";
 
 export const getTicket = route
   .get("/tickets/:id", {
@@ -55,7 +55,7 @@ Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
 ## Errors
 
 ```ts
-import { notFound, forbidden, badRequest, httpError } from "@browserlessapi/kairo";
+import { notFound, forbidden, badRequest, httpError } from "@browserlessapi/inferlo";
 
 throw notFound("Ticket not found");
 throw forbidden();
@@ -74,7 +74,7 @@ import * as users from "./routes/users.ts";
 createApp({ routes: [tickets, users] });
 ```
 
-The export name (`getTicket`) becomes the route name used by MCP tools, OpenAPI `operationId` and `kairo describe`.
+The export name (`getTicket`) becomes the route name used by MCP tools, OpenAPI `operationId` and `inferlo describe`.
 
 ## Middleware
 

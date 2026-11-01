@@ -1,20 +1,20 @@
 # AGENTS.md
 
-This is a [Kairo](https://github.com/BrowserlessAPI/kairo) backend. Kairo is a TypeScript backend framework designed so AI coding agents get things right the first time. Follow these rules.
+This is a [Inferlo](https://github.com/BrowserlessAPI/Inferlo) backend. Inferlo is a TypeScript backend framework designed so AI coding agents get things right the first time. Follow these rules.
 
 ## Before you change anything
 
 ```bash
-npx kairo describe --json   # every model, field, route, auth rule and AI alias
+npx inferlo describe --json   # every model, field, route, auth rule and AI alias
 ```
 
 Read that instead of searching the codebase. After every change run:
 
 ```bash
-npx kairo check --json      # typecheck + load the app + tests, machine-readable errors
+npx inferlo check --json      # typecheck + load the app + tests, machine-readable errors
 ```
 
-Do not finish until `kairo check` passes.
+Do not finish until `inferlo check` passes.
 
 ## Layout
 
@@ -34,10 +34,10 @@ Do not finish until `kairo check` passes.
 4. **Check ownership.** Fetch with `db.x.get(id)` (throws 404) and compare `ownerId` to `user.id`; throw `notFound()` when it does not match, so other users' ids are not revealed.
 5. **Never write raw SQL with string concatenation.** Use the table methods. If you really need SQL, use `db.$sql(text, params)` with `$1` placeholders.
 6. **Model ids, timestamps:** every model already has `id`, `createdAt`, `updatedAt`. Never define them or send them as input.
-7. **New field?** Add it to the model in `src/models.ts`, then run `npx kairo db push` in development, or `npx kairo db migrate <name>` to write a migration file for production (applied with `npx kairo db migrate --apply`). Use `.optional()` or `.default()` for new fields on existing tables. Never edit `migrations/snapshot.json`, and never edit a migration file that has been applied (`--apply` warns with KR4018 and does not run the change): put changes in a new migration. Removing a model or field needs `npx kairo db migrate <name> --allow-drop` (it deletes that data); never use it for a rename. Changing a field's default or making it required or optional needs `--allow-change`; give a newly required field a `.default()` so existing NULL rows get a value.
-8. **New resource?** `npx kairo add resource <plural_name>` generates the model and CRUD routes. Then edit them.
+7. **New field?** Add it to the model in `src/models.ts`, then run `npx inferlo db push` in development, or `npx inferlo db migrate <name>` to write a migration file for production (applied with `npx inferlo db migrate --apply`). Use `.optional()` or `.default()` for new fields on existing tables. Never edit `migrations/snapshot.json`, and never edit a migration file that has been applied (`--apply` warns with IL4018 and does not run the change): put changes in a new migration. Removing a model or field needs `npx inferlo db migrate <name> --allow-drop` (it deletes that data); never use it for a rename. Changing a field's default or making it required or optional needs `--allow-change`; give a newly required field a `.default()` so existing NULL rows get a value.
+8. **New resource?** `npx inferlo add resource <plural_name>` generates the model and CRUD routes. Then edit them.
 9. **AI calls** use aliases from `src/app.ts` (`model: "fast"`), never hard-coded provider model ids in routes. Use `output: schema` for structured data and `for: user.id` so usage is tracked per user.
-10. **Errors:** throw `notFound()`, `forbidden()`, `badRequest()` or `httpError(status, message)`. Every Kairo error has a code (KRxxxx), a fix and a docs link: read the fix before changing code.
+10. **Errors:** throw `notFound()`, `forbidden()`, `badRequest()` or `httpError(status, message)`. Every Inferlo error has a code (KRxxxx), a fix and a docs link: read the fix before changing code.
 11. **Imports:** relative imports end in `.ts` (`import { Note } from "../models.ts"`).
 12. **Expose to AI agents:** add `tool: true` to a route to make it an MCP tool at `/mcp`. Same auth applies.
 
@@ -45,9 +45,9 @@ Do not finish until `kairo check` passes.
 
 ```ts
 const res = await app.request("/notes", { method: "POST", json: { title: "Hi" }, as: user });
-const note = await readJson(res, 201);   // from "@browserlessapi/kairo/testing"
+const note = await readJson(res, 201);   // from "@browserlessapi/inferlo/testing"
 ```
 
 Use `memory()` for the database and `mockProvider()` for AI in tests.
 
-Full docs: https://github.com/BrowserlessAPI/kairo/tree/main/docs
+Full docs: https://github.com/BrowserlessAPI/Inferlo/tree/main/docs

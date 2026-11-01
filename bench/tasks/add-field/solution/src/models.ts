@@ -1,4 +1,4 @@
-import { model, t } from "@browserlessapi/kairo";
+import { model, t } from "@browserlessapi/inferlo";
 
 export const User = model("users", {
   email: t.email().unique(),
@@ -19,12 +19,12 @@ export const Note = model("notes", {
   ownerId: t.ref("users", { onDelete: "cascade" }),
 });
 
-// kairo:models
+// inferlo:models
 export const models = [User, ApiKey, Note] as const;
 
 export type AppUser = { id: string; email: string; name: string; roles: string[] };
 
-declare module "@browserlessapi/kairo" {
+declare module "@browserlessapi/inferlo" {
   interface Register {
     models: typeof models;
     user: AppUser;

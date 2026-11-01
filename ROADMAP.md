@@ -4,19 +4,19 @@ The scheduled maintainer works through this list top to bottom. Each item should
 
 ## 0.2: Production essentials
 
-- [x] `kairo db migrate` part 1: generate versioned SQL migration files for additive model changes (new tables, columns, indexes) from `migrations/snapshot.json`, plus `kairo db migrate --apply`
-- [x] `kairo db migrate` part 2: drops of tables, columns and indexes behind explicit confirmation (`--allow-drop`)
-- [x] `kairo db migrate` part 3: checksum warning when an applied migration file was edited
-- [x] `kairo db migrate` part 4a: structured column descriptions in snapshot.json (kairo: 2) with an upgrade path for kairo: 1 snapshots, and KR4013 saying what changed in each column
-- [x] `kairo db migrate` part 4b: generate default and required/optional changes (`SET DEFAULT`, `DROP DEFAULT`, `DROP NOT NULL`, `SET NOT NULL`) behind explicit confirmation (`--allow-change`), with a KR code when existing NULL rows would block `SET NOT NULL`
-- [ ] `kairo db migrate` part 4c: type and enum value changes (`ALTER COLUMN ... TYPE ... USING`, replacing the enum CHECK constraint) and reference changes behind `--allow-change`
-- [ ] `kairo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
+- [x] `inferlo db migrate` part 1: generate versioned SQL migration files for additive model changes (new tables, columns, indexes) from `migrations/snapshot.json`, plus `inferlo db migrate --apply`
+- [x] `inferlo db migrate` part 2: drops of tables, columns and indexes behind explicit confirmation (`--allow-drop`)
+- [x] `inferlo db migrate` part 3: checksum warning when an applied migration file was edited
+- [x] `inferlo db migrate` part 4a: structured column descriptions in snapshot.json (inferlo: 2) with an upgrade path for inferlo: 1 snapshots, and IL4013 saying what changed in each column
+- [x] `inferlo db migrate` part 4b: generate default and required/optional changes (`SET DEFAULT`, `DROP DEFAULT`, `DROP NOT NULL`, `SET NOT NULL`) behind explicit confirmation (`--allow-change`), with a KR code when existing NULL rows would block `SET NOT NULL`
+- [ ] `inferlo db migrate` part 4c: type and enum value changes (`ALTER COLUMN ... TYPE ... USING`, replacing the enum CHECK constraint) and reference changes behind `--allow-change`
+- [ ] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [ ] Relations: `db.tickets.findMany({ include: { owner: true } })` for `t.ref` fields, typed results, one extra query per relation (no N+1)
 - [ ] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`
 - [ ] Rate limiting: `route.post(path, { rateLimit: { max: 10, per: "minute", by: "user" | "ip" } })` with memory and Postgres stores, KR code for 429
 - [ ] Cookie sessions: `sessions({ secret })` auth helper with signed, HttpOnly cookies and CSRF protection for forms
-- [ ] Background jobs: `job("send-email", { input: schema }).handle(fn)`, `ctx.jobs.enqueue(...)`, Postgres-backed queue with retries and `kairo worker`
-- [ ] Cron: `cron("0 * * * *", handler)` running in `kairo worker`
+- [ ] Background jobs: `job("send-email", { input: schema }).handle(fn)`, `ctx.jobs.enqueue(...)`, Postgres-backed queue with retries and `inferlo worker`
+- [ ] Cron: `cron("0 * * * *", handler)` running in `inferlo worker`
 - [ ] Structured request logging with request ids and timing, JSON output option
 - [ ] Response validation in development mode (warn when a handler returns data that does not match `response`)
 - [ ] Deno test run in CI
@@ -28,17 +28,17 @@ The scheduled maintainer works through this list top to bottom. Each item should
 - [ ] Vector search on Postgres pgvector: `t.vector(1536)` field and `db.x.search({ vector, limit })`
 - [ ] RAG helper: chunk, embed and search documents in one call
 - [ ] Prompt files: versioned prompts in `src/prompts/*.md` with typed variables
-- [ ] Evals: `kairo test --evals` runs prompt test cases against real models and reports pass rate and cost
+- [ ] Evals: `inferlo test --evals` runs prompt test cases against real models and reports pass rate and cost
 - [ ] Response caching for identical AI calls (opt in, TTL)
 - [ ] Native structured output for Anthropic and Gemini when available
 
 ## 0.4: Developer experience for AI agents
 
-- [ ] Dev MCP server: `kairo dev --mcp` exposes describe, check, db schema, logs and test runs as MCP tools for coding agents
-- [ ] `kairo add route`, `kairo add model`, `kairo add test` generators
-- [ ] Typed client SDK: `kairo client --out client.ts` generates a fully typed fetch client from the app
+- [ ] Dev MCP server: `inferlo dev --mcp` exposes describe, check, db schema, logs and test runs as MCP tools for coding agents
+- [ ] `inferlo add route`, `inferlo add model`, `inferlo add test` generators
+- [ ] Typed client SDK: `inferlo client --out client.ts` generates a fully typed fetch client from the app
 - [ ] `llms.txt` and `AGENTS.md` generated per app from `describe()`
-- [ ] Docs website with WebSite structured data (name "Kairo", alternateName "Kairo Framework"), matching title, og:site_name and headings; every page also served as Markdown
+- [ ] Docs website with WebSite structured data (name "Inferlo", alternateName "Inferlo Framework"), matching title, og:site_name and headings; every page also served as Markdown
 
 ## Benchmark
 
@@ -49,5 +49,5 @@ The scheduled maintainer works through this list top to bottom. Each item should
 ## Release
 
 - [x] Release workflow: tag `v*` runs every check and publishes to npm with provenance (needs the NPM_TOKEN secret)
-- [x] Publish as `@browserlessapi/kairo` on npm and use it in `kairo new` and the docs
+- [x] Publish as `@browserlessapi/inferlo` on npm and use it in `inferlo new` and the docs
 - [ ] Before January 2027: move publishing to npm trusted publishing (OIDC), because npm is removing direct publish from bypass-2FA tokens (needs the owner to configure it on npmjs.com)

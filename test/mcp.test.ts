@@ -26,7 +26,7 @@ describe("mcp, openapi and describe", () => {
     const a = await (app.db as any).authors.insert({ name: "A", email: "mcp@x.io" });
     const anon = await readJson(await app.request("/mcp", { method: "POST", json: rpc("tools/call", { name: "createPost", arguments: { title: "t", body: "b", authorId: a.id } }) }), 200);
     assert.equal(anon.result.isError, true);
-    assert.match(anon.result.content[0].text, /KR3001/);
+    assert.match(anon.result.content[0].text, /IL3001/);
 
     const ok = await readJson(
       await app.request("/mcp", { method: "POST", headers: { authorization: "Bearer bob" }, json: rpc("tools/call", { name: "createPost", arguments: { title: "t", body: "b", authorId: a.id } }) }),

@@ -1,11 +1,11 @@
 # AI
 
-Kairo's AI module gives every route one API for every model provider, with aliases, automatic fallback, typed structured output, streaming, embeddings, usage tracking and budgets.
+Inferlo's AI module gives every route one API for every model provider, with aliases, automatic fallback, typed structured output, streaming, embeddings, usage tracking and budgets.
 
 ## Configure
 
 ```ts
-import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "@browserlessapi/kairo";
+import { createApp, env, anthropic, openai, gemini, ollama, openaiCompatible } from "@browserlessapi/inferlo";
 
 createApp({
   ai: {
@@ -22,7 +22,7 @@ createApp({
       smart: ["anthropic:claude-sonnet-4-5", "openai:gpt-5"],
       embed: "openai:text-embedding-3-small",
     },
-    // Optional: USD per million tokens, for cost tracking. Kairo ships no prices because they change.
+    // Optional: USD per million tokens, for cost tracking. Inferlo ships no prices because they change.
     pricing: { "anthropic:claude-haiku-4-5": { input: 1, output: 5 } },
     onUsage: (usage) => console.log(usage),
     allow: async ({ for: userId }) => (await credits(userId)) > 0,
@@ -57,7 +57,7 @@ const { object } = await ai.generate({ model: "fast", prompt: ticket.body, outpu
 object.priority; // "low" | "normal" | "urgent"
 ```
 
-Kairo sends the JSON Schema to the model, extracts the JSON (tolerating code fences), validates it, and if it does not match, asks the model once to fix it, quoting the exact problems. If it still fails you get KR5002. Model fields can be reused directly: `priority: Ticket.fields.priority`.
+Inferlo sends the JSON Schema to the model, extracts the JSON (tolerating code fences), validates it, and if it does not match, asks the model once to fix it, quoting the exact problems. If it still fails you get IL5002. Model fields can be reused directly: `priority: Ticket.fields.priority`.
 
 ## Streaming
 
@@ -78,12 +78,12 @@ cosineSimilarity(embeddings[0], embeddings[1]);
 
 ## Usage and budgets
 
-Every call reports a `Usage` record (`requested`, `model` that answered, `inputTokens`, `outputTokens`, `cost`, `for`, `kind`, `durationMs`) to `onUsage`. Store it to bill customers. When `for` is set, `allow` is called first; returning false raises KR5004 (HTTP 402).
+Every call reports a `Usage` record (`requested`, `model` that answered, `inputTokens`, `outputTokens`, `cost`, `for`, `kind`, `durationMs`) to `onUsage`. Store it to bill customers. When `for` is set, `allow` is called first; returning false raises IL5004 (HTTP 402).
 
 ## Testing
 
 ```ts
-import { mockProvider } from "@browserlessapi/kairo";
+import { mockProvider } from "@browserlessapi/inferlo";
 
 ai: { providers: { mock: mockProvider({ respond: () => '{"priority":"urgent","summary":"Down"}' }) }, models: { fast: "mock:test" } }
 ```

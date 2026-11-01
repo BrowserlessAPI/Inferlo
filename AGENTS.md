@@ -1,10 +1,10 @@
-# AGENTS.md: working on the Kairo framework itself
+# AGENTS.md: working on the Inferlo framework itself
 
-This file is for AI agents and contributors changing the framework in this repository. (Apps built with Kairo get their own AGENTS.md from `templates/app/AGENTS.md`.)
+This file is for AI agents and contributors changing the framework in this repository. (Apps built with Inferlo get their own AGENTS.md from `templates/app/AGENTS.md`.)
 
 ## Goal
 
-Kairo is the TypeScript backend framework with built-in AI model support. Its core promise is first-class support for AI models (providers, fallback, structured output, streaming, embeddings, usage tracking, MCP). It is also designed so AI coding tools write correct Kairo code easily. Every change must keep AI model support strong and simple, and must not make Kairo harder to use for people or for AI coding tools. When in doubt, choose the option a model would guess correctly without reading docs.
+Inferlo is the TypeScript backend framework with built-in AI model support. Its core promise is first-class support for AI models (providers, fallback, structured output, streaming, embeddings, usage tracking, MCP). It is also designed so AI coding tools write correct Inferlo code easily. Every change must keep AI model support strong and simple, and must not make Inferlo harder to use for people or for AI coding tools. When in doubt, choose the option a model would guess correctly without reading docs.
 
 ## Design rules (do not break these)
 
@@ -12,7 +12,7 @@ Kairo is the TypeScript backend framework with built-in AI model support. Its co
 2. **No hidden behaviour.** No decorators, no dependency injection containers, no global registries, no import side effects.
 3. **Familiar shapes.** Stay close to Hono (routes) and Zod (schemas), which models already know.
 4. **Secure by default.** Routes private unless `auth: "public"`. Every database value parameterised. Every insert and update validated.
-5. **Errors explain the fix.** Every new error uses `KairoError` with a new stable code (`KRxxxx`), a plain message, a `fix`, and an entry in `docs/errors.md`. Never reuse or change the meaning of an existing code.
+5. **Errors explain the fix.** Every new error uses `InferloError` with a new stable code (`KRxxxx`), a plain message, a `fix`, and an entry in `docs/errors.md`. Never reuse or change the meaning of an existing code.
 6. **Zero runtime dependencies.** `pg` stays an optional peer dependency. Do not add runtime dependencies.
 7. **Runs everywhere.** Use Web APIs (fetch, Request, Response, Web Crypto, streams). Node-only APIs only in `src/serve.ts` and `src/cli/`.
 8. **Stable API.** Do not rename or remove public exports. Deprecate first, with a migration note in CHANGELOG.md.
@@ -34,8 +34,8 @@ src/
   openapi.ts       OpenAPI 3.1
   describe.ts      app map
   auth.ts          bearer(), tokens, password hashing
-  cli/main.ts      kairo CLI
-templates/app/     project created by `kairo new`
+  cli/main.ts      inferlo CLI
+templates/app/     project created by `inferlo new`
 examples/          example apps with tests
 docs/              documentation (source for llms-full.txt)
 bench/             AI success benchmark
@@ -44,7 +44,7 @@ test/              framework tests
 
 ## Supported versions (test oldest and latest)
 
-Every runtime, database and language Kairo supports is tested in CI at its **oldest supported version** and its **latest version**, and every PostgreSQL major version that is still supported upstream is tested. The matrix lives in `.github/workflows/ci.yml`; CI also runs weekly so new upstream releases are tested even when Kairo did not change.
+Every runtime, database and language Inferlo supports is tested in CI at its **oldest supported version** and its **latest version**, and every PostgreSQL major version that is still supported upstream is tested. The matrix lives in `.github/workflows/ci.yml`; CI also runs weekly so new upstream releases are tested even when Inferlo did not change.
 
 | Component | Oldest tested | Latest tested |
 |---|---|---|
@@ -57,8 +57,8 @@ Rules:
 
 1. When a new major version is released (Node, Bun, PostgreSQL, TypeScript, or any database or runtime added later, such as MySQL or Deno), add it to the matrix before or together with the next change.
 2. When a version reaches end of life upstream, move "oldest tested" forward, update `engines`, README and docs/getting-started.md, and note it in CHANGELOG.md under "Breaking".
-3. Never drop or skip a version just to make CI pass. If a version fails, fix Kairo for it.
-4. Anything new Kairo starts supporting (a database adapter, a runtime) gets its oldest supported and latest versions in the matrix in the same change.
+3. Never drop or skip a version just to make CI pass. If a version fails, fix Inferlo for it.
+4. Anything new Inferlo starts supporting (a database adapter, a runtime) gets its oldest supported and latest versions in the matrix in the same change.
 5. Local runs cover one version; CI covers the full matrix. A change is only done when every CI job is green.
 
 ## Checks (all must pass before every commit)
@@ -67,7 +67,7 @@ Rules:
 npm run typecheck                    # framework + examples
 npm test                             # node:test, includes examples
 bun test test/                       # Bun compatibility
-KAIRO_TEST_DATABASE_URL=postgres://... npm test   # PostgreSQL adapter tests
+INFERLO_TEST_DATABASE_URL=postgres://... npm test   # PostgreSQL adapter tests
 npm run build                        # emits dist/
 node scripts/build-llms.ts --check   # llms-full.txt is up to date
 ```
@@ -88,6 +88,6 @@ If you change docs, run `npm run llms` to regenerate `llms-full.txt`.
 Releases are published to npm by `.github/workflows/release.yml` when a commit on main changes `package.json` to a version that is not on npm yet. The workflow also creates the `vX.Y.Z` tag and GitHub release, so never push tags yourself. Release at most once a week, and only when the latest CI run on main is green and CHANGELOG.md has entries under "Unreleased":
 
 1. Choose the version: before 1.0, bump the minor version (0.2.0) if anything under "Unreleased" adds features or is breaking, otherwise the patch version (0.1.1).
-2. Set it in `package.json` and `src/describe.ts` (`KAIRO_VERSION`), move the "Unreleased" entries under `## X.Y.Z - YYYY-MM-DD`, leave an empty "Unreleased" heading, and run all checks.
+2. Set it in `package.json` and `src/describe.ts` (`INFERLO_VERSION`), move the "Unreleased" entries under `## X.Y.Z - YYYY-MM-DD`, leave an empty "Unreleased" heading, and run all checks.
 3. Commit as `release: vX.Y.Z` and push to main. That starts the Release workflow.
-4. Check that the Release workflow succeeded and `npm view @browserlessapi/kairo version` shows the new version. If it failed for a code reason, fix it and push; the workflow retries on the next package.json change, or run it by hand with `gh workflow run release.yml`.
+4. Check that the Release workflow succeeded and `npm view @browserlessapi/inferlo version` shows the new version. If it failed for a code reason, fix it and push; the workflow retries on the next package.json change, or run it by hand with `gh workflow run release.yml`.

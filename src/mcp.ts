@@ -5,7 +5,7 @@
  * header is forwarded.
  */
 import type { App } from "./app.ts";
-import { KairoError } from "./errors.ts";
+import { InferloError } from "./errors.ts";
 import type { RouteDef } from "./route.ts";
 import type { JSONSchema } from "./schema.ts";
 
@@ -145,7 +145,7 @@ async function callTool(app: App<any>, tool: ToolDefinition, args: Record<string
     } else body[k] = v;
   }
   if (keys.some((k) => path.includes(`:${k}`))) {
-    return new Response(JSON.stringify(new KairoError("KR1001", `Missing path parameter for ${route.path}.`, { status: 422 }).toJSON()), { status: 422 });
+    return new Response(JSON.stringify(new InferloError("IL1001", `Missing path parameter for ${route.path}.`, { status: 422 }).toJSON()), { status: 422 });
   }
   const url = new URL(path, original.url);
   url.search = query.toString();
