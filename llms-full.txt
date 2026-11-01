@@ -386,6 +386,7 @@ kairo db push             # create missing tables, columns and indexes
 kairo db migrate add_due_dates   # write migrations/0002_add_due_dates.sql for your model changes
 kairo db migrate --dry-run       # print the SQL without writing anything
 kairo db migrate drop_color --allow-drop   # include drops of tables, columns and indexes (deletes data)
+kairo db migrate require_body --allow-change   # include default and required/optional changes
 kairo db migrate --apply         # run pending migration files against DATABASE_URL
 ```
 
@@ -396,7 +397,9 @@ kairo db migrate --apply         # run pending migration files against DATABASE_
 - Generated statements use `IF NOT EXISTS`, so the first migration also works on a database created with `db push`.
 - New tables, columns and indexes are generated directly. A new required column on an existing table raises KR4014: give it a fixed `.default(value)` or make it `.optional()`.
 - Removing a model, field, `.unique()` or `.index()` drops data, so it raises KR4017 and nothing is written, unless you pass `--allow-drop`. Then the file gets `DROP INDEX`, `ALTER TABLE ... DROP COLUMN` and `DROP TABLE` statements (without `CASCADE`) and a warning comment, and `--json` output lists them in `drops`. Back up before applying it.
-- Renames and changed columns (type, required, default, enum values, reference) are not generated yet: they raise KR4013 and nothing is written. The message says what changed in each column, for example `change column posts.title (type varchar(120) -> varchar(200))`, and `details.columns` lists the same as `{ table, column, changes }`. A rename looks like a drop plus an add; do not use `--allow-drop` for a rename, or the column's data is lost.
+- Changing a field's default or making it required or optional raises KR4019 and nothing is written, unless you pass `--allow-change`. Then the file gets `ALTER TABLE ... ALTER COLUMN ...` with `SET DEFAULT`, `DROP DEFAULT`, `SET NOT NULL` or `DROP NOT NULL`, and `--json` output lists the changes in `changes`, for example `change column notes.body (optional -> required, default none -> '')`. A function default (`.default(() => ...)`) is filled in by Kairo, not the database, so it counts as no default (`DROP DEFAULT`).
+- Making a field required: if it has a fixed `.default(value)`, rows that are NULL get that value first (`UPDATE ... WHERE ... IS NULL`), as for a new required column. Without a default, `--apply` fails with KR4020 if any row is still NULL, and nothing from that migration is kept. Add an `UPDATE` that fills them before the `SET NOT NULL` (only in a file that has not been applied anywhere), or give the field a default.
+- Renames and other column changes (type, enum values, reference) are not generated yet: they raise KR4013 and nothing is written. The message says what changed in each column, for example `change column posts.title (type varchar(120) -> varchar(200))`, and `details.columns` lists the same as `{ table, column, changes }`. A rename looks like a drop plus an add; do not use `--allow-drop` for a rename, or the column's data is lost.
 - `snapshot.json` describes each column as `{ type, notNull, default?, enum?, references?, primaryKey? }` (format `"kairo": 2`). Snapshots written by Kairo 0.2.0 (`"kairo": 1`, each column as SQL text) are read as they are and saved in the new format with the next generated migration. Do not edit the snapshot by hand; an invalid one raises KR4015.
 
 To apply migrations from code, for example at startup in a serverless function:
@@ -410,12 +413,12 @@ await applyMigrations(app.db, [{ name: "0001_init", sql: initSql }]);   // retur
 await applyMigrations(app.db, migrations, { onEdited: (names) => console.warn("Edited after apply:", names) });
 ```
 
-To generate SQL from code, use `planMigration(models, snapshot, { allowDrop })`. It returns `{ statements, snapshot, drops }`:
+To generate SQL from code, use `planMigration(models, snapshot, { allowDrop, allowChange })`. It returns `{ statements, snapshot, drops, changes }`:
 
 ```ts
 import { planMigration } from "@browserlessapi/kairo";
 
-const plan = planMigration(models, previousSnapshot, { allowDrop: true });   // allowDrop defaults to false
+const plan = planMigration(models, previousSnapshot, { allowDrop: true });   // allowDrop and allowChange default to false
 ```
 
 ## Transactions and raw SQL (Postgres)
@@ -731,7 +734,7 @@ kairo dev                    Run src/server.ts and restart on changes
 kairo describe [--json]      App map: models, routes, auth, AI
 kairo check [--json]         Typecheck, load the app, run tests
 kairo db push [--dry-run]    Create missing tables, columns and indexes
-kairo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops)
+kairo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops, --allow-change to include default and required changes)
 kairo db migrate --apply     Run pending migration files
 kairo openapi [--out file]   Print or write the OpenAPI document
 kairo add resource <name>    Generate a model and CRUD routes
@@ -763,7 +766,7 @@ Agents should run this after every change and not stop until `ok` is `true`.
 { "ok": true, "dryRun": false, "file": "migrations/0002_add_due_dates.sql", "statements": ["ALTER TABLE \"tasks\" ADD COLUMN IF NOT EXISTS \"due_at\" timestamptz"], "drops": [] }
 ```
 
-`file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`. `kairo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"], "edited": [] }`. `edited` lists migrations that were applied earlier but whose file has changed since (warning KR4018); they are not run again. See [Migrations](database.md#migrations).
+`file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`, and `changes` lists the column changes (only with `--allow-change`), e.g. `["change column tasks.done (default false -> none)"]`. `kairo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"], "edited": [] }`. `edited` lists migrations that were applied earlier but whose file has changed since (warning KR4018); they are not run again. See [Migrations](database.md#migrations).
 
 ## kairo add resource invoices
 
@@ -994,7 +997,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
 ### KR4013
-**Migration change not supported yet.** `kairo db migrate` generates new tables, columns and indexes, and drops with `--allow-drop`. Your models change an existing column (type, required, default, enum values, reference) or index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
+**Migration change not supported yet.** `kairo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and default and required changes with `--allow-change` (KR4019). Your models change an existing column's type, enum values or reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
 
 ### KR4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
@@ -1010,6 +1013,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### KR4018
 **Applied migration file was edited** (warning, not an error). `kairo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `kairo db migrate <name>`.
+
+### KR4019
+**Migration changes columns.** Your models change the default of an existing column or make it required or optional. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `kairo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
+
+### KR4020
+**Migration makes a column required, but rows have NULL in it.** `kairo db migrate --apply` ran `SET NOT NULL` (or another statement that needs a value) and the column still has NULL rows. The migration was rolled back and not recorded. `details` has `migration`, `table` and `column`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = <value> WHERE "column" IS NULL;` before the `SET NOT NULL`, or give the field a fixed `.default(value)` and generate the migration again. Or keep the field optional.
 
 ## CLI (8xxx)
 

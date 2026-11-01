@@ -185,37 +185,102 @@ describe("migration snapshot format (kairo: 2)", () => {
   test("KR4013 says what changed in each column, for kairo: 1 and kairo: 2 snapshots", () => {
     const Post2 = model("posts", {
       ...Post.fields,
-      title: t.string().min(1).max(200),
-      views: t.int().default(1),
-      rating: t.number(),
+      title: t.string().min(1).max(200).default("Untitled"),
       kind: t.enum(["note", "article", "page"]).default("note"),
       authorId: t.ref("authors"),
     });
     for (const previous of [planMigration(models).snapshot, v1Snapshot(models)]) {
+      for (const options of [undefined, { allowChange: true }]) {
+        assert.throws(
+          () => planMigration([Author, Post2], previous, options),
+          (e: unknown) => {
+            if (!(e instanceof KairoError) || e.code !== "KR4013") return false;
+            const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
+            assert.deepEqual(details.changes, ["change column posts.title", "change column posts.kind", "change column posts.author_id"]);
+            assert.deepEqual(details.columns, [
+              { table: "posts", column: "title", changes: ["type varchar(120) -> varchar(200)", "default none -> 'Untitled'"] },
+              { table: "posts", column: "kind", changes: ["enum values 'note', 'article' -> 'note', 'article', 'page'"] },
+              { table: "posts", column: "author_id", changes: ["reference authors on delete cascade -> authors on delete restrict"] },
+            ]);
+            assert.match(e.message, /posts\.title \(type varchar\(120\) -> varchar\(200\), default none -> 'Untitled'\)/);
+            return true;
+          },
+        );
+      }
+    }
+  });
+});
+
+describe("default and required changes (allowChange)", () => {
+  const Post2 = model("posts", {
+    ...Post.fields,
+    views: t.int().default(1),
+    rating: t.number().default(3),
+    published: t.boolean(),
+    body: t.text().optional(),
+    meta: t.json<{ source?: string }>(),
+  });
+
+  test("are refused without allowChange (KR4019) and listed, for kairo: 1 and kairo: 2 snapshots", () => {
+    for (const previous of [planMigration(models).snapshot, v1Snapshot(models)]) {
       assert.throws(
-        () => planMigration([Author, Post2], previous),
+        () => planMigration([Author, Post2], previous, { allowDrop: true }),
         (e: unknown) => {
-          if (!(e instanceof KairoError) || e.code !== "KR4013") return false;
+          if (!(e instanceof KairoError) || e.code !== "KR4019") return false;
           const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
-          assert.deepEqual(details.changes, [
-            "change column posts.title",
-            "change column posts.views",
-            "change column posts.rating",
-            "change column posts.kind",
-            "change column posts.author_id",
-          ]);
           assert.deepEqual(details.columns, [
-            { table: "posts", column: "title", changes: ["type varchar(120) -> varchar(200)"] },
+            { table: "posts", column: "body", changes: ["required -> optional"] },
             { table: "posts", column: "views", changes: ["default 0 -> 1"] },
-            { table: "posts", column: "rating", changes: ["optional -> required"] },
-            { table: "posts", column: "kind", changes: ["enum values 'note', 'article' -> 'note', 'article', 'page'"] },
-            { table: "posts", column: "author_id", changes: ["reference authors on delete cascade -> authors on delete restrict"] },
+            { table: "posts", column: "rating", changes: ["optional -> required", "default none -> 3"] },
+            { table: "posts", column: "published", changes: ["default false -> none"] },
+            { table: "posts", column: "meta", changes: ["optional -> required"] },
           ]);
-          assert.match(e.message, /posts\.title \(type varchar\(120\) -> varchar\(200\)\)/);
+          assert.deepEqual(details.changes, [
+            "change column posts.body (required -> optional)",
+            "change column posts.views (default 0 -> 1)",
+            "change column posts.rating (optional -> required, default none -> 3)",
+            "change column posts.published (default false -> none)",
+            "change column posts.meta (optional -> required)",
+          ]);
+          assert.match(e.message, /posts\.views \(default 0 -> 1\)/);
+          assert.match(e.fix ?? "", /--allow-change/);
           return true;
         },
       );
     }
+  });
+
+  test("allowChange generates SET/DROP DEFAULT and SET/DROP NOT NULL, filling NULL rows with a new default", () => {
+    const first = planMigration(models);
+    const plan = planMigration([Author, Post2], first.snapshot, { allowChange: true });
+    assert.deepEqual(plan.statements, [
+      'ALTER TABLE "posts" ALTER COLUMN "body" DROP NOT NULL',
+      'ALTER TABLE "posts" ALTER COLUMN "views" SET DEFAULT 1',
+      'ALTER TABLE "posts" ALTER COLUMN "rating" SET DEFAULT 3',
+      'UPDATE "posts" SET "rating" = 3 WHERE "rating" IS NULL',
+      'ALTER TABLE "posts" ALTER COLUMN "rating" SET NOT NULL',
+      'ALTER TABLE "posts" ALTER COLUMN "published" DROP DEFAULT',
+      'ALTER TABLE "posts" ALTER COLUMN "meta" SET NOT NULL',
+    ]);
+    assert.deepEqual(plan.changes, [
+      "change column posts.body (required -> optional)",
+      "change column posts.views (default 0 -> 1)",
+      "change column posts.rating (optional -> required, default none -> 3)",
+      "change column posts.published (default false -> none)",
+      "change column posts.meta (optional -> required)",
+    ]);
+    assert.deepEqual(plan.drops, []);
+    assert.deepEqual(plan.snapshot.tables.posts!.columns.rating, { type: "double precision", notNull: true, default: "3" });
+    const again = planMigration([Author, Post2], plan.snapshot);
+    assert.deepEqual(again.statements, []);
+    assert.deepEqual(again.changes, []);
+  });
+
+  test("a function default counts as no database default", () => {
+    const first = planMigration(models);
+    const Post3 = model("posts", { ...Post.fields, kind: t.enum(["note", "article"]).default(() => "note" as const) });
+    const plan = planMigration([Author, Post3], first.snapshot, { allowChange: true });
+    assert.deepEqual(plan.statements, ['ALTER TABLE "posts" ALTER COLUMN "kind" DROP DEFAULT']);
   });
 });
 
@@ -237,7 +302,7 @@ if (PG_URL) {
     const MigUser = model("mig_users", { email: t.email().unique() });
     const MigTag = model("mig_tags", { label: t.string().max(30), userId: t.ref("mig_users") });
     const db = createDb([MigUser, MigTag], postgres({ url: PG_URL }));
-    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "half_done", "kairo_migrations" CASCADE');
+    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "half_done", "kairo_migrations" CASCADE');
     before(reset);
     after(async () => {
       await reset();
@@ -304,6 +369,39 @@ if (PG_URL) {
       assert.match(String(rows[0]?.checksum), /^[0-9a-f]{64}$/);
       await applyMigrations(db, [{ name: "0020_old", sql: "SELECT 2;" }], { onEdited });
       assert.deepEqual(calls, [["0020_old"]]);
+    });
+
+    test("an allowChange migration changes defaults and required, and NULL rows block SET NOT NULL (KR4020)", async () => {
+      const Doc = model("mig_docs", { title: t.string().max(50).optional(), state: t.string().max(10).default("draft"), score: t.int().optional() });
+      const first = planMigration([Doc]);
+      await applyMigrations(db, [{ name: "0030_docs", sql: first.statements.join(";\n\n") + ";\n" }]);
+      await db.$sql(`INSERT INTO "mig_docs" ("id", "title") VALUES ('${crypto.randomUUID()}', NULL)`);
+
+      const Doc2 = model("mig_docs", { title: t.string().max(50), state: t.string().max(10).nullable().default("draft"), score: t.int().default(5) });
+      const plan = planMigration([Doc2], first.snapshot, { allowChange: true });
+      const blocked = [{ name: "0031_required", sql: plan.statements.join(";\n\n") + ";\n" }];
+      await assert.rejects(applyMigrations(db, blocked), (e: unknown) => {
+        if (!(e instanceof KairoError) || e.code !== "KR4020") return false;
+        assert.deepEqual(e.details, { migration: "0031_required", table: "mig_docs", column: "title" });
+        assert.match(e.message, /mig_docs\.title/);
+        assert.match(e.fix ?? "", /UPDATE "mig_docs" SET "title" = .* WHERE "title" IS NULL/);
+        return true;
+      });
+      const recorded = await db.$sql(`SELECT 1 FROM "kairo_migrations" WHERE "name" = '0031_required'`);
+      assert.equal(recorded.length, 0);
+
+      await db.$sql(`UPDATE "mig_docs" SET "title" = 'x' WHERE "title" IS NULL`);
+      assert.deepEqual(await applyMigrations(db, blocked), ["0031_required"]);
+      const rows = await db.$sql(`SELECT "title", "state", "score" FROM "mig_docs"`);
+      assert.deepEqual(rows, [{ title: "x", state: "draft", score: 5 }]);
+      const columns = await db.$sql(
+        `SELECT column_name, is_nullable, column_default FROM information_schema.columns WHERE table_name = 'mig_docs' AND column_name IN ('title', 'state', 'score') ORDER BY column_name`,
+      );
+      assert.deepEqual(columns, [
+        { column_name: "score", is_nullable: "NO", column_default: "5" },
+        { column_name: "state", is_nullable: "YES", column_default: "'draft'::character varying" },
+        { column_name: "title", is_nullable: "NO", column_default: null },
+      ]);
     });
 
     test("a failing migration is rolled back and not recorded", async () => {
@@ -431,6 +529,28 @@ describe("kairo db migrate (CLI)", () => {
     assert.match(sql, /ALTER TABLE "notes" DROP COLUMN IF EXISTS "title"/);
     assert.match(sql, /deletes data/);
     assert.deepEqual(cli("db", "migrate").out.statements, []);
+  });
+
+  test("default and required changes need --allow-change (KR4019), then are written and listed", () => {
+    writeModels(["done: t.boolean()"]);
+    const refused = cli("db", "migrate", "no default");
+    assert.equal(refused.status, 1);
+    assert.equal(refused.out.error.code, "KR4019");
+    assert.equal(readdirSync(path.join(dir, "migrations")).length, 4);
+
+    const r = cli("db", "migrate", "no default", "--allow-change");
+    assert.equal(r.status, 0, JSON.stringify(r.out));
+    assert.equal(r.out.file, "migrations/0004_no_default.sql");
+    assert.deepEqual(r.out.changes, ["change column notes.done (default false -> none)"]);
+    assert.deepEqual(r.out.drops, []);
+    const sql = readFileSync(path.join(dir, "migrations", "0004_no_default.sql"), "utf8");
+    assert.match(sql, /ALTER TABLE "notes" ALTER COLUMN "done" DROP DEFAULT/);
+    assert.match(sql, /-- This migration changes columns: change column notes\.done \(default false -> none\)/);
+    assert.deepEqual(cli("db", "migrate").out.statements, []);
+    writeModels(["done: t.boolean().default(false)"]);
+    const back = cli("db", "migrate", "default again", "--allow-change");
+    assert.equal(back.status, 0, JSON.stringify(back.out));
+    assert.deepEqual(back.out.statements, ['ALTER TABLE "notes" ALTER COLUMN "done" SET DEFAULT false']);
   });
 
   test("a kairo: 1 snapshot from 0.2.0 keeps working and is saved as kairo: 2 with the next migration", () => {

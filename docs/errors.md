@@ -139,7 +139,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
 ### KR4013
-**Migration change not supported yet.** `kairo db migrate` generates new tables, columns and indexes, and drops with `--allow-drop`. Your models change an existing column (type, required, default, enum values, reference) or index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
+**Migration change not supported yet.** `kairo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and default and required changes with `--allow-change` (KR4019). Your models change an existing column's type, enum values or reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
 
 ### KR4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
@@ -155,6 +155,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### KR4018
 **Applied migration file was edited** (warning, not an error). `kairo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `kairo db migrate <name>`.
+
+### KR4019
+**Migration changes columns.** Your models change the default of an existing column or make it required or optional. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `kairo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
+
+### KR4020
+**Migration makes a column required, but rows have NULL in it.** `kairo db migrate --apply` ran `SET NOT NULL` (or another statement that needs a value) and the column still has NULL rows. The migration was rolled back and not recorded. `details` has `migration`, `table` and `column`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = <value> WHERE "column" IS NULL;` before the `SET NOT NULL`, or give the field a fixed `.default(value)` and generate the migration again. Or keep the field optional.
 
 ## CLI (8xxx)
 

@@ -85,6 +85,7 @@ kairo db push             # create missing tables, columns and indexes
 kairo db migrate add_due_dates   # write migrations/0002_add_due_dates.sql for your model changes
 kairo db migrate --dry-run       # print the SQL without writing anything
 kairo db migrate drop_color --allow-drop   # include drops of tables, columns and indexes (deletes data)
+kairo db migrate require_body --allow-change   # include default and required/optional changes
 kairo db migrate --apply         # run pending migration files against DATABASE_URL
 ```
 
@@ -95,7 +96,9 @@ kairo db migrate --apply         # run pending migration files against DATABASE_
 - Generated statements use `IF NOT EXISTS`, so the first migration also works on a database created with `db push`.
 - New tables, columns and indexes are generated directly. A new required column on an existing table raises KR4014: give it a fixed `.default(value)` or make it `.optional()`.
 - Removing a model, field, `.unique()` or `.index()` drops data, so it raises KR4017 and nothing is written, unless you pass `--allow-drop`. Then the file gets `DROP INDEX`, `ALTER TABLE ... DROP COLUMN` and `DROP TABLE` statements (without `CASCADE`) and a warning comment, and `--json` output lists them in `drops`. Back up before applying it.
-- Renames and changed columns (type, required, default, enum values, reference) are not generated yet: they raise KR4013 and nothing is written. The message says what changed in each column, for example `change column posts.title (type varchar(120) -> varchar(200))`, and `details.columns` lists the same as `{ table, column, changes }`. A rename looks like a drop plus an add; do not use `--allow-drop` for a rename, or the column's data is lost.
+- Changing a field's default or making it required or optional raises KR4019 and nothing is written, unless you pass `--allow-change`. Then the file gets `ALTER TABLE ... ALTER COLUMN ...` with `SET DEFAULT`, `DROP DEFAULT`, `SET NOT NULL` or `DROP NOT NULL`, and `--json` output lists the changes in `changes`, for example `change column notes.body (optional -> required, default none -> '')`. A function default (`.default(() => ...)`) is filled in by Kairo, not the database, so it counts as no default (`DROP DEFAULT`).
+- Making a field required: if it has a fixed `.default(value)`, rows that are NULL get that value first (`UPDATE ... WHERE ... IS NULL`), as for a new required column. Without a default, `--apply` fails with KR4020 if any row is still NULL, and nothing from that migration is kept. Add an `UPDATE` that fills them before the `SET NOT NULL` (only in a file that has not been applied anywhere), or give the field a default.
+- Renames and other column changes (type, enum values, reference) are not generated yet: they raise KR4013 and nothing is written. The message says what changed in each column, for example `change column posts.title (type varchar(120) -> varchar(200))`, and `details.columns` lists the same as `{ table, column, changes }`. A rename looks like a drop plus an add; do not use `--allow-drop` for a rename, or the column's data is lost.
 - `snapshot.json` describes each column as `{ type, notNull, default?, enum?, references?, primaryKey? }` (format `"kairo": 2`). Snapshots written by Kairo 0.2.0 (`"kairo": 1`, each column as SQL text) are read as they are and saved in the new format with the next generated migration. Do not edit the snapshot by hand; an invalid one raises KR4015.
 
 To apply migrations from code, for example at startup in a serverless function:
@@ -109,12 +112,12 @@ await applyMigrations(app.db, [{ name: "0001_init", sql: initSql }]);   // retur
 await applyMigrations(app.db, migrations, { onEdited: (names) => console.warn("Edited after apply:", names) });
 ```
 
-To generate SQL from code, use `planMigration(models, snapshot, { allowDrop })`. It returns `{ statements, snapshot, drops }`:
+To generate SQL from code, use `planMigration(models, snapshot, { allowDrop, allowChange })`. It returns `{ statements, snapshot, drops, changes }`:
 
 ```ts
 import { planMigration } from "@browserlessapi/kairo";
 
-const plan = planMigration(models, previousSnapshot, { allowDrop: true });   // allowDrop defaults to false
+const plan = planMigration(models, previousSnapshot, { allowDrop: true });   // allowDrop and allowChange default to false
 ```
 
 ## Transactions and raw SQL (Postgres)

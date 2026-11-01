@@ -6,7 +6,7 @@ kairo dev                    Run src/server.ts and restart on changes
 kairo describe [--json]      App map: models, routes, auth, AI
 kairo check [--json]         Typecheck, load the app, run tests
 kairo db push [--dry-run]    Create missing tables, columns and indexes
-kairo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops)
+kairo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops, --allow-change to include default and required changes)
 kairo db migrate --apply     Run pending migration files
 kairo openapi [--out file]   Print or write the OpenAPI document
 kairo add resource <name>    Generate a model and CRUD routes
@@ -38,7 +38,7 @@ Agents should run this after every change and not stop until `ok` is `true`.
 { "ok": true, "dryRun": false, "file": "migrations/0002_add_due_dates.sql", "statements": ["ALTER TABLE \"tasks\" ADD COLUMN IF NOT EXISTS \"due_at\" timestamptz"], "drops": [] }
 ```
 
-`file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`. `kairo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"], "edited": [] }`. `edited` lists migrations that were applied earlier but whose file has changed since (warning KR4018); they are not run again. See [Migrations](database.md#migrations).
+`file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`, and `changes` lists the column changes (only with `--allow-change`), e.g. `["change column tasks.done (default false -> none)"]`. `kairo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"], "edited": [] }`. `edited` lists migrations that were applied earlier but whose file has changed since (warning KR4018); they are not run again. See [Migrations](database.md#migrations).
 
 ## kairo add resource invoices
 

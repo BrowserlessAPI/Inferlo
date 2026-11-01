@@ -7,9 +7,10 @@
  * planMigration compares your models with migrations/snapshot.json (the models as of the last
  * generated migration) and returns the SQL for the difference. Additive changes are generated
  * directly. Drops of tables, columns and indexes delete data, so they are refused with KR4017
- * unless you pass { allowDrop: true } (kairo db migrate --allow-drop). Renames and column
- * changes are refused with KR4013, so nothing is lost silently. Snapshots in the 0.2.0 format
- * (kairo: 1) are read and upgraded; plans always return the current format (kairo: 2).
+ * unless you pass { allowDrop: true } (kairo db migrate --allow-drop). Default and required
+ * changes are refused with KR4019 unless you pass { allowChange: true } (--allow-change). Renames
+ * and other column changes are refused with KR4013, so nothing is lost silently. Snapshots in the
+ * 0.2.0 format (kairo: 1) are read and upgraded; plans always return the current format (kairo: 2).
  */
 import { KairoError } from "../errors.ts";
 import { columnName, type AnyModel } from "../model.ts";
@@ -52,11 +53,19 @@ export interface MigrationPlan {
   snapshot: MigrationSnapshot;
   /** The drops included in `statements`, e.g. "drop column tasks.notes". Empty unless allowDrop was set. */
   drops: string[];
+  /** The column changes included in `statements`, e.g. "change column tasks.done (default false -> none)". Empty unless allowChange was set. */
+  changes: string[];
 }
 
 export interface PlanMigrationOptions {
   /** Generate DROP statements for removed tables, columns and indexes. These delete data. Default false. */
   allowDrop?: boolean;
+  /**
+   * Generate default and required/optional changes of existing columns (SET DEFAULT, DROP DEFAULT,
+   * SET NOT NULL, DROP NOT NULL). Making a column required fails at apply time (KR4020) if rows
+   * still have NULL in it, unless the field has a fixed default, which fills them. Default false.
+   */
+  allowChange?: boolean;
 }
 
 export interface Migration {
@@ -184,6 +193,25 @@ function columnChanges(before: MigrationSnapshotColumn, now: MigrationSnapshotCo
   return out;
 }
 
+/** Changes planMigration can generate with allowChange: only the default and required/optional differ. */
+function isAlterable(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): boolean {
+  return columnChanges({ ...before, notNull: now.notNull, default: now.default }, now).length === 0;
+}
+
+/** ALTER statements for a default and required/optional change (see isAlterable). */
+function alterColumnSql(table: string, column: string, before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): string[] {
+  const alter = `ALTER TABLE ${q(table)} ALTER COLUMN ${q(column)}`;
+  const out: string[] = [];
+  if (before.notNull && !now.notNull) out.push(`${alter} DROP NOT NULL`);
+  if (before.default !== now.default) out.push(now.default === undefined ? `${alter} DROP DEFAULT` : `${alter} SET DEFAULT ${now.default}`);
+  if (!before.notNull && now.notNull) {
+    // Same as adding a required column with a default: existing rows get the default.
+    if (now.default !== undefined) out.push(`UPDATE ${q(table)} SET ${q(column)} = ${now.default} WHERE ${q(column)} IS NULL`);
+    out.push(`${alter} SET NOT NULL`);
+  }
+  return out;
+}
+
 /** SQL to bring the database from `previous` (or an empty database) to `models`. */
 export function planMigration(
   models: readonly AnyModel[],
@@ -197,6 +225,7 @@ export function planMigration(
   const refused: string[] = [];
   const changedColumns: { table: string; column: string; changes: string[] }[] = [];
   const drops: string[] = [];
+  const alterable: { table: string; column: string; changes: string[] }[] = [];
   const needDefault: string[] = [];
 
   for (const model of sorted) {
@@ -209,14 +238,20 @@ export function planMigration(
     }
     const dropIndexes: string[] = [];
     const dropColumns: string[] = [];
+    const alterStatements: string[] = [];
     for (const [column, description] of Object.entries(old.columns)) {
       if (!(column in now.columns)) {
         drops.push(`drop column ${model.name}.${column}`);
         dropColumns.push(`ALTER TABLE ${q(model.name)} DROP COLUMN IF EXISTS ${q(column)}`);
         continue;
       }
-      const changes = columnChanges(description, now.columns[column]!);
-      if (changes.length) {
+      const current = now.columns[column]!;
+      const changes = columnChanges(description, current);
+      if (!changes.length) continue;
+      if (isAlterable(description, current)) {
+        alterable.push({ table: model.name, column, changes });
+        alterStatements.push(...alterColumnSql(model.name, column, description, current));
+      } else {
         refused.push(`change column ${model.name}.${column}`);
         changedColumns.push({ table: model.name, column, changes });
       }
@@ -227,7 +262,7 @@ export function planMigration(
         dropIndexes.push(`DROP INDEX IF EXISTS ${q(name)}`);
       } else if (now.indexes[name] !== sql) refused.push(`change index ${name}`);
     }
-    statements.push(...dropIndexes, ...dropColumns);
+    statements.push(...dropIndexes, ...dropColumns, ...alterStatements);
     for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
       const column = columnName(field);
       if (column in old.columns) continue;
@@ -250,7 +285,7 @@ export function planMigration(
       return column ? `${change} (${column.changes.join(", ")})` : change;
     });
     throw new KairoError("KR4013", `kairo db migrate cannot generate these changes yet: ${explained.join(", ")}.`, {
-      fix: "New tables, columns and indexes, and drops with --allow-drop, are generated. Renames and column changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
+      fix: "New tables, columns and indexes, drops with --allow-drop, and default and required changes with --allow-change are generated. Renames, type, enum value, reference and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
       details: { changes: refused, columns: changedColumns },
       expose: true,
     });
@@ -262,6 +297,14 @@ export function planMigration(
       expose: true,
     });
   }
+  const changes = alterable.map((c) => `change column ${c.table}.${c.column} (${c.changes.join(", ")})`);
+  if (changes.length && !options.allowChange) {
+    throw new KairoError("KR4019", `Your model changes change existing columns: ${changes.join(", ")}.`, {
+      fix: "If you mean to change these columns, run kairo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Otherwise undo the model changes.",
+      details: { changes, columns: alterable },
+      expose: true,
+    });
+  }
   if (needDefault.length) {
     throw new KairoError("KR4014", `New required column${needDefault.length > 1 ? "s" : ""} ${needDefault.join(", ")} on an existing table need a value for existing rows.`, {
       fix: 'Add .default(value) (a fixed value, not a function) or .optional() to the field, e.g. status: t.enum(["open", "closed"]).default("open").',
@@ -269,7 +312,7 @@ export function planMigration(
       expose: true,
     });
   }
-  return { statements, snapshot, drops };
+  return { statements, snapshot, drops, changes };
 }
 
 const MIGRATION_NAME = /^[A-Za-z0-9_-]{1,200}$/;
@@ -292,6 +335,26 @@ export interface ApplyMigrationsOptions {
 async function checksum(sql: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sql.replace(/\r\n/g, "\n")));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * KR4020 for a Postgres not-null violation (23502), for example SET NOT NULL on a column that still
+ * has NULL rows. Undefined for any other error.
+ */
+function nullRowsError(error: unknown, migration: string): KairoError | undefined {
+  const e = error as { code?: string; table?: string; column?: string; message?: string } | null;
+  if (!e || e.code !== "23502") return undefined;
+  const match = /column "((?:[^"]|"")+)" of relation "((?:[^"]|"")+)"/.exec(e.message ?? "");
+  const table = e.table ?? match?.[2];
+  const column = e.column ?? match?.[1];
+  const where = table && column ? `${table}.${column}` : "a required column";
+  const update = table && column ? `UPDATE ${q(table)} SET ${q(column)} = <value> WHERE ${q(column)} IS NULL` : "UPDATE <table> SET <column> = <value> WHERE <column> IS NULL";
+  return new KairoError("KR4020", `Migration ${migration} failed: ${where} is required (NOT NULL) but rows have NULL in it.`, {
+    fix: `Fill the NULL rows first: if ${migration} has not been applied anywhere, add ${update}; before the SET NOT NULL statement, or give the field a fixed .default(value) and regenerate the migration. Or keep the field optional.`,
+    details: { migration, table, column },
+    cause: error,
+    expose: true,
+  });
 }
 
 /**
@@ -337,7 +400,11 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
     const ran = await db.$transaction(async (tx) => {
       await tx.$sql(`SELECT pg_advisory_xact_lock(${LOCK_KEY})`);
       if ((await tx.$sql(`SELECT 1 FROM "kairo_migrations" WHERE "name" = $1`, [m.name])).length) return false;
-      await tx.$sql(m.sql);
+      try {
+        await tx.$sql(m.sql);
+      } catch (error) {
+        throw nullRowsError(error, m.name) ?? error;
+      }
       await tx.$sql(`INSERT INTO "kairo_migrations" ("name", "checksum") VALUES ($1, $2)`, [m.name, sums.get(m.name)]);
       return true;
     });
