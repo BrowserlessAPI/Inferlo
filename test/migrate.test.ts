@@ -195,7 +195,6 @@ describe("migration snapshot format (inferlo: 2)", () => {
     const Post2 = model("posts", {
       ...Post.fields,
       title: t.string().min(1).max(200).default("Untitled"),
-      kind: t.enum(["note", "article", "page"]).default("note"),
       authorId: t.ref("authors"),
     });
     for (const previous of [planMigration(models).snapshot, v1Snapshot(models)]) {
@@ -205,10 +204,9 @@ describe("migration snapshot format (inferlo: 2)", () => {
           (e: unknown) => {
             if (!(e instanceof InferloError) || e.code !== "IL4013") return false;
             const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
-            assert.deepEqual(details.changes, ["change column posts.title", "change column posts.kind", "change column posts.author_id"]);
+            assert.deepEqual(details.changes, ["change column posts.title", "change column posts.author_id"]);
             assert.deepEqual(details.columns, [
               { table: "posts", column: "title", changes: ["type varchar(120) -> varchar(200)", "default none -> 'Untitled'"] },
-              { table: "posts", column: "kind", changes: ["enum values 'note', 'article' -> 'note', 'article', 'page'"] },
               { table: "posts", column: "author_id", changes: ["reference authors on delete cascade -> authors on delete restrict"] },
             ]);
             assert.match(e.message, /posts\.title \(type varchar\(120\) -> varchar\(200\), default none -> 'Untitled'\)/);
@@ -293,6 +291,56 @@ describe("default and required changes (allowChange)", () => {
   });
 });
 
+describe("enum value changes (allowChange)", () => {
+  test("are refused without allowChange (IL4019) and listed, for inferlo: 1 and inferlo: 2 snapshots", () => {
+    const Post2 = model("posts", { ...Post.fields, kind: t.enum(["note", "article", "page"]).default("note") });
+    for (const previous of [planMigration(models).snapshot, v1Snapshot(models)]) {
+      assert.throws(
+        () => planMigration([Author, Post2], previous, { allowDrop: true }),
+        (e: unknown) => {
+          if (!(e instanceof InferloError) || e.code !== "IL4019") return false;
+          assert.deepEqual((e.details as { changes: string[] }).changes, ["change column posts.kind (enum values 'note', 'article' -> 'note', 'article', 'page')"]);
+          return true;
+        },
+      );
+    }
+  });
+
+  test("allowChange replaces the CHECK constraint, named as Postgres names it", () => {
+    const first = planMigration(models);
+    const Post2 = model("posts", { ...Post.fields, kind: t.enum(["note", "page", "it's"]).default("page") });
+    const plan = planMigration([Author, Post2], first.snapshot, { allowChange: true });
+    assert.deepEqual(plan.statements, [
+      'ALTER TABLE "posts" DROP CONSTRAINT "posts_kind_check"',
+      `ALTER TABLE "posts" ALTER COLUMN "kind" SET DEFAULT 'page'`,
+      `ALTER TABLE "posts" ADD CONSTRAINT "posts_kind_check" CHECK ("kind" IN ('note', 'page', 'it''s'))`,
+    ]);
+    assert.deepEqual(plan.changes, [`change column posts.kind (default 'note' -> 'page', enum values 'note', 'article' -> 'note', 'page', 'it''s')`]);
+    assert.deepEqual(plan.snapshot.tables.posts!.columns.kind, { type: "text", notNull: true, default: "'page'", enum: ["note", "page", "it's"] });
+    assert.deepEqual(planMigration([Author, Post2], plan.snapshot).statements, []);
+  });
+
+  test("a text field becoming an enum gets a CHECK constraint, and an enum becoming text loses it", () => {
+    const first = planMigration(models);
+    const toEnum = model("posts", { ...Post.fields, body: t.enum(["a", "b"]) });
+    assert.deepEqual(planMigration([Author, toEnum], first.snapshot, { allowChange: true }).statements, [
+      `ALTER TABLE "posts" ADD CONSTRAINT "posts_body_check" CHECK ("body" IN ('a', 'b'))`,
+    ]);
+    const toText = model("posts", { ...Post.fields, kind: t.text().default("note") });
+    assert.deepEqual(planMigration([Author, toText], first.snapshot, { allowChange: true }).statements, ['ALTER TABLE "posts" DROP CONSTRAINT "posts_kind_check"']);
+  });
+
+  test("long table and column names are shortened to 63 bytes the way Postgres does", () => {
+    const table = "a_table_with_a_rather_long_name_for_testing";
+    const Long = model(table, { theStatusOfThisParticularRow: t.enum(["x", "y"]) });
+    const Long2 = model(table, { theStatusOfThisParticularRow: t.enum(["x", "y", "z"]) });
+    const plan = planMigration([Long2], planMigration([Long]).snapshot, { allowChange: true });
+    const name = "a_table_with_a_rather_long_n_the_status_of_this_particula_check";
+    assert.equal(name.length, 63);
+    assert.equal(plan.statements[0], `ALTER TABLE "${table}" DROP CONSTRAINT "${name}"`);
+  });
+});
+
 describe("applyMigrations", () => {
   test("needs a database with raw SQL (memory is rejected with IL4008)", async () => {
     const db = createDb(models, memory());
@@ -311,7 +359,7 @@ if (PG_URL) {
     const MigUser = model("mig_users", { email: t.email().unique() });
     const MigTag = model("mig_tags", { label: t.string().max(30), userId: t.ref("mig_users") });
     const db = createDb([MigUser, MigTag], postgres({ url: PG_URL }));
-    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "half_done", "inferlo_migrations" CASCADE');
+    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "mig_items", "mig_items_with_a_rather_long_table_name_here", "half_done", "inferlo_migrations" CASCADE');
     before(reset);
     after(async () => {
       await reset();
@@ -412,6 +460,52 @@ if (PG_URL) {
         { column_name: "state", is_nullable: "YES", column_default: "'draft'::character varying" },
         { column_name: "title", is_nullable: "NO", column_default: null },
       ]);
+    });
+
+    test("an allowChange migration replaces enum values, and rows with a removed value block it (IL4021)", async () => {
+      const Item = model("mig_items", { state: t.enum(["open", "done"]).default("open"), label: t.text().optional() });
+      const first = planMigration([Item]);
+      await applyMigrations(db, [{ name: "0040_items", sql: first.statements.join(";\n\n") + ";\n" }]);
+      await db.$sql(`INSERT INTO "mig_items" ("id", "state") VALUES ('${crypto.randomUUID()}', 'done')`);
+
+      const Item2 = model("mig_items", { state: t.enum(["open", "closed"]).default("open"), label: t.enum(["red", "blue"]).optional() });
+      const plan = planMigration([Item2], first.snapshot, { allowChange: true });
+      const blocked = [{ name: "0041_states", sql: plan.statements.join(";\n\n") + ";\n" }];
+      await assert.rejects(applyMigrations(db, blocked), (e: unknown) => {
+        if (!(e instanceof InferloError) || e.code !== "IL4021") return false;
+        assert.deepEqual(e.details, { migration: "0041_states", table: "mig_items", constraint: "mig_items_state_check" });
+        assert.match(e.message, /mig_items/);
+        assert.match(e.fix ?? "", /UPDATE/);
+        return true;
+      });
+      assert.equal((await db.$sql(`SELECT 1 FROM "inferlo_migrations" WHERE "name" = '0041_states'`)).length, 0);
+
+      // The fix from IL4021: update the rows in the (not yet applied) file, before ADD CONSTRAINT.
+      const add = plan.statements.findIndex((s) => s.includes("ADD CONSTRAINT"));
+      const statements = [...plan.statements.slice(0, add), `UPDATE "mig_items" SET "state" = 'closed' WHERE "state" = 'done'`, ...plan.statements.slice(add)];
+      assert.deepEqual(await applyMigrations(db, [{ name: "0041_states", sql: statements.join(";\n\n") + ";\n" }]), ["0041_states"]);
+      assert.deepEqual(await db.$sql(`SELECT "state" FROM "mig_items"`), [{ state: "closed" }]);
+      await db.$sql(`INSERT INTO "mig_items" ("id", "state", "label") VALUES ('${crypto.randomUUID()}', 'closed', 'red')`);
+      await assert.rejects(db.$sql(`INSERT INTO "mig_items" ("id", "state") VALUES ('${crypto.randomUUID()}', 'done')`), /check constraint/);
+      await assert.rejects(db.$sql(`INSERT INTO "mig_items" ("id", "label") VALUES ('${crypto.randomUUID()}', 'green')`), /check constraint/);
+
+      // A second change finds the constraint the first one added.
+      const Item3 = model("mig_items", { state: t.enum(["open", "closed", "done"]).default("open"), label: t.text().optional() });
+      const third = planMigration([Item3], plan.snapshot, { allowChange: true });
+      assert.deepEqual(await applyMigrations(db, [{ name: "0042_states", sql: third.statements.join(";\n\n") + ";\n" }]), ["0042_states"]);
+      await db.$sql(`INSERT INTO "mig_items" ("id", "state", "label") VALUES ('${crypto.randomUUID()}', 'done', 'green')`);
+    });
+
+    test("the generated CHECK constraint name matches Postgres for long table and column names", async () => {
+      const table = "mig_items_with_a_rather_long_table_name_here";
+      const Long = model(table, { theStatusOfThisParticularRowInTheTable: t.enum(["x", "y"]) });
+      const first = planMigration([Long]);
+      await applyMigrations(db, [{ name: "0050_long", sql: first.statements.join(";\n\n") + ";\n" }]);
+      const Long2 = model(table, { theStatusOfThisParticularRowInTheTable: t.enum(["x", "y", "z"]) });
+      const plan = planMigration([Long2], first.snapshot, { allowChange: true });
+      const [{ conname }] = (await db.$sql(`SELECT conname FROM pg_constraint WHERE conrelid = '"${table}"'::regclass AND contype = 'c'`)) as [{ conname: string }];
+      assert.equal(plan.statements[0], `ALTER TABLE "${table}" DROP CONSTRAINT "${conname}"`);
+      assert.deepEqual(await applyMigrations(db, [{ name: "0051_long", sql: plan.statements.join(";\n\n") + ";\n" }]), ["0051_long"]);
     });
 
     test("a failing migration is rolled back and not recorded", async () => {

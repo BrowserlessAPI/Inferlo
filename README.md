@@ -75,7 +75,7 @@ Inferlo is also designed so AI coding tools (Claude Code, Cursor, Codex, NeonCod
 
 Requires Node.js 22.18+ or Bun 1.3+. TypeScript runs directly with no build step.
 
-Every release is tested on Node.js 22.18, 22, 24 and the current release; Bun 1.3.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
+Every release is tested on Node.js 22.18, 22, 24, 26 and the current release; Bun 1.3.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
 
 ```bash
 npx @browserlessapi/inferlo new my-app

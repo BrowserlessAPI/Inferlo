@@ -1,0 +1,4 @@
+{
+  "title": "Add an enum value with a migration",
+  "prompt": "Add a third user role, \"viewer\", after \"member\" and \"admin\" (the default stays \"member\"). This project deploys with migrations: add the migration file migrations/0002_add_viewer_role.sql with exactly the SQL `inferlo db migrate add_viewer_role --allow-change` would generate, so the database accepts the new role, and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands."
+}

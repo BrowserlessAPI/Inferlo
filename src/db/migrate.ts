@@ -7,9 +7,9 @@
  * planMigration compares your models with migrations/snapshot.json (the models as of the last
  * generated migration) and returns the SQL for the difference. Additive changes are generated
  * directly. Drops of tables, columns and indexes delete data, so they are refused with IL4017
- * unless you pass { allowDrop: true } (inferlo db migrate --allow-drop). Default and required
- * changes are refused with IL4019 unless you pass { allowChange: true } (--allow-change). Renames
- * and other column changes are refused with IL4013, so nothing is lost silently. Snapshots in the
+ * unless you pass { allowDrop: true } (inferlo db migrate --allow-drop). Default, required and
+ * enum value changes are refused with IL4019 unless you pass { allowChange: true } (--allow-change).
+ * Renames and other column changes are refused with IL4013, so nothing is lost silently. Snapshots in the
  * 0.2.0 format (inferlo: 1) are read and upgraded; plans always return the current format (inferlo: 2).
  */
 import { InferloError } from "../errors.ts";
@@ -61,9 +61,11 @@ export interface PlanMigrationOptions {
   /** Generate DROP statements for removed tables, columns and indexes. These delete data. Default false. */
   allowDrop?: boolean;
   /**
-   * Generate default and required/optional changes of existing columns (SET DEFAULT, DROP DEFAULT,
-   * SET NOT NULL, DROP NOT NULL). Making a column required fails at apply time (IL4020) if rows
-   * still have NULL in it, unless the field has a fixed default, which fills them. Default false.
+   * Generate default, required/optional and enum value changes of existing columns (SET DEFAULT,
+   * DROP DEFAULT, SET NOT NULL, DROP NOT NULL, and replacing the enum's CHECK constraint). Making a
+   * column required fails at apply time (IL4020) if rows still have NULL in it, unless the field has
+   * a fixed default, which fills them. Removing an enum value fails at apply time (IL4021) if rows
+   * still use it. Default false.
    */
   allowChange?: boolean;
 }
@@ -195,21 +197,54 @@ function columnChanges(before: MigrationSnapshotColumn, now: MigrationSnapshotCo
   return out;
 }
 
-/** Changes planMigration can generate with allowChange: only the default and required/optional differ. */
+/** Changes planMigration can generate with allowChange: only the default, required/optional and enum values differ. */
 function isAlterable(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): boolean {
-  return columnChanges({ ...before, notNull: now.notNull, default: now.default }, now).length === 0;
+  return columnChanges({ ...before, notNull: now.notNull, default: now.default, enum: now.enum }, now).length === 0;
 }
 
-/** ALTER statements for a default and required/optional change (see isAlterable). */
+/**
+ * The name Postgres gives the CHECK constraint of an enum column (written inline in the column
+ * definition): "<table>_<column>_check", with table and column shortened so it fits in 63 bytes,
+ * the same way Postgres shortens it (makeObjectName: trim the longer part one byte at a time).
+ */
+function checkConstraintName(table: string, column: string): string {
+  const encoder = new TextEncoder();
+  const a = encoder.encode(table);
+  const b = encoder.encode(column);
+  let n1 = a.length;
+  let n2 = b.length;
+  const available = 63 - "_".length - "_check".length;
+  while (n1 + n2 > available) {
+    if (n1 > n2) n1--;
+    else n2--;
+  }
+  // Never cut a multi-byte character in half (pg_mbcliplen).
+  const clip = (bytes: Uint8Array, n: number) => {
+    while (n > 0 && n < bytes.length && (bytes[n]! & 0xc0) === 0x80) n--;
+    return new TextDecoder().decode(bytes.subarray(0, n));
+  };
+  return `${clip(a, n1)}_${clip(b, n2)}_check`;
+}
+
+/** ALTER statements for a default, required/optional and enum value change (see isAlterable). */
 function alterColumnSql(table: string, column: string, before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): string[] {
   const alter = `ALTER TABLE ${q(table)} ALTER COLUMN ${q(column)}`;
   const out: string[] = [];
+  const enumChanged = JSON.stringify(before.enum) !== JSON.stringify(now.enum);
+  const check = q(checkConstraintName(table, column));
+  // The old constraint goes first, so filling NULL rows with a new enum default is allowed.
+  // No IF EXISTS: if the constraint has another name, the migration fails instead of keeping it.
+  if (enumChanged && before.enum) out.push(`ALTER TABLE ${q(table)} DROP CONSTRAINT ${check}`);
   if (before.notNull && !now.notNull) out.push(`${alter} DROP NOT NULL`);
   if (before.default !== now.default) out.push(now.default === undefined ? `${alter} DROP DEFAULT` : `${alter} SET DEFAULT ${now.default}`);
   if (!before.notNull && now.notNull) {
     // Same as adding a required column with a default: existing rows get the default.
     if (now.default !== undefined) out.push(`UPDATE ${q(table)} SET ${q(column)} = ${now.default} WHERE ${q(column)} IS NULL`);
     out.push(`${alter} SET NOT NULL`);
+  }
+  if (enumChanged && now.enum) {
+    const values = now.enum.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");
+    out.push(`ALTER TABLE ${q(table)} ADD CONSTRAINT ${check} CHECK (${q(column)} IN (${values}))`);
   }
   return out;
 }
@@ -287,7 +322,7 @@ export function planMigration(
       return column ? `${change} (${column.changes.join(", ")})` : change;
     });
     throw new InferloError("IL4013", `inferlo db migrate cannot generate these changes yet: ${explained.join(", ")}.`, {
-      fix: "New tables, columns and indexes, drops with --allow-drop, and default and required changes with --allow-change are generated. Renames, type, enum value, reference and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
+      fix: "New tables, columns and indexes, drops with --allow-drop, and default, required and enum value changes with --allow-change are generated. Renames, type, reference and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
       details: { changes: refused, columns: changedColumns },
       expose: true,
     });
@@ -302,7 +337,7 @@ export function planMigration(
   const changes = alterable.map((c) => `change column ${c.table}.${c.column} (${c.changes.join(", ")})`);
   if (changes.length && !options.allowChange) {
     throw new InferloError("IL4019", `Your model changes change existing columns: ${changes.join(", ")}.`, {
-      fix: "If you mean to change these columns, run inferlo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Otherwise undo the model changes.",
+      fix: "If you mean to change these columns, run inferlo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Removing an enum value fails if rows still use it. Otherwise undo the model changes.",
       details: { changes, columns: alterable },
       expose: true,
     });
@@ -360,6 +395,25 @@ function nullRowsError(error: unknown, migration: string): InferloError | undefi
 }
 
 /**
+ * IL4021 for a Postgres check violation (23514), for example adding an enum's CHECK constraint while
+ * rows still use a removed value. Undefined for any other error.
+ */
+function checkViolationError(error: unknown, migration: string): InferloError | undefined {
+  const e = error as { code?: string; table?: string; constraint?: string; message?: string } | null;
+  if (!e || e.code !== "23514") return undefined;
+  const match = /constraint "((?:[^"]|"")+)" of relation "((?:[^"]|"")+)"/.exec(e.message ?? "");
+  const table = e.table ?? match?.[2];
+  const constraint = e.constraint ?? match?.[1];
+  const where = table ? `rows in ${table}` : "rows";
+  return new InferloError("IL4021", `Migration ${migration} failed: ${where} have values that ${constraint ? `the check constraint ${constraint}` : "a check constraint"} does not allow, for example an enum value that was removed.`, {
+    fix: `Change those rows to an allowed value first: if ${migration} has not been applied anywhere, add UPDATE ${table ? q(table) : "<table>"} SET <column> = '<new value>' WHERE <column> = '<removed value>'; before the ADD CONSTRAINT statement. Or keep the removed enum value in the model.`,
+    details: { migration, table, constraint },
+    cause: error,
+    expose: true,
+  });
+}
+
+/**
  * Run the migrations that are not yet recorded in the "inferlo_migrations" table, in name order,
  * each in its own transaction. Returns the names it applied. Safe to run from several processes
  * at once (a Postgres advisory lock serialises them).
@@ -410,7 +464,7 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
       try {
         await tx.$sql(m.sql);
       } catch (error) {
-        throw nullRowsError(error, m.name) ?? error;
+        throw nullRowsError(error, m.name) ?? checkViolationError(error, m.name) ?? error;
       }
       await tx.$sql(`INSERT INTO "inferlo_migrations" ("name", "checksum") VALUES ($1, $2)`, [m.name, sums.get(m.name)]);
       return true;

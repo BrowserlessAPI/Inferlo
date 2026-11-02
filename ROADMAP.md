@@ -8,12 +8,14 @@ The scheduled maintainer works through this list top to bottom. Each item should
 - [x] `inferlo db migrate` part 2: drops of tables, columns and indexes behind explicit confirmation (`--allow-drop`)
 - [x] `inferlo db migrate` part 3: checksum warning when an applied migration file was edited
 - [x] `inferlo db migrate` part 4a: structured column descriptions in snapshot.json (inferlo: 2) with an upgrade path for inferlo: 1 snapshots, and IL4013 saying what changed in each column
-- [x] `inferlo db migrate` part 4b: generate default and required/optional changes (`SET DEFAULT`, `DROP DEFAULT`, `DROP NOT NULL`, `SET NOT NULL`) behind explicit confirmation (`--allow-change`), with a KR code when existing NULL rows would block `SET NOT NULL`
-- [ ] `inferlo db migrate` part 4c: type and enum value changes (`ALTER COLUMN ... TYPE ... USING`, replacing the enum CHECK constraint) and reference changes behind `--allow-change`
+- [x] `inferlo db migrate` part 4b: generate default and required/optional changes (`SET DEFAULT`, `DROP DEFAULT`, `DROP NOT NULL`, `SET NOT NULL`) behind explicit confirmation (`--allow-change`), with an IL code when existing NULL rows would block `SET NOT NULL`
+- [x] `inferlo db migrate` part 4c: enum value changes behind `--allow-change` (replacing the enum CHECK constraint), with IL4021 when rows still use a removed value
+- [ ] `inferlo db migrate` part 4d: type changes behind `--allow-change` (`ALTER COLUMN ... TYPE ... USING`), with an IL code when existing values do not convert
+- [ ] `inferlo db migrate` part 4e: reference changes behind `--allow-change` (`onDelete` and target table: replace the foreign key constraint)
 - [ ] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [ ] Relations: `db.tickets.findMany({ include: { owner: true } })` for `t.ref` fields, typed results, one extra query per relation (no N+1)
 - [ ] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`
-- [ ] Rate limiting: `route.post(path, { rateLimit: { max: 10, per: "minute", by: "user" | "ip" } })` with memory and Postgres stores, KR code for 429
+- [ ] Rate limiting: `route.post(path, { rateLimit: { max: 10, per: "minute", by: "user" | "ip" } })` with memory and Postgres stores, IL code for 429
 - [ ] Cookie sessions: `sessions({ secret })` auth helper with signed, HttpOnly cookies and CSRF protection for forms
 - [ ] Background jobs: `job("send-email", { input: schema }).handle(fn)`, `ctx.jobs.enqueue(...)`, Postgres-backed queue with retries and `inferlo worker`
 - [ ] Cron: `cron("0 * * * *", handler)` running in `inferlo worker`

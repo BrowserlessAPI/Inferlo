@@ -139,7 +139,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
 ### IL4013
-**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and default and required changes with `--allow-change` (IL4019). Your models change an existing column's type, enum values or reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
+**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and default, required and enum value changes with `--allow-change` (IL4019). Your models change an existing column's type or reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
 
 ### IL4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
@@ -157,10 +157,13 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Applied migration file was edited** (warning, not an error). `inferlo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `inferlo db migrate <name>`.
 
 ### IL4019
-**Migration changes columns.** Your models change the default of an existing column or make it required or optional. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `inferlo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
+**Migration changes columns.** Your models change the default of an existing column, make it required or optional, or change an enum's values. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `inferlo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
 
 ### IL4020
 **Migration makes a column required, but rows have NULL in it.** `inferlo db migrate --apply` ran `SET NOT NULL` (or another statement that needs a value) and the column still has NULL rows. The migration was rolled back and not recorded. `details` has `migration`, `table` and `column`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = <value> WHERE "column" IS NULL;` before the `SET NOT NULL`, or give the field a fixed `.default(value)` and generate the migration again. Or keep the field optional.
+
+### IL4021
+**Migration adds a check constraint, but rows do not satisfy it.** `inferlo db migrate --apply` replaced an enum's CHECK constraint (or ran another statement checked by one) and rows still have a value it does not allow, usually an enum value that was removed from the model. The migration was rolled back and not recorded. `details` has `migration`, `table` and `constraint`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = '<new value>' WHERE "column" = '<removed value>';` before the `ADD CONSTRAINT` statement. Or keep the removed value in the enum.
 
 ## CLI (8xxx)
 

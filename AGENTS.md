@@ -12,7 +12,7 @@ Inferlo is the TypeScript backend framework with built-in AI model support. Its 
 2. **No hidden behaviour.** No decorators, no dependency injection containers, no global registries, no import side effects.
 3. **Familiar shapes.** Stay close to Hono (routes) and Zod (schemas), which models already know.
 4. **Secure by default.** Routes private unless `auth: "public"`. Every database value parameterised. Every insert and update validated.
-5. **Errors explain the fix.** Every new error uses `InferloError` with a new stable code (`KRxxxx`), a plain message, a `fix`, and an entry in `docs/errors.md`. Never reuse or change the meaning of an existing code.
+5. **Errors explain the fix.** Every new error uses `InferloError` with a new stable code (`ILxxxx`), a plain message, a `fix`, and an entry in `docs/errors.md`. Never reuse or change the meaning of an existing code.
 6. **Zero runtime dependencies.** `pg` stays an optional peer dependency. Do not add runtime dependencies.
 7. **Runs everywhere.** Use Web APIs (fetch, Request, Response, Web Crypto, streams). Node-only APIs only in `src/serve.ts` and `src/cli/`.
 8. **Stable API.** Do not rename or remove public exports. Deprecate first, with a migration note in CHANGELOG.md.

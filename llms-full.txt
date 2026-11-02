@@ -81,7 +81,7 @@ Inferlo is also designed so AI coding tools (Claude Code, Cursor, Codex, NeonCod
 
 Requires Node.js 22.18+ or Bun 1.3+. TypeScript runs directly with no build step.
 
-Every release is tested on Node.js 22.18, 22, 24 and the current release; Bun 1.3.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
+Every release is tested on Node.js 22.18, 22, 24, 26 and the current release; Bun 1.3.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
 
 ```bash
 npx @browserlessapi/inferlo new my-app
@@ -388,7 +388,7 @@ inferlo db push             # create missing tables, columns and indexes
 inferlo db migrate add_due_dates   # write migrations/0002_add_due_dates.sql for your model changes
 inferlo db migrate --dry-run       # print the SQL without writing anything
 inferlo db migrate drop_color --allow-drop   # include drops of tables, columns and indexes (deletes data)
-inferlo db migrate require_body --allow-change   # include default and required/optional changes
+inferlo db migrate require_body --allow-change   # include default, required/optional and enum value changes
 inferlo db migrate --apply         # run pending migration files against DATABASE_URL
 ```
 
@@ -399,9 +399,10 @@ inferlo db migrate --apply         # run pending migration files against DATABAS
 - Generated statements use `IF NOT EXISTS`, so the first migration also works on a database created with `db push`.
 - New tables, columns and indexes are generated directly. A new required column on an existing table raises IL4014: give it a fixed `.default(value)` or make it `.optional()`.
 - Removing a model, field, `.unique()` or `.index()` drops data, so it raises IL4017 and nothing is written, unless you pass `--allow-drop`. Then the file gets `DROP INDEX`, `ALTER TABLE ... DROP COLUMN` and `DROP TABLE` statements (without `CASCADE`) and a warning comment, and `--json` output lists them in `drops`. Back up before applying it.
-- Changing a field's default or making it required or optional raises IL4019 and nothing is written, unless you pass `--allow-change`. Then the file gets `ALTER TABLE ... ALTER COLUMN ...` with `SET DEFAULT`, `DROP DEFAULT`, `SET NOT NULL` or `DROP NOT NULL`, and `--json` output lists the changes in `changes`, for example `change column notes.body (optional -> required, default none -> '')`. A function default (`.default(() => ...)`) is filled in by Inferlo, not the database, so it counts as no default (`DROP DEFAULT`).
+- Changing a field's default, making it required or optional, or changing an enum's values raises IL4019 and nothing is written, unless you pass `--allow-change`. Then the file gets `ALTER TABLE ... ALTER COLUMN ...` with `SET DEFAULT`, `DROP DEFAULT`, `SET NOT NULL` or `DROP NOT NULL`, and `--json` output lists the changes in `changes`, for example `change column notes.body (optional -> required, default none -> '')`. A function default (`.default(() => ...)`) is filled in by Inferlo, not the database, so it counts as no default (`DROP DEFAULT`).
 - Making a field required: if it has a fixed `.default(value)`, rows that are NULL get that value first (`UPDATE ... WHERE ... IS NULL`), as for a new required column. Without a default, `--apply` fails with IL4020 if any row is still NULL, and nothing from that migration is kept. Add an `UPDATE` that fills them before the `SET NOT NULL` (only in a file that has not been applied anywhere), or give the field a default.
-- Renames and other column changes (type, enum values, reference) are not generated yet: they raise IL4013 and nothing is written. The message says what changed in each column, for example `change column posts.title (type varchar(120) -> varchar(200))`, and `details.columns` lists the same as `{ table, column, changes }`. A rename looks like a drop plus an add; do not use `--allow-drop` for a rename, or the column's data is lost.
+- Changing an enum's values (adding or removing one, or turning a text field into an enum or back) also needs `--allow-change`. The file replaces the column's CHECK constraint: `ALTER TABLE "posts" DROP CONSTRAINT "posts_kind_check"`, then `ALTER TABLE "posts" ADD CONSTRAINT "posts_kind_check" CHECK ("kind" IN ('note', 'page'))`, using the name Postgres gave it. Adding a value always works. If rows still use a removed value, `--apply` fails with IL4021 and nothing from that migration is kept: in a file that has not been applied anywhere, add `UPDATE "posts" SET "kind" = 'page' WHERE "kind" = 'article';` before the `ADD CONSTRAINT`, or keep the value.
+- Renames and other column changes (type, reference) are not generated yet: they raise IL4013 and nothing is written. The message says what changed in each column, for example `change column posts.title (type varchar(120) -> varchar(200))`, and `details.columns` lists the same as `{ table, column, changes }`. A rename looks like a drop plus an add; do not use `--allow-drop` for a rename, or the column's data is lost.
 - `snapshot.json` describes each column as `{ type, notNull, default?, enum?, references?, primaryKey? }` (format `"inferlo": 2`). Snapshots written by Inferlo 0.2.0 (`"inferlo": 1`, each column as SQL text) are read as they are and saved in the new format with the next generated migration. Do not edit the snapshot by hand; an invalid one raises IL4015.
 
 To apply migrations from code, for example at startup in a serverless function:
@@ -736,7 +737,7 @@ inferlo dev                    Run src/server.ts and restart on changes
 inferlo describe [--json]      App map: models, routes, auth, AI
 inferlo check [--json]         Typecheck, load the app, run tests
 inferlo db push [--dry-run]    Create missing tables, columns and indexes
-inferlo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops, --allow-change to include default and required changes)
+inferlo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops, --allow-change to include default, required and enum value changes)
 inferlo db migrate --apply     Run pending migration files
 inferlo openapi [--out file]   Print or write the OpenAPI document
 inferlo add resource <name>    Generate a model and CRUD routes
@@ -999,7 +1000,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
 ### IL4013
-**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and default and required changes with `--allow-change` (IL4019). Your models change an existing column's type, enum values or reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
+**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and default, required and enum value changes with `--allow-change` (IL4019). Your models change an existing column's type or reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `type varchar(120) -> varchar(200)`). Undo the model change, or write the SQL yourself in a new migration file.
 
 ### IL4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
@@ -1017,10 +1018,13 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Applied migration file was edited** (warning, not an error). `inferlo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `inferlo db migrate <name>`.
 
 ### IL4019
-**Migration changes columns.** Your models change the default of an existing column or make it required or optional. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `inferlo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
+**Migration changes columns.** Your models change the default of an existing column, make it required or optional, or change an enum's values. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `inferlo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
 
 ### IL4020
 **Migration makes a column required, but rows have NULL in it.** `inferlo db migrate --apply` ran `SET NOT NULL` (or another statement that needs a value) and the column still has NULL rows. The migration was rolled back and not recorded. `details` has `migration`, `table` and `column`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = <value> WHERE "column" IS NULL;` before the `SET NOT NULL`, or give the field a fixed `.default(value)` and generate the migration again. Or keep the field optional.
+
+### IL4021
+**Migration adds a check constraint, but rows do not satisfy it.** `inferlo db migrate --apply` replaced an enum's CHECK constraint (or ran another statement checked by one) and rows still have a value it does not allow, usually an enum value that was removed from the model. The migration was rolled back and not recorded. `details` has `migration`, `table` and `constraint`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = '<new value>' WHERE "column" = '<removed value>';` before the `ADD CONSTRAINT` statement. Or keep the removed value in the enum.
 
 ## CLI (8xxx)
 

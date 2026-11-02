@@ -19,9 +19,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22.18 = oldest supported (package.json engines), 22 = oldest LTS line,
-        # 24 = active LTS, current = newest Node release.
-        node: ["22.18", "22", "24", "current"]
+        # 22.18 = oldest supported (package.json engines), 22 = oldest LTS line (end of life 2027-04-30),
+        # 24 = maintenance LTS, 26 = newest LTS (active since 2026-10-28), current = newest Node release.
+        node: ["22.18", "22", "24", "26", "current"]
     services:
       postgres:
         image: postgres:18

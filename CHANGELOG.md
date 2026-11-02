@@ -4,6 +4,10 @@ All notable changes are listed here. Inferlo follows [semantic versioning](https
 
 ## Unreleased
 
+- `inferlo db migrate --allow-change` now also generates enum value changes: adding or removing values of a `t.enum` field, or turning a text field into an enum or back, replaces the column's CHECK constraint (`ALTER TABLE ... DROP CONSTRAINT "posts_kind_check"`, then `ADD CONSTRAINT "posts_kind_check" CHECK (...)`, with the name Postgres gave it). Without the flag these changes are refused with IL4019 (they were IL4013). If `--apply` finds rows that still use a removed value, it fails with the new code IL4021, naming the table and constraint, and nothing from that migration is kept.
+- CI also tests Node.js 26, the newest LTS line.
+- Docs: the framework and app AGENTS.md files now say error codes are `ILxxxx` (they still said `KRxxxx`).
+
 ## 0.3.0 - 2026-11-02
 
 - **Breaking: Kairo is now Inferlo.** The npm package is `@browserlessapi/inferlo` (was `@browserlessapi/kairo`), the CLI is `inferlo` (was `kairo`), the GitHub repository is `BrowserlessAPI/Inferlo`, and error codes start with `IL` instead of `KR` (same numbers: KR1001 is now IL1001). `KairoError` is now `InferloError`, `KAIRO_VERSION` is `INFERLO_VERSION`, and `describe()` reports the version as `inferlo`. Environment variables for tests and the benchmark start with `INFERLO_`. To upgrade, replace the package name in imports and package.json, `kairo` with `inferlo` in scripts, and `KR` with `IL` where you match error codes.
