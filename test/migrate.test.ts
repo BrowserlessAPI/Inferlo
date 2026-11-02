@@ -64,16 +64,16 @@ describe("planMigration", () => {
     );
   });
 
-  test("column changes are refused and listed (IL4013), even with allowDrop", () => {
+  test("reference changes are refused and listed (IL4013), even with allowDrop and allowChange", () => {
     const first = planMigration(models);
-    const Author2 = model("authors", { name: t.string().max(120) });
-    for (const options of [undefined, { allowDrop: true }]) {
+    const Post2 = model("posts", { title: t.string().max(120), authorId: t.ref("authors") });
+    for (const options of [undefined, { allowDrop: true }, { allowDrop: true, allowChange: true }]) {
       assert.throws(
-        () => planMigration([Author2], first.snapshot, options),
+        () => planMigration([Author, Post2], first.snapshot, options),
         (e: unknown) => {
           if (!(e instanceof InferloError) || e.code !== "IL4013") return false;
           const changes = (e.details as { changes: string[] }).changes;
-          return changes.includes("change column authors.name") && !changes.some((c) => c.startsWith("drop"));
+          return changes.includes("change column posts.author_id") && !changes.some((c) => c.startsWith("drop"));
         },
       );
     }
@@ -204,12 +204,12 @@ describe("migration snapshot format (inferlo: 2)", () => {
           (e: unknown) => {
             if (!(e instanceof InferloError) || e.code !== "IL4013") return false;
             const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
-            assert.deepEqual(details.changes, ["change column posts.title", "change column posts.author_id"]);
+            // posts.title (a type change) can be generated with allowChange; only the reference is refused.
+            assert.deepEqual(details.changes, ["change column posts.author_id"]);
             assert.deepEqual(details.columns, [
-              { table: "posts", column: "title", changes: ["type varchar(120) -> varchar(200)", "default none -> 'Untitled'"] },
               { table: "posts", column: "author_id", changes: ["reference authors on delete cascade -> authors on delete restrict"] },
             ]);
-            assert.match(e.message, /posts\.title \(type varchar\(120\) -> varchar\(200\), default none -> 'Untitled'\)/);
+            assert.match(e.message, /posts\.author_id \(reference authors on delete cascade -> authors on delete restrict\)/);
             return true;
           },
         );
@@ -341,6 +341,80 @@ describe("enum value changes (allowChange)", () => {
   });
 });
 
+describe("type changes (allowChange)", () => {
+  const Post2 = model("posts", {
+    ...Post.fields,
+    title: t.string().min(1).max(200).default("Untitled"),
+    body: t.int().optional(),
+    views: t.number().default(0),
+    published: t.int().default(0),
+    rating: t.int().optional(),
+    meta: t.text().optional(),
+    kind: t.json(),
+  });
+
+  test("are refused without allowChange (IL4019) and listed, for inferlo: 1 and inferlo: 2 snapshots", () => {
+    for (const previous of [planMigration(models).snapshot, v1Snapshot(models)]) {
+      assert.throws(
+        () => planMigration([Author, Post2], previous, { allowDrop: true }),
+        (e: unknown) => {
+          if (!(e instanceof InferloError) || e.code !== "IL4019") return false;
+          const details = e.details as { changes: string[] };
+          assert.deepEqual(details.changes, [
+            "change column posts.title (type varchar(120) -> varchar(200), default none -> 'Untitled')",
+            "change column posts.body (type text -> integer, required -> optional)",
+            "change column posts.views (type integer -> double precision)",
+            "change column posts.rating (type double precision -> integer)",
+            "change column posts.published (type boolean -> integer, default false -> 0)",
+            "change column posts.meta (type jsonb -> text)",
+            "change column posts.kind (type text -> jsonb, default 'note' -> none, enum values 'note', 'article' -> none)",
+          ]);
+          assert.match(e.fix ?? "", /--allow-change/);
+          return true;
+        },
+      );
+    }
+  });
+
+  test("allowChange generates ALTER COLUMN ... TYPE with a strict USING clause, and moves defaults around it", () => {
+    const plan = planMigration([Author, Post2], planMigration(models).snapshot, { allowChange: true });
+    assert.deepEqual(plan.statements, [
+      'ALTER TABLE "posts" ALTER COLUMN "title" TYPE varchar(200)',
+      `ALTER TABLE "posts" ALTER COLUMN "title" SET DEFAULT 'Untitled'`,
+      'ALTER TABLE "posts" ALTER COLUMN "body" DROP NOT NULL',
+      'ALTER TABLE "posts" ALTER COLUMN "body" TYPE integer USING "body"::text::integer',
+      'ALTER TABLE "posts" ALTER COLUMN "views" DROP DEFAULT',
+      'ALTER TABLE "posts" ALTER COLUMN "views" TYPE double precision',
+      'ALTER TABLE "posts" ALTER COLUMN "views" SET DEFAULT 0',
+      'ALTER TABLE "posts" ALTER COLUMN "rating" TYPE integer USING "rating"::text::integer',
+      'ALTER TABLE "posts" ALTER COLUMN "published" DROP DEFAULT',
+      'ALTER TABLE "posts" ALTER COLUMN "published" TYPE integer USING "published"::integer',
+      'ALTER TABLE "posts" ALTER COLUMN "published" SET DEFAULT 0',
+      `ALTER TABLE "posts" ALTER COLUMN "meta" TYPE text USING "meta" #>> '{}'`,
+      'ALTER TABLE "posts" DROP CONSTRAINT "posts_kind_check"',
+      'ALTER TABLE "posts" ALTER COLUMN "kind" DROP DEFAULT',
+      'ALTER TABLE "posts" ALTER COLUMN "kind" TYPE jsonb USING to_jsonb("kind")',
+    ]);
+    assert.deepEqual(plan.snapshot.tables.posts!.columns.body, { type: "integer", notNull: false });
+    assert.deepEqual(planMigration([Author, Post2], plan.snapshot).statements, []);
+  });
+
+  test("jsonb to a non-text type converts the JSON value's text", () => {
+    const Post3 = model("posts", { ...Post.fields, meta: t.int().optional() });
+    assert.deepEqual(planMigration([Author, Post3], planMigration(models).snapshot, { allowChange: true }).statements, [
+      `ALTER TABLE "posts" ALTER COLUMN "meta" TYPE integer USING ("meta" #>> '{}')::integer`,
+    ]);
+  });
+
+  test("a varchar field becoming an enum changes the type and adds the CHECK constraint after it", () => {
+    const Post3 = model("posts", { ...Post.fields, title: t.enum(["a", "b"]) });
+    assert.deepEqual(planMigration([Author, Post3], planMigration(models).snapshot, { allowChange: true }).statements, [
+      'ALTER TABLE "posts" ALTER COLUMN "title" TYPE text',
+      `ALTER TABLE "posts" ADD CONSTRAINT "posts_title_check" CHECK ("title" IN ('a', 'b'))`,
+    ]);
+  });
+});
+
 describe("applyMigrations", () => {
   test("needs a database with raw SQL (memory is rejected with IL4008)", async () => {
     const db = createDb(models, memory());
@@ -359,7 +433,7 @@ if (PG_URL) {
     const MigUser = model("mig_users", { email: t.email().unique() });
     const MigTag = model("mig_tags", { label: t.string().max(30), userId: t.ref("mig_users") });
     const db = createDb([MigUser, MigTag], postgres({ url: PG_URL }));
-    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "mig_items", "mig_items_with_a_rather_long_table_name_here", "half_done", "inferlo_migrations" CASCADE');
+    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "mig_types", "mig_items", "mig_items_with_a_rather_long_table_name_here", "half_done", "inferlo_migrations" CASCADE');
     before(reset);
     after(async () => {
       await reset();
@@ -496,6 +570,73 @@ if (PG_URL) {
       await db.$sql(`INSERT INTO "mig_items" ("id", "state", "label") VALUES ('${crypto.randomUUID()}', 'done', 'green')`);
     });
 
+    test("an allowChange migration changes column types, and values that do not convert block it (IL4022)", async () => {
+      const Doc = model("mig_types", {
+        title: t.string().max(20),
+        count: t.text().optional(),
+        score: t.number().default(1),
+        done: t.boolean().default(false),
+        data: t.json<unknown>().optional(),
+        note: t.text().optional(),
+      });
+      const first = planMigration([Doc]);
+      await applyMigrations(db, [{ name: "0060_docs", sql: first.statements.join(";\n\n") + ";\n" }]);
+      const id = crypto.randomUUID();
+      await db.$sql(`INSERT INTO "mig_types" ("id", "title", "count", "score", "done", "data", "note") VALUES ($1, 'A rather long title', '12', 2.5, true, '{"a":1}', 'plain')`, [id]);
+
+      const Doc2 = model("mig_types", {
+        title: t.string().max(10),
+        count: t.int().optional(),
+        score: t.int().default(1),
+        done: t.int().default(0),
+        data: t.text().optional(),
+        note: t.json<unknown>().optional(),
+      });
+      const plan = planMigration([Doc2], first.snapshot, { allowChange: true });
+      const blocked = (name: string, statements: string[]) => [{ name, sql: statements.join(";\n\n") + ";\n" }];
+      const isIL4022 = (name: string, pattern: RegExp) => (e: unknown) => {
+        if (!(e instanceof InferloError) || e.code !== "IL4022") return false;
+        const details = e.details as { migration: string; columns: string[]; reason: string };
+        assert.equal(details.migration, name);
+        assert.deepEqual(details.columns, ["mig_types.title", "mig_types.count", "mig_types.score", "mig_types.done", "mig_types.data", "mig_types.note"]);
+        assert.match(details.reason, pattern);
+        assert.match(e.fix ?? "", /UPDATE/);
+        return true;
+      };
+      // The title does not fit in varchar(10): it is not cut.
+      await assert.rejects(applyMigrations(db, blocked("0061_types", plan.statements)), isIL4022("0061_types", /too long/));
+      await db.$sql(`UPDATE "mig_types" SET "title" = 'Short'`);
+      // 2.5 is not an integer: it is not rounded.
+      await assert.rejects(applyMigrations(db, blocked("0061_types", plan.statements)), isIL4022("0061_types", /2\.5/));
+      assert.equal((await db.$sql(`SELECT 1 FROM "inferlo_migrations" WHERE "name" = '0061_types'`)).length, 0);
+
+      await db.$sql(`UPDATE "mig_types" SET "score" = 3`);
+      assert.deepEqual(await applyMigrations(db, blocked("0061_types", plan.statements)), ["0061_types"]);
+      assert.deepEqual(await db.$sql(`SELECT "title", "count", "score", "done", "data", "note" FROM "mig_types"`), [
+        { title: "Short", count: 12, score: 3, done: 1, data: '{"a": 1}', note: "plain" },
+      ]);
+      const defaults = await db.$sql(
+        `SELECT column_name, data_type, column_default FROM information_schema.columns WHERE table_name = 'mig_types' AND column_name IN ('score', 'done', 'note') ORDER BY column_name`,
+      );
+      assert.deepEqual(defaults, [
+        { column_name: "done", data_type: "integer", column_default: "0" },
+        { column_name: "note", data_type: "jsonb", column_default: null },
+        { column_name: "score", data_type: "integer", column_default: "1" },
+      ]);
+
+      // Text that is not a number fails the same way; other errors are passed through unchanged.
+      await db.$sql(`UPDATE "mig_types" SET "data" = 'abc'`);
+      const Doc3 = model("mig_types", { ...Doc2.fields, data: t.number().optional() });
+      const third = planMigration([Doc3], plan.snapshot, { allowChange: true });
+      await assert.rejects(applyMigrations(db, blocked("0062_data", third.statements)), (e: unknown) => {
+        if (!(e instanceof InferloError) || e.code !== "IL4022") return false;
+        assert.deepEqual((e.details as { columns: string[] }).columns, ["mig_types.data"]);
+        assert.match(e.message, /mig_types\.data/);
+        return true;
+      });
+      await assert.rejects(applyMigrations(db, blocked("0063_plain", [`SELECT 'abc'::integer`])), (e: unknown) => !(e instanceof InferloError));
+    });
+
     test("the generated CHECK constraint name matches Postgres for long table and column names", async () => {
       const table = "mig_items_with_a_rather_long_table_name_here";
       const Long = model(table, { theStatusOfThisParticularRowInTheTable: t.enum(["x", "y"]) });
@@ -610,12 +751,14 @@ describe("inferlo db migrate (CLI)", () => {
     assert.deepEqual(readdirSync(path.join(dir, "migrations")).sort(), ["0001_init.sql", "0002_add_done.sql", "snapshot.json"]);
   });
 
-  test("refused changes exit non-zero and write nothing", () => {
+  test("refused changes exit non-zero and write nothing (a type change without --allow-change is IL4019)", () => {
     writeModels(["title: t.string().max(200)", "done: t.boolean().default(false)"]);
     const r = cli("db", "migrate", "widen title");
     assert.equal(r.status, 1);
-    assert.equal(r.out.error.code, "IL4013");
+    assert.equal(r.out.error.code, "IL4019");
+    assert.match(r.out.error.message, /notes\.title \(type varchar\(100\) -> varchar\(200\)\)/);
     assert.equal(readdirSync(path.join(dir, "migrations")).length, 3);
+    writeModels(["title: t.string().max(100)", "done: t.boolean().default(false)"]);
   });
 
   test("drops need --allow-drop (IL4017), then are written and listed", () => {

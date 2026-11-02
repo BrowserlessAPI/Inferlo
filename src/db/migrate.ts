@@ -7,9 +7,9 @@
  * planMigration compares your models with migrations/snapshot.json (the models as of the last
  * generated migration) and returns the SQL for the difference. Additive changes are generated
  * directly. Drops of tables, columns and indexes delete data, so they are refused with IL4017
- * unless you pass { allowDrop: true } (inferlo db migrate --allow-drop). Default, required and
+ * unless you pass { allowDrop: true } (inferlo db migrate --allow-drop). Type, default, required and
  * enum value changes are refused with IL4019 unless you pass { allowChange: true } (--allow-change).
- * Renames and other column changes are refused with IL4013, so nothing is lost silently. Snapshots in the
+ * Renames and reference changes are refused with IL4013, so nothing is lost silently. Snapshots in the
  * 0.2.0 format (inferlo: 1) are read and upgraded; plans always return the current format (inferlo: 2).
  */
 import { InferloError } from "../errors.ts";
@@ -61,11 +61,12 @@ export interface PlanMigrationOptions {
   /** Generate DROP statements for removed tables, columns and indexes. These delete data. Default false. */
   allowDrop?: boolean;
   /**
-   * Generate default, required/optional and enum value changes of existing columns (SET DEFAULT,
-   * DROP DEFAULT, SET NOT NULL, DROP NOT NULL, and replacing the enum's CHECK constraint). Making a
-   * column required fails at apply time (IL4020) if rows still have NULL in it, unless the field has
-   * a fixed default, which fills them. Removing an enum value fails at apply time (IL4021) if rows
-   * still use it. Default false.
+   * Generate type, default, required/optional and enum value changes of existing columns (ALTER
+   * COLUMN ... TYPE, SET DEFAULT, DROP DEFAULT, SET NOT NULL, DROP NOT NULL, and replacing the enum's
+   * CHECK constraint). Changing the type fails at apply time (IL4022) if an existing value does not
+   * convert. Making a column required fails at apply time (IL4020) if rows still have NULL in it,
+   * unless the field has a fixed default, which fills them. Removing an enum value fails at apply
+   * time (IL4021) if rows still use it. Default false.
    */
   allowChange?: boolean;
 }
@@ -197,9 +198,33 @@ function columnChanges(before: MigrationSnapshotColumn, now: MigrationSnapshotCo
   return out;
 }
 
-/** Changes planMigration can generate with allowChange: only the default, required/optional and enum values differ. */
+/** Changes planMigration can generate with allowChange: only the type, default, required/optional and enum values differ. */
 function isAlterable(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): boolean {
-  return columnChanges({ ...before, notNull: now.notNull, default: now.default, enum: now.enum }, now).length === 0;
+  return columnChanges({ ...before, type: now.type, notNull: now.notNull, default: now.default, enum: now.enum }, now).length === 0;
+}
+
+const isString = (type: string) => type === "text" || type.startsWith("varchar(");
+
+/**
+ * The USING clause for ALTER COLUMN ... TYPE, or "" when Postgres converts the values itself.
+ * Every conversion is strict: a value that does not fit fails the migration (IL4022) instead of
+ * being cut, rounded or set to NULL.
+ *   - to text or varchar(n): no USING (too long values fail, they are not cut);
+ *   - integer to double precision: no USING;
+ *   - from jsonb: the JSON value's text ("hello", not "\"hello\""), then converted;
+ *   - to jsonb: to_jsonb(value), so text becomes a JSON string;
+ *   - boolean to integer or double precision: true is 1, false is 0;
+ *   - anything else goes through the value's text, so 2.5 does not become the integer 3.
+ */
+function usingSql(column: string, from: string, to: string): string {
+  const c = q(column);
+  if (to === "jsonb") return ` USING to_jsonb(${c})`;
+  if (from === "jsonb") return isString(to) ? ` USING ${c} #>> '{}'` : ` USING (${c} #>> '{}')::${to}`;
+  if (isString(to)) return "";
+  if (from === "integer" && to === "double precision") return "";
+  if (from === "boolean" && to === "integer") return ` USING ${c}::integer`;
+  if (from === "boolean" && to === "double precision") return ` USING ${c}::integer::double precision`;
+  return ` USING ${c}::text::${to}`;
 }
 
 /**
@@ -226,17 +251,24 @@ function checkConstraintName(table: string, column: string): string {
   return `${clip(a, n1)}_${clip(b, n2)}_check`;
 }
 
-/** ALTER statements for a default, required/optional and enum value change (see isAlterable). */
+/** ALTER statements for a type, default, required/optional and enum value change (see isAlterable). */
 function alterColumnSql(table: string, column: string, before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): string[] {
   const alter = `ALTER TABLE ${q(table)} ALTER COLUMN ${q(column)}`;
   const out: string[] = [];
   const enumChanged = JSON.stringify(before.enum) !== JSON.stringify(now.enum);
+  const typeChanged = before.type !== now.type;
   const check = q(checkConstraintName(table, column));
   // The old constraint goes first, so filling NULL rows with a new enum default is allowed.
   // No IF EXISTS: if the constraint has another name, the migration fails instead of keeping it.
   if (enumChanged && before.enum) out.push(`ALTER TABLE ${q(table)} DROP CONSTRAINT ${check}`);
   if (before.notNull && !now.notNull) out.push(`${alter} DROP NOT NULL`);
-  if (before.default !== now.default) out.push(now.default === undefined ? `${alter} DROP DEFAULT` : `${alter} SET DEFAULT ${now.default}`);
+  if (typeChanged) {
+    // Postgres does not convert a default together with the values, so the old default goes
+    // first and the new one is set after the type change.
+    if (before.default !== undefined) out.push(`${alter} DROP DEFAULT`);
+    out.push(`${alter} TYPE ${now.type}${usingSql(column, before.type, now.type)}`);
+    if (now.default !== undefined) out.push(`${alter} SET DEFAULT ${now.default}`);
+  } else if (before.default !== now.default) out.push(now.default === undefined ? `${alter} DROP DEFAULT` : `${alter} SET DEFAULT ${now.default}`);
   if (!before.notNull && now.notNull) {
     // Same as adding a required column with a default: existing rows get the default.
     if (now.default !== undefined) out.push(`UPDATE ${q(table)} SET ${q(column)} = ${now.default} WHERE ${q(column)} IS NULL`);
@@ -322,7 +354,7 @@ export function planMigration(
       return column ? `${change} (${column.changes.join(", ")})` : change;
     });
     throw new InferloError("IL4013", `inferlo db migrate cannot generate these changes yet: ${explained.join(", ")}.`, {
-      fix: "New tables, columns and indexes, drops with --allow-drop, and default, required and enum value changes with --allow-change are generated. Renames, type, reference and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
+      fix: "New tables, columns and indexes, drops with --allow-drop, and type, default, required and enum value changes with --allow-change are generated. Renames, reference and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
       details: { changes: refused, columns: changedColumns },
       expose: true,
     });
@@ -337,7 +369,7 @@ export function planMigration(
   const changes = alterable.map((c) => `change column ${c.table}.${c.column} (${c.changes.join(", ")})`);
   if (changes.length && !options.allowChange) {
     throw new InferloError("IL4019", `Your model changes change existing columns: ${changes.join(", ")}.`, {
-      fix: "If you mean to change these columns, run inferlo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Removing an enum value fails if rows still use it. Otherwise undo the model changes.",
+      fix: "If you mean to change these columns, run inferlo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Changing the type fails if an existing value does not convert. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Removing an enum value fails if rows still use it. Otherwise undo the model changes.",
       details: { changes, columns: alterable },
       expose: true,
     });
@@ -413,6 +445,33 @@ function checkViolationError(error: unknown, migration: string): InferloError | 
   });
 }
 
+/** SQLSTATEs of a value that does not convert: invalid text, too long, out of range, bad date. */
+const CONVERSION_ERRORS = new Set(["22P02", "22001", "22003", "22007", "22008", "22018"]);
+const TYPE_CHANGE = new RegExp(`ALTER TABLE (${IDENT}) ALTER COLUMN (${IDENT}) TYPE `, "g");
+const unquoteIdent = (s: string) => s.slice(1, -1).replace(/""/g, '"');
+
+/**
+ * IL4022 for a value that does not convert, in a migration that changes a column type (ALTER COLUMN
+ * ... TYPE). Undefined for any other error, or when the migration changes no column type.
+ */
+function conversionError(error: unknown, migration: string, sql: string): InferloError | undefined {
+  const e = error as { code?: string; message?: string } | null;
+  if (!e || !CONVERSION_ERRORS.has(e.code ?? "")) return undefined;
+  const columns = [...sql.matchAll(TYPE_CHANGE)].map((m) => `${unquoteIdent(m[1]!)}.${unquoteIdent(m[2]!)}`);
+  if (!columns.length) return undefined;
+  const reason = e.message ? ` (${e.message})` : "";
+  return new InferloError(
+    "IL4022",
+    `Migration ${migration} failed: an existing value does not convert to the new type of ${columns.length > 1 ? `one of ${columns.join(", ")}` : columns[0]}${reason}.`,
+    {
+      fix: `Change or clear the values that do not convert first: if ${migration} has not been applied anywhere, add an UPDATE before the ALTER COLUMN ... TYPE statement (for example UPDATE "<table>" SET "<column>" = NULL WHERE ...), or write your own USING expression. Or keep the old field type in the model.`,
+      details: { migration, columns, reason: e.message },
+      cause: error,
+      expose: true,
+    },
+  );
+}
+
 /**
  * Run the migrations that are not yet recorded in the "inferlo_migrations" table, in name order,
  * each in its own transaction. Returns the names it applied. Safe to run from several processes
@@ -464,7 +523,7 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
       try {
         await tx.$sql(m.sql);
       } catch (error) {
-        throw nullRowsError(error, m.name) ?? checkViolationError(error, m.name) ?? error;
+        throw nullRowsError(error, m.name) ?? checkViolationError(error, m.name) ?? conversionError(error, m.name, m.sql) ?? error;
       }
       await tx.$sql(`INSERT INTO "inferlo_migrations" ("name", "checksum") VALUES ($1, $2)`, [m.name, sums.get(m.name)]);
       return true;

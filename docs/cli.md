@@ -6,7 +6,7 @@ inferlo dev                    Run src/server.ts and restart on changes
 inferlo describe [--json]      App map: models, routes, auth, AI
 inferlo check [--json]         Typecheck, load the app, run tests
 inferlo db push [--dry-run]    Create missing tables, columns and indexes
-inferlo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops, --allow-change to include default, required and enum value changes)
+inferlo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops, --allow-change to include type, default, required and enum value changes)
 inferlo db migrate --apply     Run pending migration files
 inferlo openapi [--out file]   Print or write the OpenAPI document
 inferlo add resource <name>    Generate a model and CRUD routes

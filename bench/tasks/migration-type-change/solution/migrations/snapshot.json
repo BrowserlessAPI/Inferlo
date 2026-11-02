@@ -1,0 +1,122 @@
+{
+  "inferlo": 2,
+  "tables": {
+    "users": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "type": "timestamptz",
+          "notNull": true,
+          "default": "now()"
+        },
+        "email": {
+          "type": "text",
+          "notNull": true
+        },
+        "name": {
+          "type": "varchar(80)",
+          "notNull": true
+        },
+        "role": {
+          "type": "text",
+          "notNull": true,
+          "default": "'member'",
+          "enum": [
+            "member",
+            "admin"
+          ]
+        }
+      },
+      "indexes": {
+        "users_email_key": "CREATE UNIQUE INDEX IF NOT EXISTS \"users_email_key\" ON \"users\" (\"email\")"
+      }
+    },
+    "api_keys": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "type": "timestamptz",
+          "notNull": true,
+          "default": "now()"
+        },
+        "user_id": {
+          "type": "uuid",
+          "notNull": true,
+          "references": {
+            "table": "users",
+            "onDelete": "cascade"
+          }
+        },
+        "hash": {
+          "type": "varchar(64)",
+          "notNull": true
+        },
+        "label": {
+          "type": "varchar(80)",
+          "notNull": true,
+          "default": "'default'"
+        }
+      },
+      "indexes": {
+        "api_keys_user_id_idx": "CREATE INDEX IF NOT EXISTS \"api_keys_user_id_idx\" ON \"api_keys\" (\"user_id\")",
+        "api_keys_hash_key": "CREATE UNIQUE INDEX IF NOT EXISTS \"api_keys_hash_key\" ON \"api_keys\" (\"hash\")"
+      }
+    },
+    "notes": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "type": "timestamptz",
+          "notNull": true,
+          "default": "now()"
+        },
+        "title": {
+          "type": "varchar(500)",
+          "notNull": true
+        },
+        "body": {
+          "type": "text",
+          "notNull": false
+        },
+        "owner_id": {
+          "type": "uuid",
+          "notNull": true,
+          "references": {
+            "table": "users",
+            "onDelete": "cascade"
+          }
+        }
+      },
+      "indexes": {
+        "notes_owner_id_idx": "CREATE INDEX IF NOT EXISTS \"notes_owner_id_idx\" ON \"notes\" (\"owner_id\")"
+      }
+    }
+  }
+}

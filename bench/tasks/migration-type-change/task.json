@@ -1,0 +1,4 @@
+{
+  "title": "Change a column type with a migration",
+  "prompt": "Note titles must allow up to 500 characters (they allow 200 now). This project deploys with migrations: add the migration file migrations/0002_longer_titles.sql with exactly the SQL `inferlo db migrate longer_titles --allow-change` would generate, so the database accepts the longer titles, and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands."
+}
