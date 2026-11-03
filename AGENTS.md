@@ -76,7 +76,7 @@ If you change docs, run `npm run llms` to regenerate `llms-full.txt`.
 
 ## How to make a change
 
-1. Pick the first unchecked item in ROADMAP.md (or a bug you found). Keep each change small and complete.
+1. Work through ROADMAP.md from the top: up to three items per run, each as its own complete commit. Fix bugs you find first.
 2. Write or update tests first. Every feature needs tests; every bug fix needs a regression test.
 3. Implement it following the design rules.
 4. Update the docs page for the feature, `docs/errors.md` for new error codes, `templates/app` if the default project should use it, and `CHANGELOG.md` under "Unreleased".
