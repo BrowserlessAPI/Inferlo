@@ -42,6 +42,7 @@ export interface AppDescription {
     body?: JSONSchema;
   }[];
   ai: { configured: boolean; aliases: Record<string, string[]> };
+  jobs: { name: string; summary?: string; retries: number; input: JSONSchema }[];
 }
 
 export const INFERLO_VERSION = "0.3.0";
@@ -94,5 +95,6 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       return out;
     }),
     ai: { configured: app.ai.configured, aliases: app.ai.aliases },
+    jobs: app.jobs.list.map((j) => ({ name: j.name, ...(j.options.summary ? { summary: j.options.summary } : {}), retries: j.options.retries ?? 3, input: j.options.input.toJSONSchema() })),
   };
 }

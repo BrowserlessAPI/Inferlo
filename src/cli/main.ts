@@ -117,6 +117,10 @@ async function cmdDescribe(args: Args) {
     }
     lines.push("", "Routes");
     for (const r of d.routes) lines.push(`  ${r.method.padEnd(6)} ${r.path.padEnd(28)} auth=${r.auth}${r.tool ? `  tool=${r.tool}` : ""}${r.name ? `  (${r.name})` : ""}`);
+    if (d.jobs?.length) {
+      lines.push("", "Jobs");
+      for (const j of d.jobs) lines.push(`  ${j.name.padEnd(28)} retries=${j.retries}${j.summary ? `  ${j.summary}` : ""}`);
+    }
     lines.push("", `AI: ${d.ai.configured ? Object.entries<string[]>(d.ai.aliases).map(([a, ids]) => `${a} = ${ids.join(" > ")}`).join("; ") || "configured" : "not configured"}`);
     if (d.endpoints.openapi) lines.push(`OpenAPI: ${d.endpoints.openapi}`);
     if (d.endpoints.mcp) lines.push(`MCP: ${d.endpoints.mcp}`);

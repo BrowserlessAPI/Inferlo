@@ -1,0 +1,4 @@
+{
+  "title": "Background job queued by a route",
+  "prompt": "After POST /notes creates a note, its title should be turned into upper case by a background job, not during the request. Create src/jobs.ts with a job named \"uppercase-title\" whose input is { noteId } (a uuid) and that updates the note's title to upper case. Register the jobs module in src/app.ts and enqueue the job from the POST /notes handler. The response of POST /notes still returns the note as created."
+}

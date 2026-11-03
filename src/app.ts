@@ -14,6 +14,7 @@ import { buildOpenAPI } from "./openapi.ts";
 import { isRoute, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps } from "./client-ip.ts";
+import { collectJobs, createJobs, memoryJobStore, type AppJobs, type JobSource } from "./jobs.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 
 export interface AuthConfig {
@@ -53,6 +54,8 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
   description?: string;
   models?: Models;
   routes?: RouteSource[];
+  /** Background jobs: jobs, arrays or modules (import * as jobs from "./jobs.ts"). */
+  jobs?: JobSource[];
   /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/inferlo/postgres" in production. */
   db?: Adapter;
   auth?: AuthConfig;
@@ -102,6 +105,8 @@ export interface App<Models extends readonly AnyModel[]> {
   readonly models: Models;
   readonly db: Db<Models>;
   readonly ai: AI;
+  /** Background jobs: app.jobs.enqueue(job, input), app.jobs.start() to run them, app.jobs.runDue() in tests. */
+  readonly jobs: AppJobs;
   /** Standard fetch handler: export default app works on Bun, Deno and Cloudflare Workers. */
   fetch(req: Request, ...rest: unknown[]): Promise<Response>;
   /** In-process request for tests: await app.request("/tickets", { method: "POST", json: {...}, as: user }). */
@@ -265,6 +270,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   const db = createDb(models, adapter);
   const rateLimits: RateLimitStore = storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
   const ai = createAI(config.ai);
+  const jobs = createJobs(collectJobs(config.jobs), { db: db as never, ai, store: memoryJobStore(), logger });
   const maxBody = config.maxBodySize ?? 1024 * 1024;
   const cors: CorsConfig | undefined = config.cors === true ? { origin: "*" } : config.cors || undefined;
   const openapiPath = config.openapi === undefined ? "/openapi.json" : config.openapi;
@@ -404,6 +410,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         user,
         db: db as never,
         ai: toolsFor(req),
+        jobs,
         req,
         url,
         headers: req.headers,
@@ -434,6 +441,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     models,
     db,
     ai,
+    jobs,
 
     async fetch(req, ...rest) {
       const url = new URL(req.url);

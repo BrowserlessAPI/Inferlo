@@ -11,7 +11,9 @@ Priority order: AI model support is Inferlo's core promise, so the "Now" section
 - [x] Relations part 2: reverse (has-many) relations, `db.users.findMany({ include: { tickets: true } })` for models with a `t.ref` to this one, also one query per relation
 - [x] Rate limiting: `route.post(path, { rateLimit: { max: 10, per: "minute", by: "user" | "ip" } })` with memory and Postgres stores, IL code for 429
 - [x] Vision input: images (URL or base64) in `ai.generate` messages for Anthropic, OpenAI, Gemini and OpenAI-compatible providers
-- [ ] Background jobs: `job("send-email", { input: schema }).handle(fn)`, `ctx.jobs.enqueue(...)`, Postgres-backed queue with retries and `inferlo worker`
+- [x] Background jobs part 1: `job("send-email", { input: schema }).handle(fn)`, `createApp({ jobs })`, `ctx.jobs.enqueue(...)` with validated input, retries with backoff, in-memory queue, `app.jobs.start()` and `app.jobs.runDue()`
+- [ ] Background jobs part 2: Postgres-backed queue (table `inferlo_jobs`, claimed with `FOR UPDATE SKIP LOCKED`) shared by every instance, chosen like the rate limit store (`{ store: "database" }`), with jobs stuck in "running" after a crash picked up again
+- [ ] Background jobs part 3: `inferlo worker` runs `app.jobs.start()` with graceful shutdown on SIGTERM, and the app template uses it
 - [ ] Cron: `cron("0 * * * *", handler)` running in `inferlo worker`
 - [ ] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`
 - [ ] Cookie sessions: `sessions({ secret })` auth helper with signed, HttpOnly cookies and CSRF protection for forms

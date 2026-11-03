@@ -41,6 +41,7 @@ Do not finish until `inferlo check` passes.
 11. **Errors:** throw `notFound()`, `forbidden()`, `badRequest()` or `httpError(status, message)`. Every Inferlo error has a code (ILxxxx), a fix and a docs link: read the fix before changing code.
 12. **Imports:** relative imports end in `.ts` (`import { Note } from "../models.ts"`).
 13. **Expose to AI agents:** add `tool: true` to a route to make it an MCP tool at `/mcp`. Same auth applies.
+14. **Slow work after the response** (email, slow AI calls) is a background job: `export const x = job("send-email", { input: t.object({ ... }) }).handle(async ({ input, db, ai }) => { ... })` in `src/jobs.ts`, registered with `createApp({ jobs: [jobs] })`, queued with `await ctx.jobs.enqueue(x, { ... })`. Pass ids in the input, not rows. In tests, run queued jobs with `await app.jobs.runDue()`.
 
 ## Testing
 

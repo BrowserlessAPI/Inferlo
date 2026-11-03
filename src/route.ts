@@ -10,6 +10,7 @@
  */
 import type { AI } from "./ai/index.ts";
 import type { Db } from "./db/table.ts";
+import type { Jobs } from "./jobs.ts";
 import type { AnyModel } from "./model.ts";
 import type { RateLimit } from "./rate-limit.ts";
 import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
@@ -78,6 +79,8 @@ export interface Context<Body, Query, Params, User> {
   user: User;
   db: AppDb;
   ai: AI;
+  /** Queue background jobs: await jobs.enqueue(sendEmail, { to }). */
+  jobs: Jobs;
   req: Request;
   url: URL;
   headers: Headers;

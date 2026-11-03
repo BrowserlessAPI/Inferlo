@@ -151,6 +151,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6008
 **Rate limit store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
+
+### IL6009
+**Invalid job.** A job name must be lowercase letters, digits and dashes, starting with a letter (`"send-email"`), unique in the app, with `input` a schema and `retries` a whole number from 0 to 25. `enqueue(..., { runAt })` needs a valid `Date`.
+
+### IL6010
+**Job is not registered.** The job passed to `jobs.enqueue` (or a queued job's name) is not in `createApp({ jobs: [...] })`. Pass a value made with `job(...).handle(...)` and register it, or its module.
 ## Environment (7xxx)
 
 ### IL7001
