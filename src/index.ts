@@ -30,7 +30,24 @@ export type {
 } from "./db/migrate.ts";
 
 export { createAI, cosineSimilarity, extractJson, openai, openaiCompatible, anthropic, gemini, ollama, mockProvider, ProviderError } from "./ai/index.ts";
-export type { AI, AIConfig, GenerateOptions, GenerateResult, StreamResult, Usage, Pricing, Provider, ProviderRequest, Message } from "./ai/index.ts";
+export type {
+  AI,
+  AIConfig,
+  GenerateOptions,
+  GenerateResult,
+  StreamResult,
+  Usage,
+  Pricing,
+  Provider,
+  ProviderRequest,
+  ProviderResponse,
+  Message,
+  MockReply,
+  Step,
+  ToolCall,
+  ToolCallResult,
+  ToolSpec,
+} from "./ai/index.ts";
 
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
 export { env, setEnv } from "./env.ts";

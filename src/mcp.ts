@@ -31,36 +31,37 @@ export function toolName(route: RouteDef): string {
 }
 
 export function toolDefinitions(app: App<any>): ToolDefinition[] {
-  return app.routes
-    .filter((r) => r.options.tool)
-    .map((route) => {
-      const properties: Record<string, JSONSchema> = {};
-      const required = new Set<string>();
-      const add = (schema: JSONSchema | undefined) => {
-        if (!schema) return;
-        for (const [k, v] of Object.entries((schema.properties as Record<string, JSONSchema>) ?? {})) properties[k] = v;
-        for (const k of (schema.required as string[]) ?? []) required.add(k);
-      };
-      const o = route.options;
-      if (o.params) add(o.params.toJSONSchema());
-      else for (const key of pathKeys(route.path)) (properties[key] = { type: "string" }), required.add(key);
-      if (o.query) add(o.query.toJSONSchema());
-      if (o.body) {
-        const body = o.body.toJSONSchema();
-        if (body.type === "object") add(body);
-        else {
-          properties.body = body;
-          required.add("body");
-        }
-      }
-      const toolOpt = typeof o.tool === "object" ? o.tool : {};
-      return {
-        name: toolName(route),
-        description: toolOpt.description ?? o.description ?? o.summary ?? `${route.method} ${route.path}`,
-        inputSchema: { type: "object", properties, ...(required.size ? { required: [...required] } : {}) },
-        route,
-      };
-    });
+  return app.routes.filter((r) => r.options.tool).map(toolDefinition);
+}
+
+/** The tool definition of one route: its name, description and a JSON Schema of params, query and body together. */
+export function toolDefinition(route: RouteDef): ToolDefinition {
+  const properties: Record<string, JSONSchema> = {};
+  const required = new Set<string>();
+  const add = (schema: JSONSchema | undefined) => {
+    if (!schema) return;
+    for (const [k, v] of Object.entries((schema.properties as Record<string, JSONSchema>) ?? {})) properties[k] = v;
+    for (const k of (schema.required as string[]) ?? []) required.add(k);
+  };
+  const o = route.options;
+  if (o.params) add(o.params.toJSONSchema());
+  else for (const key of pathKeys(route.path)) (properties[key] = { type: "string" }), required.add(key);
+  if (o.query) add(o.query.toJSONSchema());
+  if (o.body) {
+    const body = o.body.toJSONSchema();
+    if (body.type === "object") add(body);
+    else {
+      properties.body = body;
+      required.add("body");
+    }
+  }
+  const toolOpt = typeof o.tool === "object" ? o.tool : {};
+  return {
+    name: toolName(route),
+    description: toolOpt.description ?? o.description ?? o.summary ?? `${route.method} ${route.path}`,
+    inputSchema: { type: "object", properties, ...(required.size ? { required: [...required] } : {}) },
+    route,
+  };
 }
 
 function rpcError(id: unknown, code: number, message: string) {
@@ -129,7 +130,8 @@ export async function handleMcp(app: App<any>, req: Request, headers: Headers, t
   return result ? new Response(JSON.stringify(result), { status: 200, headers }) : new Response(null, { status: 202, headers });
 }
 
-async function callTool(app: App<any>, tool: ToolDefinition, args: Record<string, unknown>, original: Request, testUsers: WeakMap<Request, unknown>): Promise<Response> {
+/** Run a tool call as an HTTP request to its route, forwarding the caller's credentials, so auth, roles and validation apply. */
+export async function callTool(app: App<any>, tool: ToolDefinition, args: Record<string, unknown>, original: Request, testUsers: WeakMap<Request, unknown>): Promise<Response> {
   const route = tool.route;
   const o = route.options;
   const keys = pathKeys(route.path);

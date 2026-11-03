@@ -113,6 +113,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5008
 **A stream was read twice.** Call `ai.stream()` again.
 
+### IL5009
+**Tools outside a route handler.** `ai.generate({ tools })` only works through `ctx.ai` in a route handler, so every tool call runs as the signed-in user with the route's auth and validation.
+
+### IL5010
+**Step limit reached (502).** The model was still calling tools after `maxSteps` model calls (default 5). Raise `maxSteps`, give the model fewer and more specific tools, or say in the prompt when to stop. `details` (server log) lists the tools called in each step.
+
+### IL5011
+**Tool is not a route of this app.** A route passed to `ai.generate({ tools })` is not registered in `createApp({ routes })`. Register it, or pass a route that is.
+
 ## App configuration (6xxx)
 
 ### IL6001

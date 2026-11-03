@@ -1,0 +1,4 @@
+{
+  "title": "AI assistant with route tools",
+  "prompt": "Add POST /assistant with body { message } (1 to 4000 characters). It asks the \"fast\" AI model alias to answer the message, letting the model call the existing createNote and listNotes routes as tools so it can create and list the signed-in user's notes. Return { \"reply\": string } with the model's final text, and track AI usage for the user."
+}

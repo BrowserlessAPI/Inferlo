@@ -59,6 +59,45 @@ object.priority; // "low" | "normal" | "urgent"
 
 Inferlo sends the JSON Schema to the model, extracts the JSON (tolerating code fences), validates it, and if it does not match, asks the model once to fix it, quoting the exact problems. If it still fails you get IL5002. Model fields can be reused directly: `priority: Ticket.fields.priority`.
 
+## Tools: let the model call your routes
+
+Pass routes as `tools` and the model can call them while it works out its answer. Each tool call runs as an HTTP request to the route **as the current user**: the route's `auth`, roles and schema validation apply exactly as they do for any other client, so a model can never do more than the user could.
+
+```ts
+import { route, t } from "@browserlessapi/inferlo";
+import { createTicket, getTicket, listTickets } from "./tickets.ts";
+
+export const assistant = route
+  .post("/assistant", { body: t.object({ message: t.string().max(4000) }) })
+  .handle(async ({ ai, body, user }) => {
+    const { text, steps, usage } = await ai.generate({
+      model: "smart",
+      system: "You help users manage their support tickets.",
+      prompt: body.message,
+      tools: [createTicket, getTicket, listTickets],
+      maxSteps: 5,
+      for: user.id,
+    });
+    return { reply: text, toolCalls: steps.flatMap((s) => s.toolCalls.map((c) => c.name)), cost: usage.cost };
+  });
+```
+
+- **Names and arguments** come from the route: the tool name is the route's export name (`createTicket`, or `tool: { name }`), the description is `tool.description`, `description` or `summary`, and the arguments are the route's `params`, `query` and `body` fields in one JSON Schema (the same tool the MCP server shows). Routes do not need `tool: true` to be used here; that option only controls the MCP server.
+- **Errors go back to the model.** A 403, 404 or 422 from the route (or an unknown tool name) is sent to the model as a failed tool result, so it can correct itself.
+- **Step limit.** `maxSteps` (default 5) is the most model calls, tool rounds plus the final answer. A model still calling tools at the limit raises IL5010.
+- **Usage per step.** `steps` lists every model call with its `text`, `toolCalls` (`name`, `input`, `status`, `output`, `isError`) and `usage`; `usage` has the totals and is reported to `onUsage` once. `allow` is checked again before every model call that follows tool calls, so budgets stop a long run.
+- **Fallback.** Once a tool has run, Inferlo does not retry on the next model in the alias (that would run the tools again); the call fails with IL5006.
+- **Structured output** works with tools: pass `output` and the final answer is validated as usual.
+- Works with Anthropic, OpenAI, Gemini and OpenAI-compatible servers whose models support tool calling. Tools only work through `ctx.ai` inside a route handler (IL5009), and must be routes registered in `createApp` (IL5011). Streaming with tools is not supported yet.
+
+In tests, a `mockProvider` can return tool calls:
+
+```ts
+mockProvider({
+  respond: (r) => (r.messages.at(-1)!.role === "tool" ? "Created it." : { toolCalls: [{ name: "createTicket", input: { title: "Printer on fire" } }] }),
+});
+```
+
 ## Streaming
 
 ```ts

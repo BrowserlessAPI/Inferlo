@@ -11,7 +11,8 @@
  */
 import { InferloError, didYouMean } from "../errors.ts";
 import { type AnySchema, type Infer, toJSONSchema } from "../schema.ts";
-import { ProviderError, type Message, type Provider, type ProviderUsage } from "./providers.ts";
+import type { RouteDef } from "../route.ts";
+import { ProviderError, type Message, type Provider, type ProviderUsage, type ToolSpec } from "./providers.ts";
 
 export * from "./providers.ts";
 
@@ -71,12 +72,57 @@ export interface GenerateOptions<O extends AnySchema | undefined> {
   signal?: AbortSignal;
   /** Extra attempts when structured output does not match the schema (default 1). */
   repairAttempts?: number;
+  /**
+   * Routes the model may call as tools, with the current user's permissions:
+   * ctx.ai.generate({ prompt, tools: [createTicket, getTicket] }). Only inside a route handler.
+   */
+  tools?: readonly RouteDef[];
+  /** Most model calls when tools are given: tool rounds plus the final answer (default 5). More raises IL5010. */
+  maxSteps?: number;
+}
+
+/** One tool call the model made, with what the route returned. */
+export interface ToolCallResult {
+  id: string;
+  /** Tool name: the route's export name (createTicket). */
+  name: string;
+  input: unknown;
+  /** HTTP status the route answered with. */
+  status: number;
+  /** Parsed JSON response (or text), exactly what the model saw. */
+  output: unknown;
+  /** True when the route answered with an error status. */
+  isError: boolean;
+}
+
+/** One model call. */
+export interface Step {
+  text: string;
+  /** Tools the model called in this step (empty for the final answer). */
+  toolCalls: ToolCallResult[];
+  usage: ProviderUsage;
 }
 
 export interface GenerateResult<O> {
   text: string;
   object: O;
+  /** Totals over every step. */
   usage: Usage;
+  /** Every model call in order, with tool calls and usage per step. */
+  steps: Step[];
+}
+
+/** Runs one tool call for the current request. Set by createApp for ctx.ai. */
+export type ToolRunner = (route: RouteDef, input: unknown) => Promise<{ name: string; status: number; output: unknown; text: string }>;
+
+const toolRunners = new WeakMap<AI, { runner: ToolRunner; describe: (route: RouteDef) => ToolSpec }>();
+
+/** ctx.ai for one request: the same AI, with tools that run as the request's user. Internal: used by createApp. */
+export function bindTools(ai: AI, runner: ToolRunner, describe: (route: RouteDef) => ToolSpec): AI {
+  const bound: AI = { ...ai };
+  toolRunners.set(bound, { runner, describe });
+  bound.generate = (options) => ai.generate.call(bound, options);
+  return bound;
 }
 
 export interface StreamResult {
@@ -92,7 +138,7 @@ export interface StreamResult {
 
 export interface AI {
   generate<O extends AnySchema | undefined = undefined>(options: GenerateOptions<O>): Promise<GenerateResult<O extends AnySchema ? Infer<O> : undefined>>;
-  stream(options: Omit<GenerateOptions<undefined>, "output">): StreamResult;
+  stream(options: Omit<GenerateOptions<undefined>, "output" | "tools" | "maxSteps">): StreamResult;
   embed(options: { model?: string; input: string | string[]; for?: string; signal?: AbortSignal }): Promise<{ embeddings: number[][]; usage: Usage }>;
   /** Configured aliases, for describe(). */
   readonly aliases: Record<string, string[]>;
@@ -109,7 +155,7 @@ interface Target {
 function buildMessages(o: GenerateOptions<any>): Message[] {
   const messages: Message[] = [];
   if (o.system) messages.push({ role: "system", content: o.system });
-  if (o.messages) messages.push(...o.messages);
+  if (o.messages) messages.push(...o.messages.map((m) => ({ ...m })));
   if (o.prompt !== undefined) messages.push({ role: "user", content: o.prompt });
   if (!messages.some((m) => m.role !== "system")) {
     throw new InferloError("IL5007", "ai.generate() needs a prompt or messages.", { fix: 'Pass prompt: "..." or messages: [{ role: "user", content: "..." }].' });
@@ -214,6 +260,19 @@ export function createAI(config?: AIConfig): AI {
     async generate(options) {
       const requested = options.model ?? config?.defaultModel ?? Object.keys(aliases)[0] ?? "";
       const targets = resolve(options.model);
+      const tooling = options.tools?.length ? toolRunners.get(this as AI) : undefined;
+      if (options.tools?.length && !tooling) {
+        throw new InferloError("IL5009", "ai.generate({ tools }) only works inside a route handler.", {
+          fix: "Call ctx.ai.generate({ tools }) from a route handler, so each tool runs as the signed-in user with the route's auth and validation.",
+        });
+      }
+      const tools = new Map<string, { route: RouteDef; spec: ToolSpec }>();
+      for (const route of options.tools ?? []) {
+        const spec = tooling!.describe(route);
+        tools.set(spec.name, { route, spec });
+      }
+      const specs = tools.size ? [...tools.values()].map((t) => t.spec) : undefined;
+      const maxSteps = Math.max(1, options.maxSteps ?? 5);
       await guard(options.for, requested);
       const messages = buildMessages(options);
       const schema = options.output;
@@ -226,54 +285,110 @@ export function createAI(config?: AIConfig): AI {
         else messages.unshift({ role: "system", content: instruction });
       }
       const started = Date.now();
+      // Once a tool has run, falling back to another model would run it again.
+      let toolsRan = false;
 
       return withFallback(targets, async (target) => {
         const total = { inputTokens: 0, outputTokens: 0 };
+        const steps: Step[] = [];
         const convo = messages.map((m) => ({ ...m }));
-        const attempts = schema ? 1 + Math.max(0, options.repairAttempts ?? 1) : 1;
+        let repairsLeft = schema ? Math.max(0, options.repairAttempts ?? 1) : 0;
+        let toolRounds = 0;
         let lastIssues = "";
-        for (let attempt = 0; attempt < attempts; attempt++) {
-          const response = await target.provider.generate({
-            model: target.model,
-            messages: convo,
-            temperature: options.temperature,
-            maxTokens: options.maxTokens,
-            json: Boolean(schema),
-            jsonSchema,
-            signal: options.signal,
-          });
+        const usageNow = (): Usage => ({ requested, model: target.id, ...total, cost: cost(target.id, total), for: options.for, kind: "generate", durationMs: Date.now() - started });
+        while (true) {
+          // Budgets are checked again before every model call that follows tool calls.
+          if (steps.at(-1)?.toolCalls.length) await guard(options.for, requested);
+          let response;
+          try {
+            response = await target.provider.generate({
+              model: target.model,
+              messages: convo,
+              temperature: options.temperature,
+              maxTokens: options.maxTokens,
+              json: Boolean(schema),
+              jsonSchema,
+              tools: specs,
+              signal: options.signal,
+            });
+          } catch (error) {
+            if (toolsRan && error instanceof ProviderError && error.retryable) {
+              if (steps.length) await record(usageNow());
+              throw new InferloError("IL5006", error.message, { status: 502, expose: false, fix: "Tools already ran, so Inferlo does not retry on a fallback model. Retry the request.", cause: error });
+            }
+            throw error;
+          }
           total.inputTokens += response.usage.inputTokens;
           total.outputTokens += response.usage.outputTokens;
-          const usage: Usage = {
-            requested,
-            model: target.id,
-            ...total,
-            cost: cost(target.id, total),
-            for: options.for,
-            kind: "generate",
-            durationMs: Date.now() - started,
-          };
-          if (!schema) {
-            await record(usage);
-            return { text: response.text, object: undefined as never, usage };
-          }
-          let parsed: unknown;
-          try {
-            parsed = extractJson(response.text);
-          } catch {
-            lastIssues = "The response was not valid JSON.";
-            convo.push({ role: "assistant", content: response.text }, { role: "user", content: `${lastIssues} Reply with only the JSON value.` });
-            if (attempt === attempts - 1) await record(usage);
+          const step: Step = { text: response.text, toolCalls: [], usage: response.usage };
+          steps.push(step);
+
+          if (specs && response.toolCalls?.length) {
+            if (++toolRounds >= maxSteps) {
+              await record(usageNow());
+              throw new InferloError("IL5010", `Model ${target.id} was still calling tools after ${maxSteps} steps.`, {
+                status: 502,
+                expose: false,
+                fix: "Raise maxSteps, give the model fewer and more specific tools, or say in the prompt when to stop.",
+                details: steps.map((s) => s.toolCalls.map((c) => c.name)),
+              });
+            }
+            convo.push({ role: "assistant", content: response.text, toolCalls: response.toolCalls });
+            for (const call of response.toolCalls) {
+              const tool = tools.get(call.name);
+              let result: { status: number; output: unknown; text: string };
+              if (!tool) {
+                const text = `Unknown tool "${call.name}". Available tools: ${[...tools.keys()].join(", ")}.`;
+                result = { status: 404, output: text, text };
+              } else if (typeof call.input !== "object" || call.input === null || Array.isArray(call.input)) {
+                const text = "Tool arguments must be a JSON object.";
+                result = { status: 422, output: text, text };
+              } else {
+                toolsRan = true;
+                result = await tooling!.runner(tool.route, call.input);
+              }
+              const isError = result.status >= 400;
+              step.toolCalls.push({ id: call.id, name: call.name, input: call.input, status: result.status, output: result.output, isError });
+              convo.push({ role: "tool", toolCallId: call.id, content: result.text, ...(isError ? { isError } : {}) });
+            }
             continue;
           }
-          const result = schema.safeParse(parsed);
-          if (result.ok) {
+
+          if (!schema) {
+            const usage = usageNow();
             await record(usage);
-            return { text: response.text, object: result.value as never, usage };
+            return { text: response.text, object: undefined as never, usage, steps };
           }
-          lastIssues = result.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
-          convo.push({ role: "assistant", content: response.text }, { role: "user", content: `That JSON does not match the schema: ${lastIssues}. Reply with corrected JSON only.` });
-          if (attempt === attempts - 1) await record(usage);
+          let parsed: unknown;
+          let ok = false;
+          try {
+            parsed = extractJson(response.text);
+            const result = schema.safeParse(parsed);
+            if (result.ok) {
+              parsed = result.value;
+              ok = true;
+            } else {
+              lastIssues = result.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+            }
+          } catch {
+            lastIssues = "The response was not valid JSON.";
+          }
+          if (ok) {
+            const usage = usageNow();
+            await record(usage);
+            return { text: response.text, object: parsed as never, usage, steps };
+          }
+          if (repairsLeft-- <= 0) {
+            await record(usageNow());
+            break;
+          }
+          convo.push(
+            { role: "assistant", content: response.text },
+            {
+              role: "user",
+              content: lastIssues === "The response was not valid JSON." ? `${lastIssues} Reply with only the JSON value.` : `That JSON does not match the schema: ${lastIssues}. Reply with corrected JSON only.`,
+            },
+          );
         }
         throw new InferloError("IL5002", `Model ${target.id} did not return output matching the schema. ${lastIssues}`, {
           status: 502,

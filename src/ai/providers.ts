@@ -6,8 +6,29 @@
 import { InferloError } from "../errors.ts";
 
 export interface Message {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Tools the model asked to call (assistant messages). */
+  toolCalls?: ToolCall[];
+  /** Which tool call this message answers (tool messages). */
+  toolCallId?: string;
+  /** The tool call failed (tool messages). */
+  isError?: boolean;
+}
+
+/** A model's request to call a tool. */
+export interface ToolCall {
+  id: string;
+  name: string;
+  /** Arguments as the model sent them (an object when they were valid JSON). */
+  input: unknown;
+}
+
+/** A tool offered to the model: its name, what it does, and a JSON Schema of its arguments. */
+export interface ToolSpec {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
 }
 
 export interface ProviderRequest {
@@ -19,6 +40,8 @@ export interface ProviderRequest {
   json?: boolean;
   /** JSON Schema of the expected object, for providers with native structured output. */
   jsonSchema?: Record<string, unknown>;
+  /** Tools the model may call. */
+  tools?: ToolSpec[];
   signal?: AbortSignal;
 }
 
@@ -30,6 +53,8 @@ export interface ProviderUsage {
 export interface ProviderResponse {
   text: string;
   usage: ProviderUsage;
+  /** Tools the model wants to call before it answers. */
+  toolCalls?: ToolCall[];
 }
 
 export interface Provider {
@@ -108,7 +133,8 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
   const headers: Record<string, string> = { ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}), ...options.headers };
 
   const body = (r: ProviderRequest, stream: boolean) => {
-    const out: Record<string, unknown> = { model: r.model, messages: r.messages, stream };
+    const out: Record<string, unknown> = { model: r.model, messages: r.messages.map(openaiMessage), stream };
+    if (r.tools?.length) out.tools = r.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } }));
     if (r.temperature !== undefined) out.temperature = r.temperature;
     if (r.maxTokens !== undefined) out.max_tokens = r.maxTokens;
     if (r.json) {
@@ -126,12 +152,15 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
     async generate(r) {
       const response = await post(name, fetchImpl, `${base}/chat/completions`, headers, body(r, false), r.signal);
       const data = (await response.json()) as {
-        choices?: { message?: { content?: string } }[];
+        choices?: { message?: { content?: string | null; tool_calls?: { id: string; function?: { name?: string; arguments?: string } }[] } }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
+      const message = data.choices?.[0]?.message;
+      const toolCalls = (message?.tool_calls ?? []).map((call) => ({ id: call.id, name: call.function?.name ?? "", input: parseArguments(call.function?.arguments) }));
       return {
-        text: data.choices?.[0]?.message?.content ?? "",
+        text: message?.content ?? "",
         usage: { inputTokens: data.usage?.prompt_tokens ?? 0, outputTokens: data.usage?.completion_tokens ?? 0 },
+        ...(toolCalls.length ? { toolCalls } : {}),
       };
     },
     async *stream(r) {
@@ -151,6 +180,54 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
       return { embeddings, usage: { inputTokens: data.usage?.prompt_tokens ?? 0, outputTokens: 0 } };
     },
   };
+}
+
+/** Chat Completions message shape, including tool calls and tool results. */
+function openaiMessage(m: Message): Record<string, unknown> {
+  if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
+  if (m.role === "assistant" && m.toolCalls?.length) {
+    return {
+      role: "assistant",
+      content: m.content || null,
+      tool_calls: m.toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input ?? {}) } })),
+    };
+  }
+  return { role: m.role, content: m.content };
+}
+
+/** Tool arguments arrive as a JSON string. Invalid JSON is passed on as the raw string, so the tool reports the problem to the model. */
+function parseArguments(text: string | undefined): unknown {
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+/** Messages API shape: tool calls are tool_use blocks, and consecutive tool results become one user message. */
+function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    if (m.role === "tool") {
+      const block = { type: "tool_result", tool_use_id: m.toolCallId, content: m.content, ...(m.isError ? { is_error: true } : {}) };
+      const last = out.at(-1);
+      if (last && last.role === "user" && Array.isArray(last.content) && (last.content as { type: string }[]).every((b) => b.type === "tool_result")) {
+        (last.content as unknown[]).push(block);
+      } else out.push({ role: "user", content: [block] });
+      continue;
+    }
+    if (m.role === "assistant" && m.toolCalls?.length) {
+      out.push({
+        role: "assistant",
+        content: [...(m.content ? [{ type: "text", text: m.content }] : []), ...m.toolCalls.map((call) => ({ type: "tool_use", id: call.id, name: call.name, input: call.input ?? {} }))],
+      });
+      continue;
+    }
+    out.push({ role: m.role, content: m.content });
+  }
+  return out;
 }
 
 export function openai(options: { apiKey: string; baseURL?: string; organization?: string; fetch?: FetchLike }): Provider {
@@ -180,10 +257,11 @@ export function anthropic(options: { apiKey: string; baseURL?: string; version?:
     const out: Record<string, unknown> = {
       model: r.model,
       max_tokens: r.maxTokens ?? 4096,
-      messages: r.messages.filter((m) => m.role !== "system"),
+      messages: anthropicMessages(r.messages),
       stream,
     };
     if (system) out.system = system;
+    if (r.tools?.length) out.tools = r.tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.inputSchema }));
     if (r.temperature !== undefined) out.temperature = r.temperature;
     return out;
   };
@@ -192,9 +270,13 @@ export function anthropic(options: { apiKey: string; baseURL?: string; version?:
     name,
     async generate(r) {
       const response = await post(name, fetchImpl, `${base}/v1/messages`, headers, body(r, false), r.signal);
-      const data = (await response.json()) as { content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } };
+      const data = (await response.json()) as {
+        content?: { type: string; text?: string; id?: string; name?: string; input?: unknown }[];
+        usage?: { input_tokens?: number; output_tokens?: number };
+      };
       const text = (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
-      return { text, usage: { inputTokens: data.usage?.input_tokens ?? 0, outputTokens: data.usage?.output_tokens ?? 0 } };
+      const toolCalls = (data.content ?? []).filter((c) => c.type === "tool_use").map((c) => ({ id: c.id ?? "", name: c.name ?? "", input: c.input ?? {} }));
+      return { text, usage: { inputTokens: data.usage?.input_tokens ?? 0, outputTokens: data.usage?.output_tokens ?? 0 }, ...(toolCalls.length ? { toolCalls } : {}) };
     },
     async *stream(r) {
       const response = await post(name, fetchImpl, `${base}/v1/messages`, headers, body(r, true), r.signal);
@@ -220,12 +302,20 @@ export function gemini(options: { apiKey: string; fetch?: FetchLike }): Provider
   return openaiCompatible({ name: "gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", apiKey: options.apiKey, fetch: options.fetch });
 }
 
+/** What a mockProvider returns: text, or tool calls (with optional text). */
+export type MockReply = string | { text?: string; toolCalls?: { id?: string; name: string; input?: unknown }[] };
+
 /**
- * Deterministic provider for tests. respond receives the request and returns the text.
+ * Deterministic provider for tests. respond receives the request and returns the text,
+ * or { toolCalls } to call tools (see request.tools and the "tool" messages for results).
  *
  *   mockProvider({ respond: () => JSON.stringify({ priority: "urgent", summary: "Server down" }) })
+ *   mockProvider({ respond: (r) => (r.messages.at(-1)!.role === "tool" ? "Done" : { toolCalls: [{ name: "createTicket", input: { title: "Hi" } }] }) })
  */
-export function mockProvider(options: { name?: string; respond: (request: ProviderRequest) => string | Promise<string> }): Provider & { calls: ProviderRequest[] } {
+export function mockProvider(options: {
+  name?: string;
+  respond: (request: ProviderRequest) => MockReply | Promise<MockReply>;
+}): Provider & { calls: ProviderRequest[] } {
   const calls: ProviderRequest[] = [];
   const tokens = (s: string) => Math.ceil(s.length / 4);
   return {
@@ -233,8 +323,11 @@ export function mockProvider(options: { name?: string; respond: (request: Provid
     calls,
     async generate(r) {
       calls.push(r);
-      const text = await options.respond(r);
-      return { text, usage: { inputTokens: tokens(r.messages.map((m) => m.content).join("")), outputTokens: tokens(text) } };
+      const reply = await options.respond(r);
+      const text = typeof reply === "string" ? reply : (reply.text ?? "");
+      const toolCalls = typeof reply === "string" ? [] : (reply.toolCalls ?? []).map((call, i) => ({ id: call.id ?? `call_${calls.length}_${i + 1}`, name: call.name, input: call.input ?? {} }));
+      const usage = { inputTokens: tokens(r.messages.map((m) => m.content).join("")), outputTokens: tokens(text + (toolCalls.length ? JSON.stringify(toolCalls) : "")) };
+      return { text, usage, ...(toolCalls.length ? { toolCalls } : {}) };
     },
     async *stream(r) {
       const { text, usage } = await this.generate(r);

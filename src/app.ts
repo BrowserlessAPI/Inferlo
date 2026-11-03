@@ -2,13 +2,13 @@
  * createApp wires models, routes, database, auth and AI together and gives you a standard
  * fetch(Request) => Response handler that runs on Node, Bun, Deno and edge runtimes.
  */
-import { createAI, type AI, type AIConfig } from "./ai/index.ts";
+import { bindTools, createAI, type AI, type AIConfig } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
 import { createDb, type Db } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { describeApp, type AppDescription } from "./describe.ts";
 import { InferloError, didYouMean, suggest } from "./errors.ts";
-import { handleMcp } from "./mcp.ts";
+import { callTool, handleMcp, toolDefinition } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
 import { isRoute, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
@@ -255,6 +255,34 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   const hasTools = routes.some((r) => r.options.tool);
   const mcpPath = config.mcp === undefined ? (hasTools ? "/mcp" : false) : config.mcp;
 
+  // Routes passed to ai.generate({ tools }) are matched to the registered route by method and path.
+  const registeredTool = (route: RouteDef) => {
+    const found = routes.find((r) => r.method === route?.method && r.path === route?.path);
+    if (!found) {
+      throw new InferloError("IL5011", `Tool ${route?.method} ${route?.path} is not a route of this app.`, {
+        fix: "Pass routes that are registered in createApp({ routes }) to ai.generate({ tools }).",
+      });
+    }
+    return toolDefinition(found);
+  };
+  const describeTool = (route: RouteDef) => {
+    const { name, description, inputSchema } = registeredTool(route);
+    return { name, description, inputSchema };
+  };
+  const toolsFor = (req: Request): AI =>
+    bindTools(ai, async (route, input) => {
+      const tool = registeredTool(route);
+      const response = await callTool(app, tool, input as Record<string, unknown>, req, testUsers);
+      const text = await response.text();
+      let output: unknown = text;
+      try {
+        output = text ? JSON.parse(text) : null;
+      } catch {
+        // Not JSON: the model sees the text as it is.
+      }
+      return { name: tool.name, status: response.status, output, text: text || String(response.status) };
+    }, describeTool);
+
   const roles = (user: AppUser): string[] => config.auth?.roles?.(user) ?? ((user as { roles?: string[] }).roles ?? []);
 
   const errorResponse = (error: unknown, headers: Headers, req: Request): Response => {
@@ -350,7 +378,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         params,
         user,
         db: db as never,
-        ai,
+        ai: toolsFor(req),
         req,
         url,
         headers: req.headers,
