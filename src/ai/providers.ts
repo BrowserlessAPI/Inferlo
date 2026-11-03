@@ -8,12 +8,35 @@ import { InferloError } from "../errors.ts";
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Images the model should look at with this message (user messages only). */
+  images?: Image[];
   /** Tools the model asked to call (assistant messages). */
   toolCalls?: ToolCall[];
   /** Which tool call this message answers (tool messages). */
   toolCallId?: string;
   /** The tool call failed (tool messages). */
   isError?: boolean;
+}
+
+/** Image types every vision provider accepts. */
+export type ImageMediaType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+
+/**
+ * An image for a vision model: a URL the provider downloads ({ url: "https://..." }, data: URLs too),
+ * or base64 data with its media type ({ base64, mediaType: "image/png" }).
+ */
+export type Image = { url: string } | { base64: string; mediaType: ImageMediaType };
+
+/** Base64 data and media type of an image given as base64 or a data: URL, or null for a remote URL. */
+export function imageData(image: Image): { base64: string; mediaType: string } | null {
+  if ("base64" in image) return { base64: image.base64, mediaType: image.mediaType };
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(image.url);
+  return match ? { mediaType: match[1]!, base64: match[2]! } : null;
+}
+
+/** The URL to send to Chat Completions servers: the URL itself, or a data: URL for base64. */
+function imageUrl(image: Image): string {
+  return "base64" in image ? `data:${image.mediaType};base64,${image.base64}` : image.url;
 }
 
 /** A model's request to call a tool. */
@@ -192,6 +215,12 @@ function openaiMessage(m: Message): Record<string, unknown> {
       tool_calls: m.toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input ?? {}) } })),
     };
   }
+  if (m.images?.length) {
+    return {
+      role: m.role,
+      content: [...(m.content ? [{ type: "text", text: m.content }] : []), ...m.images.map((image) => ({ type: "image_url", image_url: { url: imageUrl(image) } }))],
+    };
+  }
   return { role: m.role, content: m.content };
 }
 
@@ -223,6 +252,15 @@ function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
         role: "assistant",
         content: [...(m.content ? [{ type: "text", text: m.content }] : []), ...m.toolCalls.map((call) => ({ type: "tool_use", id: call.id, name: call.name, input: call.input ?? {} }))],
       });
+      continue;
+    }
+    if (m.images?.length) {
+      // Images first, then the text: Anthropic recommends this order.
+      const images = m.images.map((image) => {
+        const data = imageData(image);
+        return { type: "image", source: data ? { type: "base64", media_type: data.mediaType, data: data.base64 } : { type: "url", url: (image as { url: string }).url } };
+      });
+      out.push({ role: m.role, content: [...images, ...(m.content ? [{ type: "text", text: m.content }] : [])] });
       continue;
     }
     out.push({ role: m.role, content: m.content });

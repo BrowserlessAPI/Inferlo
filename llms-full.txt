@@ -47,6 +47,7 @@ That one model definition gives you the database table, insert and update valida
 - **Typed structured output.** Pass a schema and get validated, typed data back. Invalid answers are repaired automatically.
 - **Tool calling.** Pass routes as `tools` and the model calls them as the current user, with the same auth and validation, a step limit and usage per step.
 - **Streaming.** Send model output to the browser as it is generated with one call.
+- **Images.** Send image URLs or base64 data with a prompt to any vision model.
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
@@ -704,6 +705,28 @@ const { text, usage } = await ai.generate({
 });
 ```
 
+## Images (vision)
+
+Pass images with the prompt to any vision model (Anthropic, OpenAI, Gemini, and OpenAI-compatible servers such as Ollama with a vision model):
+
+```ts
+const { text } = await ai.generate({
+  model: "fast",
+  prompt: "What is wrong in this screenshot?",
+  images: [{ url: "https://example.com/screenshot.png" }],
+  for: user.id,
+});
+
+// Base64 data, for example from an upload: no data: prefix, plus the media type.
+await ai.generate({ prompt: "Read the receipt total", images: [{ base64: data, mediaType: "image/jpeg" }], output: Receipt });
+```
+
+- An image is `{ url }` (`https://`, `http://` or a `data:image/...;base64,` URL) or `{ base64, mediaType }`. Media types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`.
+- In a conversation, put images on user messages: `messages: [{ role: "user", content: "Here is the receipt", images: [...] }]`.
+- Remote URLs are passed to the provider as they are, and the provider downloads them; Inferlo never fetches them. If a provider cannot download a URL, send base64 instead.
+- Works with `ai.stream`, `output` and `tools` too. Invalid images raise IL5012 before any model is called.
+- In tests, `mockProvider` receives the images on `request.messages[i].images`.
+
 ## Structured output
 
 Pass a schema and get typed, validated data back:
@@ -1084,6 +1107,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5011
 **Tool is not a route of this app.** A route passed to `ai.generate({ tools })` is not registered in `createApp({ routes })`. Register it, or pass a route that is.
+
+### IL5012
+**Invalid image.** An image passed to `ai.generate` or `ai.stream` (with `images` next to `prompt`, or on a message) is not usable. Each image is `{ url }` with an `https://`, `http://` or `data:` URL, or `{ base64, mediaType }` with base64 data (no `data:` prefix, no line breaks) and a media type of `image/png`, `image/jpeg`, `image/gif` or `image/webp`. Only user messages can have images, and `images` needs a `prompt`. The call is rejected before any model is called.
 
 ## App configuration (6xxx)
 

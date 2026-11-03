@@ -1,0 +1,4 @@
+{
+  "title": "AI route with an image",
+  "prompt": "Add POST /notes/from-image to src/routes/notes.ts. The body is { \"imageUrl\": string } (a URL). Send the image to the \"fast\" AI model alias and ask it to read the photographed note, getting back a title (at most 200 characters) and a body as structured output. Create a note owned by the current user with that title and body and return it with status 201. Track AI usage for the user."
+}

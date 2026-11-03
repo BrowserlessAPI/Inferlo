@@ -43,6 +43,28 @@ const { text, usage } = await ai.generate({
 });
 ```
 
+## Images (vision)
+
+Pass images with the prompt to any vision model (Anthropic, OpenAI, Gemini, and OpenAI-compatible servers such as Ollama with a vision model):
+
+```ts
+const { text } = await ai.generate({
+  model: "fast",
+  prompt: "What is wrong in this screenshot?",
+  images: [{ url: "https://example.com/screenshot.png" }],
+  for: user.id,
+});
+
+// Base64 data, for example from an upload: no data: prefix, plus the media type.
+await ai.generate({ prompt: "Read the receipt total", images: [{ base64: data, mediaType: "image/jpeg" }], output: Receipt });
+```
+
+- An image is `{ url }` (`https://`, `http://` or a `data:image/...;base64,` URL) or `{ base64, mediaType }`. Media types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`.
+- In a conversation, put images on user messages: `messages: [{ role: "user", content: "Here is the receipt", images: [...] }]`.
+- Remote URLs are passed to the provider as they are, and the provider downloads them; Inferlo never fetches them. If a provider cannot download a URL, send base64 instead.
+- Works with `ai.stream`, `output` and `tools` too. Invalid images raise IL5012 before any model is called.
+- In tests, `mockProvider` receives the images on `request.messages[i].images`.
+
 ## Structured output
 
 Pass a schema and get typed, validated data back:

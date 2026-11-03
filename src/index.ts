@@ -41,6 +41,8 @@ export type {
   Provider,
   ProviderRequest,
   ProviderResponse,
+  Image,
+  ImageMediaType,
   Message,
   MockReply,
   Step,

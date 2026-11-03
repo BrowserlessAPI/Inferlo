@@ -12,7 +12,7 @@
 import { InferloError, didYouMean } from "../errors.ts";
 import { type AnySchema, type Infer, toJSONSchema } from "../schema.ts";
 import type { RouteDef } from "../route.ts";
-import { ProviderError, type Message, type Provider, type ProviderUsage, type ToolSpec } from "./providers.ts";
+import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolSpec } from "./providers.ts";
 
 export * from "./providers.ts";
 
@@ -61,6 +61,8 @@ export interface GenerateOptions<O extends AnySchema | undefined> {
   model?: string;
   /** Shorthand for a single user message. */
   prompt?: string;
+  /** Images for the prompt message: [{ url: "https://..." }] or [{ base64, mediaType: "image/png" }]. Needs a vision model. */
+  images?: Image[];
   system?: string;
   messages?: Message[];
   /** Schema for structured output. The result's `object` is validated and typed. */
@@ -156,11 +158,50 @@ function buildMessages(o: GenerateOptions<any>): Message[] {
   const messages: Message[] = [];
   if (o.system) messages.push({ role: "system", content: o.system });
   if (o.messages) messages.push(...o.messages.map((m) => ({ ...m })));
-  if (o.prompt !== undefined) messages.push({ role: "user", content: o.prompt });
+  if (o.images !== undefined && o.prompt === undefined) {
+    throw new InferloError("IL5012", "images needs a prompt: they are sent with the prompt message.", {
+      fix: 'Pass prompt: "What is in this image?" with images, or put images on a user message: messages: [{ role: "user", content: "...", images: [...] }].',
+    });
+  }
+  if (o.prompt !== undefined) messages.push({ role: "user", content: o.prompt, ...(o.images?.length ? { images: o.images } : {}) });
   if (!messages.some((m) => m.role !== "system")) {
     throw new InferloError("IL5007", "ai.generate() needs a prompt or messages.", { fix: 'Pass prompt: "..." or messages: [{ role: "user", content: "..." }].' });
   }
+  messages.forEach(checkImages);
   return messages;
+}
+
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Images must be on user messages, with an http(s) or data: URL, or base64 data of a supported type. Raises IL5012. */
+function checkImages(message: Message, index: number): void {
+  if (message.images === undefined) return;
+  const fail = (problem: string, fix: string) => {
+    throw new InferloError("IL5012", `Invalid image in message ${index}: ${problem}`, { fix });
+  };
+  const shape = 'Use { url: "https://..." } or { base64: "<base64 data>", mediaType: "image/png" }.';
+  if (!Array.isArray(message.images)) fail("images must be an array.", shape);
+  if (message.role !== "user" && message.images.length) fail(`only user messages can have images, not ${message.role} messages.`, "Move the images to a user message.");
+  message.images.forEach((image: unknown, i) => {
+    const where = `images[${i}]`;
+    if (!image || typeof image !== "object") return fail(`${where} is not an object.`, shape);
+    const value = image as Record<string, unknown>;
+    if ("url" in value) {
+      if (typeof value.url !== "string" || !/^(https?:\/\/|data:)/i.test(value.url)) return fail(`${where}.url must start with https://, http:// or data:.`, shape);
+      const data = imageData(value as Image);
+      if (/^data:/i.test(value.url) && !data) return fail(`${where}.url is a data: URL without base64 data.`, "Use data:image/png;base64,<data>, or { base64, mediaType }.");
+      if (data && !IMAGE_TYPES.includes(data.mediaType)) return fail(`${where} has media type "${data.mediaType}".`, `Supported types: ${IMAGE_TYPES.join(", ")}.`);
+      if (data && !BASE64.test(data.base64)) return fail(`${where}.url does not contain valid base64 data.`, "Encode the image bytes as base64, without line breaks.");
+      return;
+    }
+    if ("base64" in value) {
+      if (typeof value.base64 !== "string" || !value.base64 || !BASE64.test(value.base64)) return fail(`${where}.base64 is not valid base64 data.`, "Encode the image bytes as base64, without line breaks or a data: prefix.");
+      if (typeof value.mediaType !== "string" || !IMAGE_TYPES.includes(value.mediaType)) return fail(`${where}.mediaType must be one of ${IMAGE_TYPES.join(", ")}.`, 'Add mediaType: "image/png" (or the type of the image).');
+      return;
+    }
+    fail(`${where} has neither url nor base64.`, shape);
+  });
 }
 
 /** Pull a JSON value out of model text, tolerating ```json fences and leading prose. */

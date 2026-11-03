@@ -41,6 +41,7 @@ That one model definition gives you the database table, insert and update valida
 - **Typed structured output.** Pass a schema and get validated, typed data back. Invalid answers are repaired automatically.
 - **Tool calling.** Pass routes as `tools` and the model calls them as the current user, with the same auth and validation, a step limit and usage per step.
 - **Streaming.** Send model output to the browser as it is generated with one call.
+- **Images.** Send image URLs or base64 data with a prompt to any vision model.
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
