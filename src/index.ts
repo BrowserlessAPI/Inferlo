@@ -16,7 +16,7 @@ export type { Row, CreateInput, UpdateInput, AnyModel } from "./model.ts";
 
 export { memory } from "./db/memory.ts";
 export { createDb, Table } from "./db/table.ts";
-export type { Db, Where, OrderBy, FindManyOptions, FindOptions, Include, Relations, WithInclude } from "./db/table.ts";
+export type { Db, Where, OrderBy, FindManyOptions, FindOptions, Include, Relations, ReverseRelations, WithInclude } from "./db/table.ts";
 export type { Adapter, Condition, Query, DbRecord } from "./db/types.ts";
 export { planMigration, applyMigrations } from "./db/migrate.ts";
 export type {

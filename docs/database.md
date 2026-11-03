@@ -76,7 +76,23 @@ ticket.assignee?.name;    // optional or nullable refs give Row | null
 - Each relation costs **one extra query** for all rows together (`WHERE id IN (...)`), never one query per row.
 - Rows keep the id field (`ownerId`) and get the related row under the relation name (`owner`). A missing related row is `null`.
 - Ref fields whose name does not end in `Id`, or whose relation name is already a field, are not relations. Unknown names raise IL4023, listing the relations the model has.
-- Relations go one way for now: from the row with the ref to the row it points to.
+
+### Reverse (has-many) relations
+
+The other direction works too: include the rows that point to this one by their **table name**. If `tickets` has `ownerId: t.ref("users")`, then:
+
+```ts
+const users = await db.users.findMany({ include: { tickets: true } });
+users[0].tickets;         // Row<typeof Ticket>[], [] when there are none
+
+const team = await db.teams.get(id, { include: { tickets: true } });
+```
+
+- One extra query per relation for all rows together (`WHERE owner_id IN (...)`), ordered by `createdAt`, then `id`.
+- Every related row is loaded. For large lists, query the other table with `findMany({ where: { ownerId: user.id }, limit })` instead.
+- If the other table has **several** ref fields to this model (`ownerId` and `assigneeId`), each is named `<table>By<Name>`: `include: { ticketsByOwner: true, ticketsByAssignee: true }`. The plain table name is then ambiguous and raises IL4023, naming both.
+- A reverse name that is already a field or a relation of this model is not available.
+- Forward and reverse relations can be combined in one `include`.
 
 ## Adapters
 

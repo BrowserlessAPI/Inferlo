@@ -41,8 +41,40 @@ export type Relations<M extends AnyModel> = {
   [K in keyof M["fields"] & string as K extends `${infer R}Id` ? ([RefTable<M["fields"][K]>] extends [never] ? never : R) : never]: RefTable<M["fields"][K]>;
 };
 
-/** Which relations to load: { owner: true }. */
-export type Include<M extends AnyModel> = { [R in keyof Relations<M>]?: boolean };
+type IsUnion<U, A = U> = U extends unknown ? ([A] extends [U] ? false : true) : never;
+
+/** Relation names R of the fields <R>Id in X that reference table T. */
+type RefFieldsTo<X extends AnyModel, T extends string> = {
+  [K in keyof X["fields"] & string]: K extends `${infer R}Id`
+    ? [RefTable<X["fields"][K]>] extends [never]
+      ? never
+      : string extends RefTable<X["fields"][K]>
+        ? never
+        : RefTable<X["fields"][K]> extends T
+          ? R
+          : never
+    : never;
+}[keyof X["fields"] & string];
+
+type ReverseKey<X extends AnyModel, T extends string, F extends string = RefFieldsTo<X, T>> = [F] extends [never]
+  ? never
+  : true extends IsUnion<F>
+    ? `${X["name"]}By${Capitalize<F>}`
+    : X["name"];
+
+/**
+ * Reverse (has-many) relations of a model: one per model in Models with a t.ref field named <name>Id
+ * to this model, named after that model's table (users gets tickets). When a model has several such
+ * fields, each is named <table>By<Name> (ticketsByOwner, ticketsByAssignee).
+ */
+export type ReverseRelations<M extends AnyModel, Models extends readonly AnyModel[]> = {
+  [X in Models[number] as Exclude<ReverseKey<X, M["name"]>, keyof M["fields"] | keyof Relations<M> | "id" | "createdAt" | "updatedAt">]: X;
+};
+
+/** Which relations to load: { owner: true } for a t.ref field, { tickets: true } for the rows that reference this one. */
+export type Include<M extends AnyModel, Models extends readonly AnyModel[] = readonly []> = {
+  [R in keyof Relations<M> | keyof ReverseRelations<M, Models>]?: boolean;
+};
 
 type ModelNamed<Models extends readonly AnyModel[], N> = Extract<Models[number], { name: N }> extends infer T extends AnyModel ? ([T] extends [never] ? AnyModel : T) : AnyModel;
 type RefValue<M extends AnyModel, R extends string> = `${R}Id` extends keyof Row<M> ? Row<M>[`${R}Id`] : never;
@@ -52,11 +84,25 @@ export type WithInclude<M extends AnyModel, Models extends readonly AnyModel[], 
   [R in keyof I & keyof Relations<M> & string as I[R] extends true ? R : never]:
     | Row<ModelNamed<Models, Relations<M>[R]>>
     | (null extends RefValue<M, R> ? null : undefined extends RefValue<M, R> ? null : never);
+} & {
+  [R in keyof I & keyof ReverseRows<M, Models> & string as I[R] extends true ? R : never]: ReverseRows<M, Models>[R];
 };
+
+type ReverseRows<M extends AnyModel, Models extends readonly AnyModel[]> = {
+  [K in keyof ReverseRelations<M, Models>]: Row<ReverseModel<M, Models, K>>[];
+};
+
+type ReverseModel<M extends AnyModel, Models extends readonly AnyModel[], K> = Models[number] extends infer X
+  ? X extends AnyModel
+    ? K extends ReverseKey<X, M["name"]>
+      ? X
+      : never
+    : never
+  : never;
 
 /** Options for reading one row. */
 export interface FindOptions<I> {
-  /** Load related rows of t.ref fields: { owner: true } adds row.owner for ownerId. One extra query per relation. */
+  /** Load related rows: { owner: true } adds row.owner for ownerId, { tickets: true } adds row.tickets (rows that reference this one). One extra query per relation. */
   include?: I;
 }
 
@@ -94,7 +140,7 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
   }
 
   /** Row by id, or null. */
-  async find<const I extends Include<M> = {}>(id: string, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I> | null> {
+  async find<const I extends Include<M, Models> = {}>(id: string, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I> | null> {
     const relations = this.#relations(options.include);
     const rows = await this.#adapter().select(this.model, { where: [{ field: "id", op: "eq", value: id }], orderBy: [], limit: 1 });
     await this.#load(rows, relations);
@@ -102,61 +148,108 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
   }
 
   /** Row by id. Throws IL4001 (HTTP 404) when it does not exist. */
-  async get<const I extends Include<M> = {}>(id: string, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I>> {
+  async get<const I extends Include<M, Models> = {}>(id: string, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I>> {
     const row = await this.find(id, options);
     if (!row) throw notFound(`${singular(this.model.name)} ${id} was not found.`, { table: this.model.name, id });
     return row;
   }
 
   /** First row matching where, or null. */
-  async findOne<const I extends Include<M> = {}>(where: Where<Row<M>>, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I> | null> {
+  async findOne<const I extends Include<M, Models> = {}>(where: Where<Row<M>>, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I> | null> {
     const rows = await this.findMany({ where, limit: 1, include: options.include });
     return rows[0] ?? null;
   }
 
   /** Rows matching where. include: { owner: true } loads related rows with one extra query per relation. */
-  async findMany<const I extends Include<M> = {}>(options: FindManyOptions<Row<M>> & FindOptions<I> = {}): Promise<WithInclude<M, Models, I>[]> {
+  async findMany<const I extends Include<M, Models> = {}>(options: FindManyOptions<Row<M>> & FindOptions<I> = {}): Promise<WithInclude<M, Models, I>[]> {
     const relations = this.#relations(options.include);
     const rows = await this.#adapter().select(this.model, this.#query(options));
     await this.#load(rows, relations);
     return rows as WithInclude<M, Models, I>[];
   }
 
-  /** Relation name, ref field and target model for each included relation. Unknown names raise IL4023. */
-  #relations(include: object | undefined): { name: string; field: string; target: AnyModel }[] {
+  /**
+   * Relations of this model. "one": a t.ref field <name>Id of this model (owner for ownerId).
+   * "many": a t.ref field <name>Id of another model that points here (tickets for tickets.ownerId,
+   * or ticketsByOwner when tickets has several such fields).
+   */
+  #available(): Relation[] {
+    const eligible = (m: AnyModel) =>
+      Object.entries(m.fields as Record<string, AnySchema>).filter(
+        ([field, schema]) => schema.def.kind === "ref" && field.length > 2 && field.endsWith("Id") && !(field.slice(0, -2) in m.fields),
+      );
+    const forward: Relation[] = [];
+    for (const [field, schema] of eligible(this.model)) {
+      const target = this.#models.find((m) => m.name === schema.def.refTable);
+      forward.push({ kind: "one", name: field.slice(0, -2), field, table: schema.def.refTable!, target });
+    }
+    const taken = new Set([...this.#fields, ...forward.map((r) => r.name)]);
+    const reverse: Relation[] = [];
+    for (const m of this.#models) {
+      const fields = eligible(m).filter(([, schema]) => schema.def.refTable === this.model.name);
+      for (const [field] of fields) {
+        const relation = field.slice(0, -2);
+        const name = fields.length === 1 ? m.name : `${m.name}By${relation.charAt(0).toUpperCase()}${relation.slice(1)}`;
+        if (!taken.has(name)) reverse.push({ kind: "many", name, field, table: m.name, target: m });
+      }
+    }
+    return [...forward, ...reverse];
+  }
+
+  /** The included relations. Unknown names raise IL4023. */
+  #relations(include: object | undefined): Relation[] {
     if (!include) return [];
-    const available = Object.entries(this.model.fields as Record<string, AnySchema>)
-      .filter(([field, schema]) => schema.def.kind === "ref" && field.length > 2 && field.endsWith("Id") && !(field.slice(0, -2) in this.model.fields))
-      .map(([field, schema]) => ({ name: field.slice(0, -2), field, table: schema.def.refTable! }));
-    const out: { name: string; field: string; target: AnyModel }[] = [];
+    const available = this.#available();
+    const out: Relation[] = [];
     for (const [name, wanted] of Object.entries(include)) {
       if (wanted === undefined || wanted === false) continue;
       const relation = available.find((r) => r.name === name);
       if (!relation || wanted !== true) {
         const names = available.map((r) => r.name);
+        const ambiguous = available.filter((r) => r.kind === "many" && r.table === name);
         throw new InferloError(
           "IL4023",
-          relation ? `include.${name} must be true or false.` : `"${this.model.name}" has no relation "${name}".${didYouMean(name, names)}`,
+          relation
+            ? `include.${name} must be true or false.`
+            : ambiguous.length
+              ? `"${name}" has several t.ref fields to "${this.model.name}", so include.${name} is ambiguous.`
+              : `"${this.model.name}" has no relation "${name}".${didYouMean(name, names)}`,
           {
-            fix: names.length
-              ? `Relations of "${this.model.name}": ${available.map((r) => `${r.name} (${r.field})`).join(", ")}. Use include: { ${names[0]}: true }.`
-              : `"${this.model.name}" has no t.ref fields named <name>Id. Add one, e.g. ownerId: t.ref("users"), to include owner.`,
+            fix: ambiguous.length
+              ? `Name the field: ${ambiguous.map((r) => `${r.name} (${name}.${r.field})`).join(", ")}. Use include: { ${ambiguous[0]!.name}: true }.`
+              : names.length
+                ? `Relations of "${this.model.name}": ${available.map(describeRelation).join(", ")}. Use include: { ${names[0]}: true }.`
+                : `"${this.model.name}" has no relations. Add a t.ref field named <name>Id, e.g. ownerId: t.ref("users"), to include owner; models that reference "${this.model.name}" that way can be included by their table name.`,
           },
         );
       }
-      const target = this.#models.find((m) => m.name === relation.table);
-      if (!target) throw new InferloError("IL6005", `${this.model.name}.${relation.field} references "${relation.table}", which is not a registered model.`);
-      out.push({ name, field: relation.field, target });
+      if (!relation.target) throw new InferloError("IL6005", `${this.model.name}.${relation.field} references "${relation.table}", which is not a registered model.`);
+      out.push(relation);
     }
     return out;
   }
 
   /** One query per relation: every referenced id at once, never one query per row. */
-  async #load(rows: DbRecord[], relations: { name: string; field: string; target: AnyModel }[]): Promise<void> {
+  async #load(rows: DbRecord[], relations: Relation[]): Promise<void> {
     for (const relation of relations) {
+      const target = relation.target!;
+      if (relation.kind === "many") {
+        const ids = [...new Set(rows.map((row) => row.id as string))];
+        const related = ids.length
+          ? await this.#adapter().select(target, { where: [{ field: relation.field, op: "in", value: ids }], orderBy: [["createdAt", "asc"], ["id", "asc"]] })
+          : [];
+        const byParent = new Map<string, DbRecord[]>();
+        for (const r of related) {
+          const list = byParent.get(r[relation.field] as string);
+          if (list) list.push(r);
+          else byParent.set(r[relation.field] as string, [r]);
+        }
+        for (const row of rows) row[relation.name] = byParent.get(row.id as string) ?? [];
+        continue;
+      }
       const ids = [...new Set(rows.map((row) => row[relation.field]).filter((id): id is string => typeof id === "string"))];
       const related = ids.length
-        ? await this.#adapter().select(relation.target, { where: [{ field: "id", op: "in", value: ids }], orderBy: [], limit: ids.length })
+        ? await this.#adapter().select(target, { where: [{ field: "id", op: "in", value: ids }], orderBy: [], limit: ids.length })
         : [];
       const byId = new Map(related.map((r) => [r.id as string, r]));
       for (const row of rows) row[relation.name] = (typeof row[relation.field] === "string" ? byId.get(row[relation.field] as string) : undefined) ?? null;
@@ -252,6 +345,19 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
     const offset = Math.max(0, Math.floor(options.offset ?? 0));
     return { where: this.#where(options.where), orderBy, limit, offset };
   }
+}
+
+interface Relation {
+  kind: "one" | "many";
+  name: string;
+  /** The t.ref field: on this model for "one", on the related model for "many". */
+  field: string;
+  table: string;
+  target: AnyModel | undefined;
+}
+
+function describeRelation(r: Relation): string {
+  return r.kind === "one" ? `${r.name} (${r.field})` : `${r.name} (${r.table}.${r.field})`;
 }
 
 function singular(name: string): string {

@@ -1,0 +1,4 @@
+{
+  "title": "Include the rows that point to each row",
+  "prompt": "Add GET /admin/users in a new file src/routes/admin.ts and register it in src/app.ts. Only users with the \"admin\" role may call it. It returns every user ordered by email, each with a \"notes\" property holding all notes that user owns (an empty array when there are none). Load the notes of all users with a single extra database query, never one query per user."
+}
