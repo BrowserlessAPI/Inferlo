@@ -11,6 +11,7 @@
  * jobs in this process, app.jobs.runDue() runs them once (tests).
  */
 import type { AI } from "./ai/index.ts";
+import { cronTickId, isCron, type CronDef } from "./cron.ts";
 import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
 import type { AppDb } from "./route.ts";
@@ -90,6 +91,7 @@ export interface JobQueueConfig {
 
 /** Where queued jobs are kept. */
 export interface JobStore {
+  /** Add a record. A record whose id is already stored is ignored (cron ticks use fixed ids). */
   add(record: JobRecord): Promise<void>;
   /** Mark up to limit pending jobs named in names with runAt <= now as running (attempts + 1) and return them, oldest first. */
   claim(now: Date, limit: number, names: readonly string[]): Promise<JobRecord[]>;
@@ -117,13 +119,15 @@ export interface Worker {
 export interface AppJobs extends Jobs {
   /** The registered jobs. */
   readonly list: readonly JobDef[];
+  /** The registered crons: cron(schedule, job) values in createApp({ jobs }). */
+  readonly crons: readonly CronDef[];
   /** Where queued jobs are kept (createApp({ jobQueue: { store } })). */
   readonly queue: "memory" | "database";
   /** A queued job by id, or null. */
   get(id: string): Promise<JobRecord | null>;
   /** Run every job that is due now (or at options.now), one after another, including follow-ups they enqueue, then return. For tests and scripts. */
   runDue(options?: { now?: Date }): Promise<RunResult>;
-  /** Run due jobs in this process every pollMs (default 1000) until stop() is called. */
+  /** Run due jobs in this process every pollMs (default 1000) until stop() is called. Also queues each cron's job at every tick after the start. */
   start(options?: { pollMs?: number }): Worker;
 }
 
@@ -179,18 +183,31 @@ export function isJob(value: unknown): value is JobDef {
   return typeof value === "object" && value !== null && (value as JobDef).kind === "inferlo.job";
 }
 
-/** Anything that contains jobs: a job, an array, or a module (import * as jobs from "./jobs.ts"). */
-export type JobSource = JobDef | readonly JobSource[] | { readonly [name: string]: unknown };
+/** Anything that contains jobs: a job, a cron, an array, or a module (import * as jobs from "./jobs.ts"). */
+export type JobSource = JobDef | CronDef | readonly JobSource[] | { readonly [name: string]: unknown };
 
+/** The jobs and crons in createApp({ jobs }). A cron's job is registered with it. */
 export function collectJobs(sources: readonly JobSource[] | undefined): JobDef[] {
+  return collect(sources).jobs;
+}
+
+export function collectCrons(sources: readonly JobSource[] | undefined): CronDef[] {
+  return collect(sources).crons;
+}
+
+function collect(sources: readonly JobSource[] | undefined): { jobs: JobDef[]; crons: CronDef[] } {
   const out: JobDef[] = [];
+  const crons: CronDef[] = [];
   const seen = new Set<unknown>();
   const visit = (source: unknown) => {
     if (!source || typeof source !== "object" || seen.has(source)) return;
     seen.add(source);
     if (isJob(source)) out.push(source);
-    else if (Array.isArray(source)) source.forEach(visit);
-    else for (const value of Object.values(source)) if (isJob(value) || Array.isArray(value)) visit(value);
+    else if (isCron(source)) {
+      crons.push(source);
+      visit(source.job);
+    } else if (Array.isArray(source)) source.forEach(visit);
+    else for (const value of Object.values(source)) if (isJob(value) || isCron(value) || Array.isArray(value)) visit(value);
   };
   visit(sources);
   const names = new Map<string, JobDef>();
@@ -198,7 +215,7 @@ export function collectJobs(sources: readonly JobSource[] | undefined): JobDef[]
     if (names.has(j.name)) throw new InferloError("IL6009", `Two jobs are named "${j.name}".`, { fix: "Give each job a unique name." });
     names.set(j.name, j);
   }
-  return out;
+  return { jobs: out, crons };
 }
 
 /** Jobs kept in this process. They are lost when it stops, so use it for development and tests. */
@@ -207,7 +224,7 @@ export function memoryJobStore(): JobStore {
   const copy = (r: JobRecord): JobRecord => ({ ...r, runAt: new Date(r.runAt), createdAt: new Date(r.createdAt), updatedAt: new Date(r.updatedAt) });
   return {
     async add(record) {
-      records.set(record.id, copy(record));
+      if (!records.has(record.id)) records.set(record.id, copy(record));
     },
     async claim(now, limit, names) {
       const due = [...records.values()]
@@ -290,7 +307,7 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
   return {
     async add(r) {
       await table();
-      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [
+      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT ("id") DO NOTHING`, [
         r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt,
       ]);
     },
@@ -358,7 +375,13 @@ export interface JobRuntime {
   logger: { info(message: string, data?: unknown): void; error(message: string, data?: unknown): void };
 }
 
-export function createJobs(list: readonly JobDef[], runtime: JobRuntime): AppJobs {
+/** app.jobs plus what the framework tests reach directly. */
+export interface InternalJobs extends AppJobs {
+  /** Queue the job of each cron's latest tick in (from, to]. */
+  queueCrons(from: Date, to: Date): Promise<void>;
+}
+
+export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: readonly CronDef[] = []): InternalJobs {
   const byName = new Map(list.map((j) => [j.name, j]));
   const names = list.map((j) => j.name);
 
@@ -379,30 +402,46 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime): AppJob
     return result.value;
   };
 
-  const jobs: AppJobs = {
+  const record = (def: JobDef, input: unknown, runAt: Date | undefined, id: string): JobRecord => {
+    // Stored as JSON, so it survives a restart with a database store; parsed again when it runs.
+    const stored = JSON.parse(JSON.stringify(parse(def, input) ?? null)) as unknown;
+    const now = new Date();
+    return {
+      id,
+      name: def.name,
+      input: stored,
+      status: "pending",
+      attempts: 0,
+      maxAttempts: 1 + (def.options.retries ?? 3),
+      runAt: runAt ?? now,
+      createdAt: now,
+      updatedAt: now,
+    };
+  };
+
+  /** Queue the job of every cron tick in (from, to]. Only the latest tick of each cron is queued, so a pause does not cause a burst. */
+  const queueCrons = async (from: Date, to: Date) => {
+    for (const c of crons) {
+      let tick = c.next(from);
+      if (tick.getTime() > to.getTime()) continue;
+      for (let later = c.next(tick); later.getTime() <= to.getTime(); later = c.next(later)) tick = later;
+      await runtime.store.add(record(c.job, {}, tick, await cronTickId(c, tick)));
+    }
+  };
+
+  const jobs: InternalJobs = {
     list,
+    crons,
+    queueCrons,
     queue: runtime.queue ?? "memory",
     async enqueue(j, input, options = {}) {
       const def = registered(j);
       if (options.runAt !== undefined && (!(options.runAt instanceof Date) || Number.isNaN(options.runAt.getTime()))) {
         throw new InferloError("IL6009", `runAt for job "${def.name}" must be a valid Date.`, { fix: "Pass runAt: new Date(Date.now() + 60_000) or leave it out to run now." });
       }
-      // Stored as JSON, so it survives a restart with a database store; parsed again when it runs.
-      const stored = JSON.parse(JSON.stringify(parse(def, input) ?? null)) as unknown;
-      const now = new Date();
-      const record: JobRecord = {
-        id: crypto.randomUUID(),
-        name: def.name,
-        input: stored,
-        status: "pending",
-        attempts: 0,
-        maxAttempts: 1 + (def.options.retries ?? 3),
-        runAt: options.runAt ?? now,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await runtime.store.add(record);
-      return record;
+      const queued = record(def, input, options.runAt, crypto.randomUUID());
+      await runtime.store.add(queued);
+      return queued;
     },
 
     get: (id) => runtime.store.get(id),
@@ -423,9 +462,15 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime): AppJob
       let stopped = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let wake: (() => void) | undefined;
+      let cronFrom = new Date();
       const loop = (async () => {
         while (!stopped) {
           try {
+            if (crons.length) {
+              const now = new Date();
+              await queueCrons(cronFrom, now);
+              cronFrom = now;
+            }
             await jobs.runDue();
           } catch (error) {
             runtime.logger.error("job worker error", error);

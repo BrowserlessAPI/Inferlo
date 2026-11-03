@@ -53,6 +53,8 @@ export type {
 
 export type { RateLimit, RateLimitConfig } from "./rate-limit.ts";
 export { job, isJob, retryDelayMs } from "./jobs.ts";
+export { cron, isCron } from "./cron.ts";
+export type { CronDef } from "./cron.ts";
 export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, JobQueueConfig, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
 export { env, setEnv } from "./env.ts";

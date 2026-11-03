@@ -51,7 +51,7 @@ That one model definition gives you the database table, insert and update valida
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
-- **Background jobs for slow AI work.** Queue a typed job from a route with `ctx.jobs.enqueue(...)` and it runs after the response, with retries.
+- **Background jobs for slow AI work.** Queue a typed job from a route with `ctx.jobs.enqueue(...)` and it runs after the response, with retries, from a Postgres queue shared by every instance (`inferlo worker` runs them in their own process), and schedule jobs with `cron("0 3 * * *", job)`.
 
 ## Why Inferlo
 
@@ -885,6 +885,28 @@ New projects do this in `src/server.ts`.
 
 To run jobs in separate processes, keep them in the database (below) and start `inferlo worker` (`npm run worker` in new projects). It runs `app.jobs.start()` and, on SIGTERM or Ctrl+C, waits for the running job before it exits. Web servers and workers share the queue, so you can run jobs in both or only in workers. See [CLI](cli.md#inferlo-worker).
 
+## Cron
+
+`cron(schedule, job)` queues a job on a schedule. Export it next to the job; registering the module registers both:
+
+```ts
+// src/jobs.ts
+import { cron, job, t } from "@browserlessapi/inferlo";
+
+export const deleteOldSessions = job("delete-old-sessions", { input: t.object({}) }).handle(async ({ db }) => {
+  await db.sessions.deleteMany({ expiresAt: { lt: new Date() } });
+});
+
+export const nightly = cron("0 3 * * *", deleteOldSessions);   // every day at 03:00 UTC
+```
+
+- The schedule has five fields, `minute hour day-of-month month day-of-week`, always in UTC: numbers, `*`, ranges (`1-5`), lists (`1,15`), steps (`*/15`, `5/20`) and names (`jan`, `mon`). Sunday is `0` or `7`. When both day fields are set, either one matching is enough, as in standard cron. Invalid schedules raise IL6013 when the module loads.
+- `"*/15 * * * *"` every 15 minutes, `"0 * * * *"` every hour, `"30 3 * * 1-5"` at 03:30 on weekdays, `"0 0 1 * *"` on the first of each month.
+- The job runs with the input `{}`, so its schema must accept it (IL6013 otherwise). Read what it needs from the database.
+- Crons run while a worker runs: `app.jobs.start()` or `inferlo worker`. At each tick the job is queued and then runs like any other job, with its retries. Ticks are only queued after the worker started, and if the worker was paused past several ticks, only the latest one is queued.
+- Each tick gets a fixed job id, so with the database queue every instance can run the schedule and the job is still queued once per tick.
+- `cron.next(date)` returns the first tick after a date, and `app.jobs.crons` lists the crons. To test the work itself, enqueue the job: `await app.jobs.enqueue(deleteOldSessions, {})`, then `await app.jobs.runDue()`.
+
 ## Where jobs are kept
 
 By default the queue is kept in memory in the process that enqueues, so jobs are lost on restart and every instance runs its own. That is right for development and tests.
@@ -917,7 +939,7 @@ assert.deepEqual(await app.jobs.runDue(), { done: 1, retried: 0, failed: 0 });
 
 `runDue({ now })` runs the jobs that are due at that time, to test retries and `runAt` without waiting.
 
-`inferlo describe` lists jobs with their retries and input schema.
+`inferlo describe` lists jobs with their retries and input schema, and crons with their schedule.
 
 ---
 
@@ -1261,6 +1283,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6012
 **Job queue store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
+
+### IL6013
+**Invalid cron.** `cron(schedule, job)` needs five fields, `minute hour day-of-month month day-of-week` in UTC (numbers, `*`, ranges `1-5`, lists `1,15`, steps `*/15`, and month and weekday names such as `jan` or `mon`), a schedule that matches some date, and a job whose input schema accepts `{}`.
 
 ## Environment (7xxx)
 

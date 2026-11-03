@@ -121,6 +121,7 @@ async function cmdDescribe(args: Args) {
     if (d.jobs?.length) {
       lines.push("", `Jobs (queue: ${d.jobQueue})`);
       for (const j of d.jobs) lines.push(`  ${j.name.padEnd(28)} retries=${j.retries}${j.summary ? `  ${j.summary}` : ""}`);
+      for (const c of d.crons ?? []) lines.push(`  cron ${c.schedule.padEnd(23)} ${c.job}`);
     }
     lines.push("", `AI: ${d.ai.configured ? Object.entries<string[]>(d.ai.aliases).map(([a, ids]) => `${a} = ${ids.join(" > ")}`).join("; ") || "configured" : "not configured"}`);
     if (d.endpoints.openapi) lines.push(`OpenAPI: ${d.endpoints.openapi}`);

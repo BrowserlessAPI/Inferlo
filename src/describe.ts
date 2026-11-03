@@ -43,6 +43,8 @@ export interface AppDescription {
   }[];
   ai: { configured: boolean; aliases: Record<string, string[]> };
   jobs: { name: string; summary?: string; retries: number; input: JSONSchema }[];
+  /** Schedules from cron(schedule, job), in UTC. */
+  crons: { schedule: string; job: string }[];
   /** Where queued jobs are kept. */
   jobQueue: "memory" | "database";
 }
@@ -98,6 +100,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     }),
     ai: { configured: app.ai.configured, aliases: app.ai.aliases },
     jobQueue: app.jobs.queue,
+    crons: app.jobs.crons.map((c) => ({ schedule: c.schedule, job: c.job.name })),
     jobs: app.jobs.list.map((j) => ({ name: j.name, ...(j.options.summary ? { summary: j.options.summary } : {}), retries: j.options.retries ?? 3, input: j.options.input.toJSONSchema() })),
   };
 }

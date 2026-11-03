@@ -1,0 +1,4 @@
+{
+  "title": "Scheduled cleanup with cron",
+  "prompt": "Every day at 03:00 UTC, notes with an empty body should be deleted automatically. Create src/jobs.ts with a job that deletes them and a cron schedule that runs it, and register the jobs module in src/app.ts."
+}

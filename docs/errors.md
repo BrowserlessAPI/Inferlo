@@ -164,6 +164,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6012
 **Job queue store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
 
+### IL6013
+**Invalid cron.** `cron(schedule, job)` needs five fields, `minute hour day-of-month month day-of-week` in UTC (numbers, `*`, ranges `1-5`, lists `1,15`, steps `*/15`, and month and weekday names such as `jan` or `mon`), a schedule that matches some date, and a job whose input schema accepts `{}`.
+
 ## Environment (7xxx)
 
 ### IL7001
