@@ -177,6 +177,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL4022
 **Migration changes a column type, but a value does not convert.** `inferlo db migrate --apply` ran `ALTER COLUMN ... TYPE` and an existing value does not fit the new type: text that is not a number, a number with decimals going to `integer`, text longer than the new `varchar(n)`, or a value that is not a date. Values are never cut, rounded or set to NULL. The migration was rolled back and not recorded. `details` has `migration`, `columns` (the columns whose type the migration changes, as `table.column`) and `reason` (the Postgres message, which names the value). If the file has not been applied anywhere, add an `UPDATE` before the `ALTER COLUMN ... TYPE` statement that fixes or clears those values, or write your own `USING` expression. Or keep the old field type.
 
+### IL4023
+**Unknown relation in include.** The model has no relation with that name. Relations come from `t.ref` fields named `<name>Id` (`ownerId` gives `owner`); the fix lists the model's relations. Values must be `true` or `false`.
+
 ## CLI (8xxx)
 
 ### IL8000

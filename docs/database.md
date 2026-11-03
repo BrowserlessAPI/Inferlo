@@ -60,6 +60,24 @@ Where operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `like`, `i
 
 Unknown fields or operators raise IL4003 with a "Did you mean" hint.
 
+## Relations
+
+Every `t.ref` field named `<name>Id` is a relation called `<name>`: `ownerId: t.ref("users")` gives `owner`. Load related rows with `include`:
+
+```ts
+const tickets = await db.tickets.findMany({ where: { status: "open" }, include: { owner: true } });
+tickets[0].owner.name;    // Row<typeof User>, fully typed
+
+const ticket = await db.tickets.get(id, { include: { owner: true, assignee: true } });
+ticket.assignee?.name;    // optional or nullable refs give Row | null
+```
+
+- `include` works on `findMany`, `findOne(where, { include })`, `find(id, { include })` and `get(id, { include })`.
+- Each relation costs **one extra query** for all rows together (`WHERE id IN (...)`), never one query per row.
+- Rows keep the id field (`ownerId`) and get the related row under the relation name (`owner`). A missing related row is `null`.
+- Ref fields whose name does not end in `Id`, or whose relation name is already a field, are not relations. Unknown names raise IL4023, listing the relations the model has.
+- Relations go one way for now: from the row with the ref to the row it points to.
+
 ## Adapters
 
 ```ts

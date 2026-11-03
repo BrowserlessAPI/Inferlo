@@ -8,7 +8,7 @@ export type { App, AppConfig, AuthConfig, CorsConfig, Middleware, MiddlewareCont
 export { route, isRoute } from "./route.ts";
 export type { Register, Context, RouteDef, RouteOptions, Auth, Method, ToolOptions, AppUser, AppDb } from "./route.ts";
 
-export { t, Schema, ObjectSchema, ArraySchema, ValidationError, toJSONSchema } from "./schema.ts";
+export { t, Schema, ObjectSchema, ArraySchema, RefSchema, ValidationError, toJSONSchema } from "./schema.ts";
 export type { Infer, InferInput, Issue, JSONSchema, ParseResult, Shape, AnySchema } from "./schema.ts";
 
 export { model, Model, columnName } from "./model.ts";
@@ -16,7 +16,7 @@ export type { Row, CreateInput, UpdateInput, AnyModel } from "./model.ts";
 
 export { memory } from "./db/memory.ts";
 export { createDb, Table } from "./db/table.ts";
-export type { Db, Where, OrderBy, FindManyOptions } from "./db/table.ts";
+export type { Db, Where, OrderBy, FindManyOptions, FindOptions, Include, Relations, WithInclude } from "./db/table.ts";
 export type { Adapter, Condition, Query, DbRecord } from "./db/types.ts";
 export { planMigration, applyMigrations } from "./db/migrate.ts";
 export type {

@@ -241,6 +241,24 @@ export class ArraySchema<I extends AnySchema> extends Schema<Infer<I>[], InferIn
   }
 }
 
+/** t.ref("users"): the id of a row in another table. The table name is kept in the type for include. */
+export class RefSchema<Table extends string, Out = string, In = Out> extends Schema<Out, In> {
+  /** Type-only marker: the referenced table. */
+  declare readonly _ref: Table;
+
+  override optional(): RefSchema<Table, Out | undefined, In | undefined> {
+    return this.with({ optional: true }) as never;
+  }
+
+  override nullable(): RefSchema<Table, Out | null, In | null> {
+    return this.with({ nullable: true }) as never;
+  }
+
+  override default(value: Exclude<Out, undefined> | (() => Exclude<Out, undefined>)): RefSchema<Table, Exclude<Out, undefined>, In | undefined> {
+    return this.with({ hasDefault: true, defaultValue: value, optional: false }) as never;
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Builders
 // ---------------------------------------------------------------------------------------------
@@ -271,8 +289,8 @@ export const t = {
   array: <I extends AnySchema>(item: I) => new ArraySchema<I>(base("array", { item })),
   object: <S extends Shape>(shape: S) => new ObjectSchema<S>(base("object", { shape, unknownKeys: "strict" })),
   /** Id of a row in another model's table: t.ref("users"). */
-  ref: (table: string, options: { onDelete?: "restrict" | "cascade" | "set null" } = {}) =>
-    new Schema<string>(base("ref", { refTable: table, onDelete: options.onDelete ?? "restrict" })),
+  ref: <const Table extends string>(table: Table, options: { onDelete?: "restrict" | "cascade" | "set null" } = {}) =>
+    new RefSchema<Table>(base("ref", { refTable: table, onDelete: options.onDelete ?? "restrict" })),
   any: () => new Schema<unknown>(base("any", { optional: true })),
 };
 

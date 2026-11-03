@@ -1,0 +1,4 @@
+{
+  "title": "Include related rows without N+1",
+  "prompt": "GET /notes should return each note with its owner: add an \"owner\" property holding the owner's user row (id, email, name, role, ...) next to the existing ownerId. Load the owners in a single extra database query for the whole page, never one query per note."
+}

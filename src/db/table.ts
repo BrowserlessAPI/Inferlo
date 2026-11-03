@@ -4,6 +4,7 @@
  */
 import { InferloError, didYouMean, notFound } from "../errors.ts";
 import type { AnyModel, Row, CreateInput, UpdateInput } from "../model.ts";
+import type { AnySchema } from "../schema.ts";
 import { ValidationError } from "../schema.ts";
 import type { Adapter, Condition, DbRecord, Op, Query } from "./types.ts";
 
@@ -33,17 +34,45 @@ export interface FindManyOptions<R> {
   offset?: number;
 }
 
+type RefTable<S> = S extends { readonly _ref: infer T extends string } ? T : never;
+
+/** Relations of a model: one per t.ref field named <name>Id, mapped to the referenced table. ownerId: t.ref("users") gives owner -> "users". */
+export type Relations<M extends AnyModel> = {
+  [K in keyof M["fields"] & string as K extends `${infer R}Id` ? ([RefTable<M["fields"][K]>] extends [never] ? never : R) : never]: RefTable<M["fields"][K]>;
+};
+
+/** Which relations to load: { owner: true }. */
+export type Include<M extends AnyModel> = { [R in keyof Relations<M>]?: boolean };
+
+type ModelNamed<Models extends readonly AnyModel[], N> = Extract<Models[number], { name: N }> extends infer T extends AnyModel ? ([T] extends [never] ? AnyModel : T) : AnyModel;
+type RefValue<M extends AnyModel, R extends string> = `${R}Id` extends keyof Row<M> ? Row<M>[`${R}Id`] : never;
+
+/** A row with the included relations: Row<typeof Ticket> & { owner: Row<typeof User> }. Optional refs may be null. */
+export type WithInclude<M extends AnyModel, Models extends readonly AnyModel[], I> = Row<M> & {
+  [R in keyof I & keyof Relations<M> & string as I[R] extends true ? R : never]:
+    | Row<ModelNamed<Models, Relations<M>[R]>>
+    | (null extends RefValue<M, R> ? null : undefined extends RefValue<M, R> ? null : never);
+};
+
+/** Options for reading one row. */
+export interface FindOptions<I> {
+  /** Load related rows of t.ref fields: { owner: true } adds row.owner for ownerId. One extra query per relation. */
+  include?: I;
+}
+
 const OPS: Op[] = ["eq", "ne", "gt", "gte", "lt", "lte", "in", "notIn", "like", "ilike", "isNull"];
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
 
-export class Table<M extends AnyModel> {
+export class Table<M extends AnyModel, Models extends readonly AnyModel[] = readonly AnyModel[]> {
   readonly model: M;
   #adapter: () => Adapter;
+  #models: readonly AnyModel[];
 
-  constructor(model: M, adapter: () => Adapter) {
+  constructor(model: M, adapter: () => Adapter, models: readonly AnyModel[] = [model]) {
     this.model = model;
     this.#adapter = adapter;
+    this.#models = models;
   }
 
   get #fields(): string[] {
@@ -65,26 +94,73 @@ export class Table<M extends AnyModel> {
   }
 
   /** Row by id, or null. */
-  async find(id: string): Promise<Row<M> | null> {
+  async find<const I extends Include<M> = {}>(id: string, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I> | null> {
+    const relations = this.#relations(options.include);
     const rows = await this.#adapter().select(this.model, { where: [{ field: "id", op: "eq", value: id }], orderBy: [], limit: 1 });
-    return (rows[0] as Row<M>) ?? null;
+    await this.#load(rows, relations);
+    return (rows[0] as WithInclude<M, Models, I>) ?? null;
   }
 
   /** Row by id. Throws IL4001 (HTTP 404) when it does not exist. */
-  async get(id: string): Promise<Row<M>> {
-    const row = await this.find(id);
+  async get<const I extends Include<M> = {}>(id: string, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I>> {
+    const row = await this.find(id, options);
     if (!row) throw notFound(`${singular(this.model.name)} ${id} was not found.`, { table: this.model.name, id });
     return row;
   }
 
   /** First row matching where, or null. */
-  async findOne(where: Where<Row<M>>): Promise<Row<M> | null> {
-    const rows = await this.findMany({ where, limit: 1 });
+  async findOne<const I extends Include<M> = {}>(where: Where<Row<M>>, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I> | null> {
+    const rows = await this.findMany({ where, limit: 1, include: options.include });
     return rows[0] ?? null;
   }
 
-  async findMany(options: FindManyOptions<Row<M>> = {}): Promise<Row<M>[]> {
-    return (await this.#adapter().select(this.model, this.#query(options))) as Row<M>[];
+  /** Rows matching where. include: { owner: true } loads related rows with one extra query per relation. */
+  async findMany<const I extends Include<M> = {}>(options: FindManyOptions<Row<M>> & FindOptions<I> = {}): Promise<WithInclude<M, Models, I>[]> {
+    const relations = this.#relations(options.include);
+    const rows = await this.#adapter().select(this.model, this.#query(options));
+    await this.#load(rows, relations);
+    return rows as WithInclude<M, Models, I>[];
+  }
+
+  /** Relation name, ref field and target model for each included relation. Unknown names raise IL4023. */
+  #relations(include: object | undefined): { name: string; field: string; target: AnyModel }[] {
+    if (!include) return [];
+    const available = Object.entries(this.model.fields as Record<string, AnySchema>)
+      .filter(([field, schema]) => schema.def.kind === "ref" && field.length > 2 && field.endsWith("Id") && !(field.slice(0, -2) in this.model.fields))
+      .map(([field, schema]) => ({ name: field.slice(0, -2), field, table: schema.def.refTable! }));
+    const out: { name: string; field: string; target: AnyModel }[] = [];
+    for (const [name, wanted] of Object.entries(include)) {
+      if (wanted === undefined || wanted === false) continue;
+      const relation = available.find((r) => r.name === name);
+      if (!relation || wanted !== true) {
+        const names = available.map((r) => r.name);
+        throw new InferloError(
+          "IL4023",
+          relation ? `include.${name} must be true or false.` : `"${this.model.name}" has no relation "${name}".${didYouMean(name, names)}`,
+          {
+            fix: names.length
+              ? `Relations of "${this.model.name}": ${available.map((r) => `${r.name} (${r.field})`).join(", ")}. Use include: { ${names[0]}: true }.`
+              : `"${this.model.name}" has no t.ref fields named <name>Id. Add one, e.g. ownerId: t.ref("users"), to include owner.`,
+          },
+        );
+      }
+      const target = this.#models.find((m) => m.name === relation.table);
+      if (!target) throw new InferloError("IL6005", `${this.model.name}.${relation.field} references "${relation.table}", which is not a registered model.`);
+      out.push({ name, field: relation.field, target });
+    }
+    return out;
+  }
+
+  /** One query per relation: every referenced id at once, never one query per row. */
+  async #load(rows: DbRecord[], relations: { name: string; field: string; target: AnyModel }[]): Promise<void> {
+    for (const relation of relations) {
+      const ids = [...new Set(rows.map((row) => row[relation.field]).filter((id): id is string => typeof id === "string"))];
+      const related = ids.length
+        ? await this.#adapter().select(relation.target, { where: [{ field: "id", op: "in", value: ids }], orderBy: [], limit: ids.length })
+        : [];
+      const byId = new Map(related.map((r) => [r.id as string, r]));
+      for (const row of rows) row[relation.name] = (typeof row[relation.field] === "string" ? byId.get(row[relation.field] as string) : undefined) ?? null;
+    }
   }
 
   async count(where: Where<Row<M>> = {}): Promise<number> {
@@ -184,7 +260,7 @@ function singular(name: string): string {
 }
 
 /** db.<table> for every registered model, plus helpers. */
-export type Db<Models extends readonly AnyModel[]> = { [M in Models[number] as M["name"]]: Table<M> } & DbHelpers;
+export type Db<Models extends readonly AnyModel[]> = { [M in Models[number] as M["name"]]: Table<M, Models> } & DbHelpers;
 
 export interface DbHelpers {
   /** The underlying adapter. */
@@ -201,7 +277,7 @@ export interface DbHelpers {
 export function createDb<const Models extends readonly AnyModel[]>(models: Models, adapter: Adapter): Db<Models> {
   const build = (current: Adapter): Db<Models> => {
     const db: Record<string, unknown> = {};
-    for (const m of models) db[m.name] = new Table(m, () => current);
+    for (const m of models) db[m.name] = new Table(m, () => current, models);
     const helpers: DbHelpers = {
       $adapter: current,
       $sync: (options) => current.sync([...models], options),
