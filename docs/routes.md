@@ -29,8 +29,30 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `response` | Response schema for OpenAPI |
 | `summary`, `description`, `tags` | Documentation for OpenAPI, describe and MCP |
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
+| `rateLimit` | `{ max, per, by }` to limit requests per user or IP (see below) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
+
+## Rate limiting
+
+```ts
+export const login = route
+  .post("/login", { auth: "public", body: Login, rateLimit: { max: 5, per: "minute", by: "ip" } })
+  .handle(...);
+
+export const summarize = route
+  .post("/notes/:id/summary", { params: IdParams, rateLimit: { max: 20, per: "hour" } })   // by: "user" is the default
+  .handle(...);
+```
+
+- `max` requests per `per` (`"second"`, `"minute"`, `"hour"` or `"day"`), in fixed windows, counted separately for each route.
+- `by: "user"` (default) counts each signed-in user; requests without a user (on public routes) count by IP. `by: "ip"` counts each client IP.
+- The count is checked after auth and before input validation: failed sign-ins on private routes do not use it up, invalid bodies do.
+- Over the limit the route answers **429** with IL2005 and a `Retry-After` header. Every response of a limited route has `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (seconds) headers.
+- Tool calls from `ai.generate({ tools })` and the MCP server count too, as the same user.
+- Counts are kept in memory by default (one process, tests). With several instances, keep them in Postgres: `createApp({ rateLimit: { store: "database" } })` uses the `inferlo_rate_limits` table, created on first use (IL6008 without Postgres).
+- The client IP comes from the server (`app.listen()`, Bun and Deno). Behind a load balancer or proxy, set `createApp({ trustProxy: true })` to use the first `X-Forwarded-For` address; leave it off otherwise, because clients can send that header themselves.
+- Invalid options raise IL6007 when the app starts.
 
 ## The handler context
 

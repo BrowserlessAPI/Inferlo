@@ -50,6 +50,9 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
         "200": { description: "Success", content: o.response ? { "application/json": { schema: o.response.toJSONSchema() } } : undefined },
         ...(o.body || o.query || o.params ? { "422": { description: "Validation failed (IL1001)", content: { "application/json": { schema: errorSchema } } } } : {}),
         ...(!isPublic ? { "401": { description: "Sign in required (IL3001)", content: { "application/json": { schema: errorSchema } } } } : {}),
+        ...(o.rateLimit
+          ? { "429": { description: `Too many requests (IL2005): ${o.rateLimit.max} per ${o.rateLimit.per} per ${o.rateLimit.by ?? "user"}`, content: { "application/json": { schema: errorSchema } } } }
+          : {}),
       },
       security: !isPublic && options.auth ? [{ bearerAuth: [] }] : undefined,
       "x-inferlo-auth": o.auth ?? "user",

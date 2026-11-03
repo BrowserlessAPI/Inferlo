@@ -12,6 +12,8 @@ import { callTool, handleMcp, toolDefinition } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
 import { isRoute, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
+import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
+import { clientIp, clientIps } from "./client-ip.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 
 export interface AuthConfig {
@@ -63,6 +65,13 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
   mcp?: string | false;
   /** Maximum request body in bytes. Default 1 MiB. */
   maxBodySize?: number;
+  /** Where route rateLimit counts are kept: { store: "memory" } (default) or { store: "database" } (Postgres, shared by every instance). */
+  rateLimit?: RateLimitConfig;
+  /**
+   * Behind a load balancer or proxy that sets X-Forwarded-For: true uses its first address as the client IP
+   * (for rateLimit by "ip"). Default false, because clients can send that header themselves.
+   */
+  trustProxy?: boolean;
   /** Include error messages of unexpected (500) errors in responses. Default false. */
   exposeErrors?: boolean;
   logger?: Logger;
@@ -246,8 +255,15 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     });
   }
 
+  for (const r of routes) if (r.options.rateLimit !== undefined) checkRateLimit(r.options.rateLimit, `${r.method} ${r.path}`);
+  const storeName = config.rateLimit?.store ?? "memory";
+  if (storeName !== "memory" && storeName !== "database") {
+    throw new InferloError("IL6007", `Invalid rateLimit store "${String(storeName)}".`, { fix: 'Use createApp({ rateLimit: { store: "memory" } }) or { store: "database" }.' });
+  }
+
   const adapter = config.db ?? memory();
   const db = createDb(models, adapter);
+  const rateLimits: RateLimitStore = storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
   const ai = createAI(config.ai);
   const maxBody = config.maxBodySize ?? 1024 * 1024;
   const cors: CorsConfig | undefined = config.cors === true ? { origin: "*" } : config.cors || undefined;
@@ -297,7 +313,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     return json({ error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } }, 500, headers);
   };
 
-  const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[]): Promise<Response> => {
+  const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[], ip: string): Promise<Response> => {
     const headers = new Headers();
     if (cors) for (const [k, v] of Object.entries(corsHeaders(cors, req.headers.get("origin")))) headers.set(k, v);
     try {
@@ -342,6 +358,15 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
       if (level !== "public") {
         if (!user) throw new InferloError("IL3001", "Sign in required.", { status: 401, fix: "Send valid credentials, e.g. an Authorization: Bearer <token> header." });
         if (level !== "user" && !roles(user).includes(level)) throw new InferloError("IL3002", `This requires the "${level}" role.`, { status: 403 });
+      }
+
+      // Rate limit: counted per user (or IP without one), after auth so failed sign-ins on private routes do not use it up.
+      if (opts.rateLimit) {
+        const who = (opts.rateLimit.by ?? "user") === "user" && user ? `user:${user.id}` : `ip:${ip}`;
+        const hit = await rateLimits.hit(`${def.method} ${def.path} ${who}`, windowMs(opts.rateLimit));
+        const limited = rateLimitResult(opts.rateLimit, hit);
+        for (const [k, v] of Object.entries(limited.headers)) headers.set(k, v);
+        if (limited.error) throw limited.error;
       }
 
       // Input
@@ -412,12 +437,14 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
 
     async fetch(req, ...rest) {
       const url = new URL(req.url);
+      const ip = clientIp(req, Boolean(config.trustProxy), rest[0]);
+      if (ip !== "unknown") clientIps.set(req, ip);
       const state: Record<string, unknown> = {};
       const pending: Promise<unknown>[] = [];
       const chain = [...(config.middleware ?? [])];
       const run = (i: number): Promise<Response> => {
         const mw = chain[i];
-        if (!mw) return dispatch(req, url, state, pending);
+        if (!mw) return dispatch(req, url, state, pending, ip);
         return mw({ req, url, state }, () => run(i + 1));
       };
       let response: Response;

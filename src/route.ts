@@ -11,6 +11,7 @@
 import type { AI } from "./ai/index.ts";
 import type { Db } from "./db/table.ts";
 import type { AnyModel } from "./model.ts";
+import type { RateLimit } from "./rate-limit.ts";
 import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
 
 /**
@@ -57,6 +58,8 @@ export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectS
   tags?: string[];
   /** Expose this route as an MCP tool for AI agents. Same auth rules apply. */
   tool?: boolean | ToolOptions;
+  /** Limit requests per user or IP: { max: 10, per: "minute", by: "user" }. More raise IL2005 (HTTP 429). */
+  rateLimit?: RateLimit;
 }
 
 type PathParams<P extends string> = P extends `${string}:${infer Param}/${infer Rest}`

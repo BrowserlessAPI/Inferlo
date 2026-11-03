@@ -5,6 +5,7 @@
  * header is forwarded.
  */
 import type { App } from "./app.ts";
+import { clientIps } from "./client-ip.ts";
 import { InferloError } from "./errors.ts";
 import type { RouteDef } from "./route.ts";
 import type { JSONSchema } from "./schema.ts";
@@ -164,5 +165,7 @@ export async function callTool(app: App<any>, tool: ToolDefinition, args: Record
   }
   const inner = new Request(url, { method: route.method, headers, body: payload });
   if (testUsers.has(original)) testUsers.set(inner, testUsers.get(original));
+  const ip = clientIps.get(original);
+  if (ip) clientIps.set(inner, ip);
   return app.fetch(inner);
 }

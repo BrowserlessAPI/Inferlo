@@ -49,6 +49,7 @@ export type {
   ToolSpec,
 } from "./ai/index.ts";
 
+export type { RateLimit, RateLimitConfig } from "./rate-limit.ts";
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
 export { env, setEnv } from "./env.ts";
 export { InferloError, httpError, notFound, forbidden, badRequest, docsUrl } from "./errors.ts";

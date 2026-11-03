@@ -38,6 +38,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2004
 **Request body too large (413).** Raise `createApp({ maxBodySize })` if needed.
 
+
+### IL2005
+**Too many requests (429).** The route's `rateLimit` allows `max` requests per window for this user or IP. Wait the number of seconds in the `Retry-After` header before retrying.
 ## Auth (3xxx)
 
 ### IL3001
@@ -139,6 +142,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6006
 **Two route exports share a name.** Names are used for MCP tools and `describe`.
 
+
+### IL6007
+**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"` or `"database"`.
+
+### IL6008
+**Rate limit store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
 ## Environment (7xxx)
 
 ### IL7001

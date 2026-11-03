@@ -46,7 +46,7 @@ export const deleteNote = route
 const Summary = t.object({ summary: t.string().max(300).describe("One or two sentences") });
 
 export const summarizeNote = route
-  .post("/notes/:id/summary", { params: IdParams, summary: "Summarize a note with AI" })
+  .post("/notes/:id/summary", { params: IdParams, summary: "Summarize a note with AI", rateLimit: { max: 20, per: "hour" } })
   .handle(async ({ params, user, db, ai }) => {
     const note = await db.notes.get(params.id);
     if (note.ownerId !== user.id) throw notFound();

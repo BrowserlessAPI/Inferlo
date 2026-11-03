@@ -1,5 +1,6 @@
 /** Start an HTTP server on Bun, Deno or Node using the app's fetch handler. */
 import type { App } from "./app.ts";
+import { clientIps } from "./client-ip.ts";
 
 export interface ServeOptions {
   port?: number;
@@ -16,15 +17,15 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   const hostname = options.hostname ?? "0.0.0.0";
   const g = globalThis as {
     Bun?: { serve(o: object): { port: number; stop(force?: boolean): void } };
-    Deno?: { serve(o: object, h: (r: Request) => Promise<Response>): { addr: { port: number }; shutdown(): Promise<void> } };
+    Deno?: { serve(o: object, h: (r: Request, info: unknown) => Promise<Response>): { addr: { port: number }; shutdown(): Promise<void> } };
   };
 
   if (g.Bun) {
-    const server = g.Bun.serve({ port, hostname, fetch: (req: Request) => app.fetch(req) });
+    const server = g.Bun.serve({ port, hostname, fetch: (req: Request, bunServer: unknown) => app.fetch(req, bunServer) });
     return { port: server.port, close: async () => server.stop(true) };
   }
   if (g.Deno) {
-    const server = g.Deno.serve({ port, hostname }, (req) => app.fetch(req));
+    const server = g.Deno.serve({ port, hostname }, (req, info) => app.fetch(req, info));
     return { port: server.addr.port, close: () => server.shutdown() };
   }
 
@@ -53,6 +54,7 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
         // @ts-expect-error duplex is required by Node for streaming bodies
         duplex: "half",
       });
+      if (req.socket.remoteAddress) clientIps.set(request, req.socket.remoteAddress);
       const response = await app.fetch(request);
       const outHeaders: Record<string, string | string[]> = {};
       response.headers.forEach((value, key) => {

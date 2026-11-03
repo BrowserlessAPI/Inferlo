@@ -36,6 +36,7 @@ export interface AppDescription {
     auth: string;
     summary?: string;
     tool?: string;
+    rateLimit?: { max: number; per: string; by: string };
     params?: JSONSchema;
     query?: JSONSchema;
     body?: JSONSchema;
@@ -86,6 +87,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       if (r.name) out.name = r.name;
       if (o.summary) out.summary = o.summary;
       if (o.tool) out.tool = toolName(r);
+      if (o.rateLimit) out.rateLimit = { max: o.rateLimit.max, per: o.rateLimit.per, by: o.rateLimit.by ?? "user" };
       if (o.params) out.params = o.params.toJSONSchema();
       if (o.query) out.query = o.query.toJSONSchema();
       if (o.body) out.body = o.body.toJSONSchema();

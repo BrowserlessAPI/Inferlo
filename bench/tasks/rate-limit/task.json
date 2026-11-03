@@ -1,0 +1,4 @@
+{
+  "title": "Rate limit a route per user",
+  "prompt": "Each user may create at most 5 notes per minute with POST /notes. The 6th request within a minute must be rejected with HTTP 429. Other users are not affected."
+}
