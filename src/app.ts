@@ -14,7 +14,7 @@ import { buildOpenAPI } from "./openapi.ts";
 import { isRoute, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps } from "./client-ip.ts";
-import { collectJobs, createJobs, memoryJobStore, type AppJobs, type JobSource } from "./jobs.ts";
+import { collectJobs, createJobs, jobStoreFor, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 
 export interface AuthConfig {
@@ -56,6 +56,8 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
   routes?: RouteSource[];
   /** Background jobs: jobs, arrays or modules (import * as jobs from "./jobs.ts"). */
   jobs?: JobSource[];
+  /** Where queued jobs are kept: { store: "memory" } (default) or { store: "database" } (Postgres table inferlo_jobs, shared by every instance). */
+  jobQueue?: JobQueueConfig;
   /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/inferlo/postgres" in production. */
   db?: Adapter;
   auth?: AuthConfig;
@@ -270,7 +272,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   const db = createDb(models, adapter);
   const rateLimits: RateLimitStore = storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
   const ai = createAI(config.ai);
-  const jobs = createJobs(collectJobs(config.jobs), { db: db as never, ai, store: memoryJobStore(), logger });
+  const jobs = createJobs(collectJobs(config.jobs), { db: db as never, ai, store: jobStoreFor(config.jobQueue, adapter), logger });
   const maxBody = config.maxBodySize ?? 1024 * 1024;
   const cors: CorsConfig | undefined = config.cors === true ? { origin: "*" } : config.cors || undefined;
   const openapiPath = config.openapi === undefined ? "/openapi.json" : config.openapi;

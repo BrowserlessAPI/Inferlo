@@ -22,7 +22,7 @@ location / {
 }
 ```
 
-Behind a proxy like this, set `createApp({ trustProxy: true })` so routes with `rateLimit: { by: "ip" }` see the client's address instead of the proxy's. With more than one instance, use `rateLimit: { store: "database" }` so the counts are shared.
+Behind a proxy like this, set `createApp({ trustProxy: true })` so routes with `rateLimit: { by: "ip" }` see the client's address instead of the proxy's. With more than one instance, use `rateLimit: { store: "database" }` so the counts are shared, and `jobQueue: { store: "database" }` so background jobs are too (see [jobs](jobs.md)).
 
 ## Bun
 

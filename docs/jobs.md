@@ -65,7 +65,28 @@ process.on("SIGTERM", async () => {
 });
 ```
 
-The queue is kept in memory in the process that enqueues, so jobs are lost on restart and every instance runs its own. A Postgres-backed queue shared by every instance and an `inferlo worker` command are planned (see ROADMAP.md).
+An `inferlo worker` command that does this for you is planned (see ROADMAP.md).
+
+## Where jobs are kept
+
+By default the queue is kept in memory in the process that enqueues, so jobs are lost on restart and every instance runs its own. That is right for development and tests.
+
+In production, keep jobs in Postgres:
+
+```ts
+export const app = createApp({
+  db: postgres({ url: env("DATABASE_URL") }),
+  jobs: [jobs],
+  jobQueue: { store: "database" },     // default "memory"
+});
+```
+
+- Jobs are stored in the table `inferlo_jobs`, created on first use (no migration needed). They survive restarts and deploys.
+- Every instance shares the queue. Due jobs are claimed with `FOR UPDATE SKIP LOCKED`, so each attempt runs on exactly one instance, however many run `app.jobs.start()`.
+- An instance only claims jobs it has registered, so during a rolling deploy an old instance never picks up a job that only the new code knows.
+- While a job runs, its worker reports every 30 seconds that it is still alive. A job still `"running"` without a report for 5 minutes (its process crashed or was killed) is picked up again as its next attempt, with `lastError` saying the worker stopped. If it has no attempts left, it is marked `"failed"` instead. This is why handlers must be safe to run twice.
+- `{ store: "database" }` needs the Postgres adapter (IL6012). Any other store name raises IL6011.
+- `app.jobs.get(id)` reads the record from the table, so any instance can check a job's status.
 
 ## Testing
 

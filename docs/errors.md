@@ -157,6 +157,13 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6010
 **Job is not registered.** The job passed to `jobs.enqueue` (or a queued job's name) is not in `createApp({ jobs: [...] })`. Pass a value made with `job(...).handle(...)` and register it, or its module.
+
+### IL6011
+**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default) or `"database"`.
+
+### IL6012
+**Job queue store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
+
 ## Environment (7xxx)
 
 ### IL7001

@@ -1,0 +1,4 @@
+{
+  "title": "Job queue shared by every instance",
+  "prompt": "The app will run on several servers, so background jobs must be kept in the Postgres database and shared by every instance whenever DATABASE_URL is set (without DATABASE_URL, keep the default in-memory queue). Also create src/jobs.ts with a job named \"count-notes\" whose input is an empty object and that logs how many notes exist with console.log, and register the jobs module in src/app.ts."
+}

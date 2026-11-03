@@ -53,7 +53,7 @@ export type {
 
 export type { RateLimit, RateLimitConfig } from "./rate-limit.ts";
 export { job, isJob, retryDelayMs } from "./jobs.ts";
-export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";
+export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, JobQueueConfig, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
 export { env, setEnv } from "./env.ts";
 export { InferloError, httpError, notFound, forbidden, badRequest, docsUrl } from "./errors.ts";

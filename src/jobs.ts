@@ -11,6 +11,7 @@
  * jobs in this process, app.jobs.runDue() runs them once (tests).
  */
 import type { AI } from "./ai/index.ts";
+import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
 import type { AppDb } from "./route.ts";
 import { ValidationError, type AnySchema, type Infer, type InferInput } from "./schema.ts";
@@ -79,13 +80,23 @@ export interface Jobs {
   enqueue<J extends JobDef>(job: J, input: JobInput<J>, options?: EnqueueOptions): Promise<JobRecord>;
 }
 
+export interface JobQueueConfig {
+  /**
+   * Where queued jobs are kept. "memory" (default): in this process, for development and tests.
+   * "database": in the inferlo_jobs table of the app's Postgres database, shared by every instance.
+   */
+  store?: "memory" | "database";
+}
+
 /** Where queued jobs are kept. */
 export interface JobStore {
   add(record: JobRecord): Promise<void>;
-  /** Mark up to limit pending jobs with runAt <= now as running (attempts + 1) and return them. */
-  claim(now: Date, limit: number): Promise<JobRecord[]>;
+  /** Mark up to limit pending jobs named in names with runAt <= now as running (attempts + 1) and return them, oldest first. */
+  claim(now: Date, limit: number, names: readonly string[]): Promise<JobRecord[]>;
   update(id: string, patch: Partial<Pick<JobRecord, "status" | "runAt" | "lastError">>): Promise<void>;
   get(id: string): Promise<JobRecord | null>;
+  /** Record that a running job is still alive (database store), so it is not picked up again as stuck. */
+  touch?(id: string): Promise<void>;
 }
 
 export interface RunResult {
@@ -196,9 +207,9 @@ export function memoryJobStore(): JobStore {
     async add(record) {
       records.set(record.id, copy(record));
     },
-    async claim(now, limit) {
+    async claim(now, limit, names) {
       const due = [...records.values()]
-        .filter((r) => r.status === "pending" && r.runAt.getTime() <= now.getTime())
+        .filter((r) => r.status === "pending" && r.runAt.getTime() <= now.getTime() && names.includes(r.name))
         .sort((a, b) => a.runAt.getTime() - b.runAt.getTime() || a.createdAt.getTime() - b.createdAt.getTime())
         .slice(0, limit);
       for (const r of due) Object.assign(r, { status: "running", attempts: r.attempts + 1, updatedAt: new Date() });
@@ -215,15 +226,137 @@ export function memoryJobStore(): JobStore {
   };
 }
 
+/** A running job whose worker has not reported for this long is treated as stuck (its process stopped) and run again. */
+export const STALE_AFTER_MS = 5 * 60_000;
+/** How often a worker reports that a running job is still alive. */
+export const HEARTBEAT_MS = 30_000;
+export const STOPPED_MESSAGE = "The worker stopped while running this job (the process exited or lost its database connection).";
+
+const JOB_COLUMNS = `"id", "name", "input", "status", "attempts", "max_attempts", "run_at", "last_error", "created_at", "updated_at"`;
+
+function fromRow(row: Record<string, unknown>): JobRecord {
+  const record: JobRecord = {
+    id: String(row.id),
+    name: String(row.name),
+    input: typeof row.input === "string" ? (JSON.parse(row.input) as unknown) : row.input,
+    status: row.status as JobStatus,
+    attempts: Number(row.attempts),
+    maxAttempts: Number(row.max_attempts),
+    runAt: new Date(row.run_at as string),
+    createdAt: new Date(row.created_at as string),
+    updatedAt: new Date(row.updated_at as string),
+  };
+  if (row.last_error !== null && row.last_error !== undefined) record.lastError = String(row.last_error);
+  return record;
+}
+
+/**
+ * Jobs in the inferlo_jobs table (created on first use), shared by every instance. Due jobs are
+ * claimed with FOR UPDATE SKIP LOCKED, so each one runs in one place. A running job whose worker
+ * stopped reporting (see STALE_AFTER_MS) is claimed again, or marked failed if it has no attempts left.
+ */
+export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: number } = {}): JobStore {
+  const sql = adapter.sql?.bind(adapter);
+  if (!sql) {
+    throw new InferloError("IL6012", `jobQueue store "database" needs a Postgres database, but the app uses the ${adapter.dialect} adapter.`, {
+      fix: 'Use postgres() from "@browserlessapi/inferlo/postgres" for createApp({ db }), or jobQueue: { store: "memory" }.',
+    });
+  }
+  const staleAfterMs = options.staleAfterMs ?? STALE_AFTER_MS;
+  let ready: Promise<unknown> | undefined;
+  const create = async () => {
+    try {
+      await sql(
+        `CREATE TABLE IF NOT EXISTS "inferlo_jobs" (
+          "id" uuid PRIMARY KEY, "name" text NOT NULL, "input" jsonb NOT NULL, "status" text NOT NULL,
+          "attempts" integer NOT NULL, "max_attempts" integer NOT NULL, "run_at" timestamptz NOT NULL,
+          "last_error" text, "created_at" timestamptz NOT NULL, "updated_at" timestamptz NOT NULL)`,
+      );
+      await sql('CREATE INDEX IF NOT EXISTS "inferlo_jobs_due_idx" ON "inferlo_jobs" ("status", "run_at")');
+    } catch {
+      // Two instances creating the table at the same moment: the other one won.
+      await sql('SELECT 1 FROM "inferlo_jobs" LIMIT 1');
+    }
+  };
+  const table = async () => {
+    ready ??= create().catch((error) => {
+      ready = undefined;
+      throw error;
+    });
+    await ready;
+  };
+  return {
+    async add(r) {
+      await table();
+      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [
+        r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt,
+      ]);
+    },
+    async claim(now, limit, names) {
+      await table();
+      if (!names.length) return [];
+      const stale = `"status" = 'running' AND "updated_at" < now() - $1 * interval '1 millisecond'`;
+      // Stuck jobs without attempts left are failed, not run again.
+      await sql(`UPDATE "inferlo_jobs" SET "status" = 'failed', "last_error" = $2, "updated_at" = now() WHERE ${stale} AND "attempts" >= "max_attempts" AND "name" = ANY($3)`, [
+        staleAfterMs, STOPPED_MESSAGE, names,
+      ]);
+      const rows = await sql(
+        `WITH due AS (
+           SELECT "id" FROM "inferlo_jobs"
+           WHERE "name" = ANY($3) AND (("status" = 'pending' AND "run_at" <= $4) OR (${stale} AND "attempts" < "max_attempts"))
+           ORDER BY "run_at", "created_at" LIMIT $5 FOR UPDATE SKIP LOCKED)
+         UPDATE "inferlo_jobs" j SET "status" = 'running', "attempts" = j."attempts" + 1, "updated_at" = now(),
+           "last_error" = CASE WHEN j."status" = 'running' THEN $2 ELSE j."last_error" END
+         FROM due WHERE j."id" = due."id"
+         RETURNING j.*`,
+        [staleAfterMs, STOPPED_MESSAGE, names, now, limit],
+      );
+      return rows
+        .map(fromRow)
+        .sort((a, b) => a.runAt.getTime() - b.runAt.getTime() || a.createdAt.getTime() - b.createdAt.getTime());
+    },
+    async update(id, patch) {
+      await table();
+      const sets = ['"updated_at" = now()'];
+      const params: unknown[] = [id];
+      if (patch.status !== undefined) sets.push(`"status" = $${params.push(patch.status)}`);
+      if (patch.runAt !== undefined) sets.push(`"run_at" = $${params.push(patch.runAt)}`);
+      if (patch.lastError !== undefined) sets.push(`"last_error" = $${params.push(patch.lastError)}`);
+      await sql(`UPDATE "inferlo_jobs" SET ${sets.join(", ")} WHERE "id" = $1`, params);
+    },
+    async get(id) {
+      await table();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+      const rows = await sql(`SELECT ${JOB_COLUMNS} FROM "inferlo_jobs" WHERE "id" = $1`, [id]);
+      return rows[0] ? fromRow(rows[0]) : null;
+    },
+    async touch(id) {
+      await table();
+      await sql(`UPDATE "inferlo_jobs" SET "updated_at" = now() WHERE "id" = $1 AND "status" = 'running'`, [id]);
+    },
+  };
+}
+
+/** Pick the job store for createApp({ jobQueue }). Raises IL6011 for an unknown store, IL6012 for "database" without Postgres. */
+export function jobStoreFor(config: JobQueueConfig | undefined, adapter: Adapter): JobStore {
+  const store = config?.store ?? "memory";
+  if (store === "memory") return memoryJobStore();
+  if (store === "database") return databaseJobStore(adapter);
+  throw new InferloError("IL6011", `Invalid jobQueue store "${String(store)}".`, { fix: 'Use createApp({ jobQueue: { store: "memory" } }) (the default) or { store: "database" }.' });
+}
+
 export interface JobRuntime {
   db: AppDb;
   ai: AI;
   store: JobStore;
+  /** How often a running job is reported alive to stores that support it. Default HEARTBEAT_MS. */
+  heartbeatMs?: number;
   logger: { info(message: string, data?: unknown): void; error(message: string, data?: unknown): void };
 }
 
 export function createJobs(list: readonly JobDef[], runtime: JobRuntime): AppJobs {
   const byName = new Map(list.map((j) => [j.name, j]));
+  const names = list.map((j) => j.name);
 
   const registered = (j: JobDef): JobDef => {
     const found = isJob(j) ? byName.get(j.name) : undefined;
@@ -274,7 +407,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime): AppJob
       while (true) {
         // Without options.now, jobs enqueued by the jobs that run (follow-ups) run in the same call.
         const now = options.now ?? new Date();
-        const [record] = await runtime.store.claim(now, 1);
+        const [record] = await runtime.store.claim(now, 1, names);
         if (!record) return result;
         result[await run(record, now)]++;
       }
@@ -312,6 +445,8 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime): AppJob
 
   async function run(record: JobRecord, now: Date): Promise<keyof RunResult> {
     const def = byName.get(record.name);
+    const touch = runtime.store.touch?.bind(runtime.store);
+    const heartbeat = touch ? setInterval(() => void touch(record.id).catch(() => {}), runtime.heartbeatMs ?? HEARTBEAT_MS) : undefined;
     try {
       if (!def) throw new InferloError("IL6010", `"${record.name}" is not a registered job.`, { fix: "Add the job to createApp({ jobs: [...] }) in the process that runs jobs." });
       await def.handler({ input: parse(def, record.input), db: runtime.db, ai: runtime.ai, jobs, id: record.id, attempt: record.attempts });
@@ -327,6 +462,8 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime): AppJob
       await runtime.store.update(record.id, { status: "failed", lastError: message });
       runtime.logger.error(`job "${record.name}" failed after ${record.attempts} attempt(s)`, { id: record.id, error: message });
       return "failed";
+    } finally {
+      if (heartbeat) clearInterval(heartbeat);
     }
   }
 
