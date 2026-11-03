@@ -117,6 +117,8 @@ export interface Worker {
 export interface AppJobs extends Jobs {
   /** The registered jobs. */
   readonly list: readonly JobDef[];
+  /** Where queued jobs are kept (createApp({ jobQueue: { store } })). */
+  readonly queue: "memory" | "database";
   /** A queued job by id, or null. */
   get(id: string): Promise<JobRecord | null>;
   /** Run every job that is due now (or at options.now), one after another, including follow-ups they enqueue, then return. For tests and scripts. */
@@ -349,6 +351,8 @@ export interface JobRuntime {
   db: AppDb;
   ai: AI;
   store: JobStore;
+  /** Name of the store, shown as app.jobs.queue. Default "memory". */
+  queue?: "memory" | "database";
   /** How often a running job is reported alive to stores that support it. Default HEARTBEAT_MS. */
   heartbeatMs?: number;
   logger: { info(message: string, data?: unknown): void; error(message: string, data?: unknown): void };
@@ -377,6 +381,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime): AppJob
 
   const jobs: AppJobs = {
     list,
+    queue: runtime.queue ?? "memory",
     async enqueue(j, input, options = {}) {
       const def = registered(j);
       if (options.runAt !== undefined && (!(options.runAt instanceof Date) || Number.isNaN(options.runAt.getTime()))) {

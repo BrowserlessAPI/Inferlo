@@ -19,6 +19,7 @@ Usage: inferlo <command> [options]
 Commands:
   new <dir>                Create a new Inferlo project
   dev                      Run the server and restart on changes (src/server.ts)
+  worker                   Run background jobs from the database queue until SIGTERM or Ctrl+C
   describe                 Print the app map: routes, models, auth, AI
   check                    Typecheck, load the app and run tests
   db push [--dry-run]      Create missing tables, columns and indexes
@@ -118,7 +119,7 @@ async function cmdDescribe(args: Args) {
     lines.push("", "Routes");
     for (const r of d.routes) lines.push(`  ${r.method.padEnd(6)} ${r.path.padEnd(28)} auth=${r.auth}${r.tool ? `  tool=${r.tool}` : ""}${r.name ? `  (${r.name})` : ""}`);
     if (d.jobs?.length) {
-      lines.push("", "Jobs");
+      lines.push("", `Jobs (queue: ${d.jobQueue})`);
       for (const j of d.jobs) lines.push(`  ${j.name.padEnd(28)} retries=${j.retries}${j.summary ? `  ${j.summary}` : ""}`);
     }
     lines.push("", `AI: ${d.ai.configured ? Object.entries<string[]>(d.ai.aliases).map(([a, ids]) => `${a} = ${ids.join(" > ")}`).join("; ") || "configured" : "not configured"}`);
@@ -297,6 +298,47 @@ async function cmdDev(args: Args) {
   process.exitCode = code;
 }
 
+async function cmdWorker(args: Args) {
+  const json = Boolean(args.flags.json);
+  // Like inferlo dev: read .env before the app reads its environment. Variables already set win.
+  const envFile = path.join(cwd, ".env");
+  const loadEnvFile = (process as { loadEnvFile?: (file: string) => void }).loadEnvFile;
+  if (existsSync(envFile) && typeof loadEnvFile === "function") loadEnvFile(envFile);
+  const app = await loadApp(args);
+  const names: string[] = app.jobs.list.map((j: { name: string }) => j.name);
+  if (!names.length) {
+    throw new InferloError("IL8007", "The app has no background jobs, so there is nothing for inferlo worker to run.", {
+      fix: 'Define jobs with job("name", { input }).handle(fn) in src/jobs.ts and register them: createApp({ jobs: [jobs] }).',
+    });
+  }
+  if (app.jobs.queue !== "database") {
+    throw new InferloError("IL8008", `inferlo worker needs the database job queue, but the app keeps jobs in ${app.jobs.queue}, where a separate process cannot see them.`, {
+      fix: 'Use createApp({ jobQueue: { store: "database" }, db: postgres({ url }) }), or run jobs in the server process with app.jobs.start().',
+    });
+  }
+  const say = (event: string, text: string) => console.log(json ? JSON.stringify({ ok: true, event, jobs: names, queue: app.jobs.queue }) : text);
+  // Listen for signals before announcing the start, so a signal right after "started" is never missed.
+  const stopSignal = new Promise<string>((resolve) => {
+    let received = false;
+    const onSignal = (name: string) => {
+      // A second signal while waiting for the running job stops at once.
+      if (received) process.exit(1);
+      received = true;
+      resolve(name);
+    };
+    process.on("SIGTERM", onSignal);
+    process.on("SIGINT", onSignal);
+  });
+  const worker = app.jobs.start();
+  say("started", `inferlo worker: running ${names.length} job(s) (${names.join(", ")}) from the database queue. Stop with Ctrl+C or SIGTERM.`);
+  const signal = await stopSignal;
+  if (!json) console.log(`inferlo worker: ${signal} received, waiting for the running job to finish.`);
+  await worker.stop();
+  await app.db.$close?.();
+  say("stopped", "inferlo worker: stopped.");
+  process.exitCode = 0;
+}
+
 // --- generators --------------------------------------------------------------------------
 
 const templatesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "templates");
@@ -440,6 +482,8 @@ async function main() {
         return await cmdNew(args);
       case "dev":
         return await cmdDev(args);
+      case "worker":
+        return await cmdWorker(args);
       case "describe":
         return await cmdDescribe(args);
       case "check":

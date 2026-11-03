@@ -14,3 +14,13 @@ if (app.db.$adapter.dialect === "memory") {
 
 const server = await app.listen(env.int("PORT", { default: 3000 }));
 console.log(`{{name}} running on http://localhost:${server.port}`);
+
+// Background jobs run in this process. With jobQueue: { store: "database" } in src/app.ts they can
+// also run in separate processes: npm run worker.
+const jobs = app.jobs.start();
+
+process.on("SIGTERM", async () => {
+  await jobs.stop(); // waits for the running job
+  await server.close();
+  await app.db.$close();
+});

@@ -3,6 +3,7 @@
 ```
 inferlo new <dir>              Create a project
 inferlo dev                    Run src/server.ts and restart on changes
+inferlo worker                 Run background jobs from the database queue until SIGTERM or Ctrl+C
 inferlo describe [--json]      App map: models, routes, auth, AI
 inferlo check [--json]         Typecheck, load the app, run tests
 inferlo db push [--dry-run]    Create missing tables, columns and indexes
@@ -39,6 +40,12 @@ Agents should run this after every change and not stop until `ok` is `true`.
 ```
 
 `file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`, and `changes` lists the column changes (only with `--allow-change`), e.g. `["change column tasks.done (default false -> none)"]`. `inferlo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"], "edited": [] }`. `edited` lists migrations that were applied earlier but whose file has changed since (warning IL4018); they are not run again. See [Migrations](database.md#migrations).
+
+## inferlo worker
+
+Runs the app's background jobs in their own process, for deployments where web servers and job workers scale separately. It loads the app (reading `.env` first, like `inferlo dev`; variables already set win), calls `app.jobs.start()`, and on SIGTERM or Ctrl+C stops taking new jobs, waits for the running one to finish, closes the database and exits 0. A second signal exits at once.
+
+It needs jobs (IL8007) and `createApp({ jobQueue: { store: "database" } })` (IL8008), because a separate process cannot see an in-memory queue. Run as many workers as you like: each job attempt runs on one of them. With `--json` it prints `{ "ok": true, "event": "started", "jobs": ["send-email"], "queue": "database" }` and a `"stopped"` event. See [Background jobs](jobs.md).
 
 ## inferlo add resource invoices
 

@@ -1,0 +1,4 @@
+{
+  "title": "Run jobs in a separate worker process",
+  "prompt": "In production, background jobs should also run in separate worker processes started with `npm run worker`, which must work whenever DATABASE_URL is set. Create src/jobs.ts with a job named \"cleanup-notes\" whose input is an empty object and that deletes notes with an empty body, register the jobs module in src/app.ts, and configure the app so `npm run worker` can run the jobs the server enqueues."
+}

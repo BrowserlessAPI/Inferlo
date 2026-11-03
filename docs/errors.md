@@ -228,6 +228,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL8006
 **Unknown generator.** Use `inferlo add resource <plural_name>`.
 
+### IL8007
+**No background jobs to run.** `inferlo worker` found no jobs in the app. Define them with `job(...).handle(...)` and register them with `createApp({ jobs: [jobs] })`.
+
+### IL8008
+**`inferlo worker` needs the database job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres adapter, or run jobs in the server process with `app.jobs.start()`.
+
 ## Internal (9xxx)
 
 ### IL9000

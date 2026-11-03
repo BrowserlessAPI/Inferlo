@@ -65,7 +65,9 @@ process.on("SIGTERM", async () => {
 });
 ```
 
-An `inferlo worker` command that does this for you is planned (see ROADMAP.md).
+New projects do this in `src/server.ts`.
+
+To run jobs in separate processes, keep them in the database (below) and start `inferlo worker` (`npm run worker` in new projects). It runs `app.jobs.start()` and, on SIGTERM or Ctrl+C, waits for the running job before it exits. Web servers and workers share the queue, so you can run jobs in both or only in workers. See [CLI](cli.md#inferlo-worker).
 
 ## Where jobs are kept
 

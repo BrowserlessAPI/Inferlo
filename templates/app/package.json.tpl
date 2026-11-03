@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "inferlo dev",
     "start": "node src/server.ts",
+    "worker": "inferlo worker",
     "check": "inferlo check",
     "describe": "inferlo describe",
     "db:push": "inferlo db push",
