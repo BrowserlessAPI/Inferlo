@@ -55,6 +55,8 @@ livenessProbe: { httpGet: { path: /health, port: 3000 } }
 readinessProbe: { httpGet: { path: /ready, port: 3000 }, periodSeconds: 10 }
 ```
 
+For dashboards and alerts, `createApp({ metrics: { token } })` serves Prometheus metrics at `GET /metrics` (requests, jobs, AI calls, tokens and cost); see [metrics](observability.md#metrics).
+
 ## Graceful shutdown
 
 When an instance is stopped (a deploy, scaling down, a node drain), the orchestrator sends SIGTERM and waits a grace period before it kills the process. `app.close()` uses that time so no request or job is cut off:

@@ -27,7 +27,7 @@ export interface AppDescription {
   description?: string;
   database: string;
   auth: boolean;
-  endpoints: { openapi: string | false; mcp: string | false; health: string | false; ready: string | false };
+  endpoints: { openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false };
   /** Security headers sent on responses (lowercase names; strict-transport-security only over HTTPS). */
   secureHeaders: string[];
   /** Default time limit for routes in milliseconds (createApp({ requestTimeoutMs })), or false. */
@@ -76,7 +76,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string }): AppDescription {
   return {
     inferlo: INFERLO_VERSION,
     name: app.name,
@@ -84,7 +84,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     description: options.description,
     database: app.db.$adapter.dialect,
     auth: options.auth,
-    endpoints: { openapi: options.openapi, mcp: options.mcp, health: options.health, ready: options.ready },
+    endpoints: { openapi: options.openapi, mcp: options.mcp, health: options.health, ready: options.ready, metrics: options.metrics },
     secureHeaders: options.secureHeaders,
     requestTimeoutMs: options.requestTimeoutMs,
     logging: options.logging,

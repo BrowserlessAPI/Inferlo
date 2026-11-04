@@ -19,6 +19,8 @@ import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
+import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
+import { INFERLO_VERSION } from "./describe.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
 export interface AuthConfig {
@@ -155,6 +157,12 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
    * each request's id, method, path, status and duration). Every response has an X-Request-Id header.
    */
   logging?: LoggingConfig;
+  /**
+   * Prometheus metrics at GET /metrics: requests by route and status with durations, job runs, and AI calls,
+   * tokens and cost per alias. { token } requires Authorization: Bearer <token>; without it the endpoint is
+   * public, so keep it off the internet. Off by default.
+   */
+  metrics?: boolean | MetricsConfig;
 }
 
 interface CompiledRoute {
@@ -370,18 +378,43 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     throw new InferloError("IL6007", `Invalid rateLimit store "${String(storeName)}".`, { fix: 'Use createApp({ rateLimit: { store: "memory" } }) or { store: "database" }.' });
   }
 
-  const adapter = config.db ?? memory();
-  const db = createDb(models, adapter);
-  const rateLimits: RateLimitStore = storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
-  const ai = createAI(config.ai);
-  const jobs = createJobs(collectJobs(config.jobs), { db: db as never, ai, store: jobStoreFor(config.jobQueue, adapter), queue: config.jobQueue?.store ?? "memory", logger }, collectCrons(config.jobs));
-  const maxBody = config.maxBodySize ?? 1024 * 1024;
-  const secureHeaders = resolveSecureHeaders(config.secureHeaders);
-  const cors: CorsConfig | undefined = config.cors === true ? { origin: "*" } : config.cors || undefined;
   const openapiPath = config.openapi === undefined ? "/openapi.json" : config.openapi;
   const hasTools = routes.some((r) => r.options.tool);
   const mcpPath = config.mcp === undefined ? (hasTools ? "/mcp" : false) : config.mcp;
   const health = resolveHealth(config.health, routes, [openapiPath, mcpPath]);
+  const metricsConfig = resolveMetrics(config.metrics, [
+    { path: openapiPath, what: "the OpenAPI path" },
+    { path: mcpPath, what: "the MCP path" },
+    { path: health?.path ?? false, what: "the health path" },
+    { path: health?.readyPath ?? false, what: "the readiness path" },
+    ...routes.filter((r) => r.method === "GET").map((r) => ({ path: r.path, what: `the route GET ${r.path}` })),
+  ]);
+  const adapter = config.db ?? memory();
+  const db = createDb(models, adapter);
+  const rateLimits: RateLimitStore = storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
+  const metrics: AppMetrics | undefined = metricsConfig
+    ? createMetrics({ app: config.name ?? "inferlo-app", version: config.version ?? "0.0.0", inferlo: INFERLO_VERSION }, metricsConfig.buckets)
+    : undefined;
+  // With metrics on, every AI call that reports usage is counted before the app's own onUsage runs.
+  const aiConfig: AIConfig | undefined = metrics && config.ai
+    ? { ...config.ai, onUsage: (usage) => (metrics.ai(usage), config.ai!.onUsage?.(usage)) }
+    : config.ai;
+  const ai = createAI(aiConfig);
+  const jobs = createJobs(
+    collectJobs(config.jobs),
+    {
+      db: db as never,
+      ai,
+      store: jobStoreFor(config.jobQueue, adapter),
+      queue: config.jobQueue?.store ?? "memory",
+      logger,
+      onRun: metrics ? (name, outcome, ms) => metrics.job(name, outcome, ms / 1000) : undefined,
+    },
+    collectCrons(config.jobs),
+  );
+  const maxBody = config.maxBodySize ?? 1024 * 1024;
+  const secureHeaders = resolveSecureHeaders(config.secureHeaders);
+  const cors: CorsConfig | undefined = config.cors === true ? { origin: "*" } : config.cors || undefined;
 
   // Readiness: the database answers, every AI alias points to a configured provider, and the app's own checks pass.
   const readinessChecks: Record<string, HealthCheck> = {
@@ -472,7 +505,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     return json({ error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } }, 500, headers);
   };
 
-  const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[], ip: string, requestId: string): Promise<Response> => {
+  const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[], ip: string, requestId: string, seen: { route: string }): Promise<Response> => {
     const headers = new Headers();
     if (cors) for (const [k, v] of Object.entries(corsHeaders(cors, req.headers.get("origin")))) headers.set(k, v);
     try {
@@ -489,12 +522,27 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         const response = json(report, report.status === "not_ready" ? 503 : 200, headers);
         return method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;
       }
+      if (metricsConfig && url.pathname === metricsConfig.path && (method === "GET" || method === "HEAD")) {
+        headers.set("cache-control", "no-store");
+        if (metricsConfig.token && !hasMetricsToken(req, metricsConfig.token)) {
+          headers.set("www-authenticate", 'Bearer realm="metrics"');
+          throw new InferloError("IL3001", "Sign in required.", { status: 401, fix: "Send the metrics token as Authorization: Bearer <token> (bearer_token in the Prometheus scrape config)." });
+        }
+        headers.set("content-type", "text/plain; version=0.0.4; charset=utf-8");
+        return new Response(method === "HEAD" ? null : metrics!.render(), { status: 200, headers });
+      }
       if (refusing) {
         headers.set("connection", "close");
         throw new InferloError("IL2006", "The server is shutting down.", { status: 503, fix: "Retry the request; another instance will answer it." });
       }
-      if (openapiPath && url.pathname === openapiPath && method === "GET") return json(app.openapi(), 200, headers);
-      if (mcpPath && url.pathname === mcpPath) return await handleMcp(app, req, headers, testUsers);
+      if (openapiPath && url.pathname === openapiPath && method === "GET") {
+        seen.route = openapiPath;
+        return json(app.openapi(), 200, headers);
+      }
+      if (mcpPath && url.pathname === mcpPath) {
+        seen.route = mcpPath;
+        return await handleMcp(app, req, headers, testUsers);
+      }
 
       const lookup = method === "HEAD" ? "GET" : method;
       let match: { route: CompiledRoute; values: string[] } | undefined;
@@ -517,6 +565,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         throw new InferloError("IL2001", `No route matches ${method} ${url.pathname}.${near ? ` Closest route: ${near}.` : ""}`, { status: 404 });
       }
       const { def, keys } = match.route;
+      seen.route = def.path;
       const opts = def.options;
       const limit = opts.timeoutMs === undefined ? requestTimeoutMs : opts.timeoutMs;
       // timeout aborts when the route takes too long; signal (ctx.signal) also when the client disconnects.
@@ -669,9 +718,11 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     const state: Record<string, unknown> = {};
     const pending: Promise<unknown>[] = [];
     const chain = [...(config.middleware ?? [])];
+    // The matched route pattern, for metrics ("unmatched" for 404s and responses from middleware).
+    const seen = { route: "unmatched" };
     const run = (i: number): Promise<Response> => {
       const mw = chain[i];
-      if (!mw) return dispatch(req, url, state, pending, ip, requestId);
+      if (!mw) return dispatch(req, url, state, pending, ip, requestId, seen);
       return mw({ req, url, state, requestId }, () => run(i + 1));
     };
     let response: Response;
@@ -681,10 +732,16 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
       response = errorResponse(error, new Headers(), req, requestId);
     }
     response = withHeader(response, "x-request-id", requestId);
-    if (logging.requests && url.pathname !== health?.path && url.pathname !== health?.readyPath) {
-      const durationMs = Math.round((performance.now() - started) * 10) / 10;
+    // Health and metrics endpoints are called every few seconds by load balancers and scrapers: not logged or counted.
+    const probe = url.pathname === health?.path || url.pathname === health?.readyPath || url.pathname === metricsConfig?.path;
+    if (!probe) {
+      const elapsed = performance.now() - started;
       const method = req.method.toUpperCase();
-      logger.info(`${method} ${url.pathname} ${response.status} ${durationMs}ms`, undefined, { requestId, method, path: url.pathname, status: response.status, durationMs });
+      metrics?.request(method, seen.route, response.status, elapsed / 1000);
+      if (logging.requests) {
+        const durationMs = Math.round(elapsed * 10) / 10;
+        logger.info(`${method} ${url.pathname} ${response.status} ${durationMs}ms`, undefined, { requestId, method, path: url.pathname, status: response.status, durationMs });
+      }
     }
     if (secureHeaders.length) {
       const https = url.protocol === "https:" || (Boolean(config.trustProxy) && req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https");
@@ -721,10 +778,12 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
 
     async fetch(req, ...rest) {
       inFlight++;
+      metrics?.inFlight(1);
       try {
         return await handle(req, rest);
       } finally {
         inFlight--;
+        metrics?.inFlight(-1);
         settle();
       }
     },
@@ -805,6 +864,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         mcp: mcpPath,
         health: health?.path ?? false,
         ready: health?.readyPath ?? false,
+        metrics: metricsConfig?.path ?? false,
         secureHeaders: secureHeaders.map(([name]) => name),
         requestTimeoutMs,
         logging: { format: config.logger ? "custom" : logging.format, requests: logging.requests },

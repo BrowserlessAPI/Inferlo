@@ -209,6 +209,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6019
 **Invalid `logging`.** `createApp({ logging })` takes `{ format, requests }`: `format` is `"text"` (default) or `"json"`, and `requests` is `true` or `false`. `format` only applies to the built-in logger, so leave it out when you pass your own `logger` (it decides how entries are written, and gets fields such as `requestId` as the third argument). See [Observability](observability.md).
 
+### IL6020
+**Invalid `metrics`.** `createApp({ metrics })` takes `true` or `{ path, token, buckets }`: `path` starts with `/` and is not the OpenAPI, MCP or health path or a `GET` route; `token` is a string of at least 16 characters, not `undefined` (a random secret from configuration, sent by the scraper as `Authorization: Bearer <token>`); `buckets` are increasing positive numbers of seconds. See [metrics](observability.md#metrics).
+
 ## Environment (7xxx)
 
 ### IL7001

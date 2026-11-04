@@ -1,0 +1,4 @@
+{
+  "title": "Prometheus metrics with a token",
+  "prompt": "Our Prometheus scrapes every service at GET /internal/metrics with a bearer token. Serve the app's metrics there at all times, protected by the METRICS_TOKEN setting, which every environment now has to set (the app should refuse to start without it)."
+}

@@ -17,6 +17,8 @@ export const app = createApp({
   // One log line per request with its id (also in the X-Request-Id header), status and duration.
   // Use format: "json" for one JSON object per line when a log collector reads the output.
   logging: { requests: true },
+  // Prometheus metrics at GET /metrics (requests, jobs, AI calls, tokens and cost) when METRICS_TOKEN is set.
+  metrics: settings.METRICS_TOKEN ? { token: settings.METRICS_TOKEN } : false,
   db: settings.DATABASE_URL ? postgres({ url: settings.DATABASE_URL }) : memory(),
 
   // Requests send "Authorization: Bearer <api key>". Keys are stored as SHA-256 hashes.

@@ -381,6 +381,8 @@ export interface JobRuntime {
   /** How often a running job is reported alive to stores that support it. Default HEARTBEAT_MS. */
   heartbeatMs?: number;
   logger: { info(message: string, data?: unknown): void; error(message: string, data?: unknown): void };
+  /** Called after each attempt with its outcome and duration (metrics). */
+  onRun?(name: string, outcome: keyof RunResult, durationMs: number): void;
 }
 
 /** app.jobs plus what the framework tests reach directly. */
@@ -507,6 +509,13 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
   workers.set(jobs, running);
 
   async function run(record: JobRecord, now: Date): Promise<keyof RunResult> {
+    const started = performance.now();
+    const outcome = await attempt(record, now);
+    runtime.onRun?.(record.name, outcome, performance.now() - started);
+    return outcome;
+  }
+
+  async function attempt(record: JobRecord, now: Date): Promise<keyof RunResult> {
     const def = byName.get(record.name);
     const touch = runtime.store.touch?.bind(runtime.store);
     const heartbeat = touch ? setInterval(() => void touch(record.id).catch(() => {}), runtime.heartbeatMs ?? HEARTBEAT_MS) : undefined;

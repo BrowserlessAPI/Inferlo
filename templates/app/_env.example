@@ -3,3 +3,5 @@ DATABASE_URL=
 PORT=3000
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
+# Set to a random secret of 16+ characters to serve Prometheus metrics at GET /metrics.
+# METRICS_TOKEN=

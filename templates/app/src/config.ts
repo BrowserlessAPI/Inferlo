@@ -10,6 +10,8 @@ export const settings = config({
     PORT: t.int().min(1).max(65535).default(3000),
     ANTHROPIC_API_KEY: t.string().default(""),
     OPENAI_API_KEY: t.string().default(""),
+    // Set to serve Prometheus metrics at GET /metrics (scrapers send it as a bearer token).
+    METRICS_TOKEN: t.string().min(16).optional(),
   }),
-  secrets: ["DATABASE_URL", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
+  secrets: ["DATABASE_URL", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "METRICS_TOKEN"],
 });

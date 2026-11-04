@@ -24,7 +24,7 @@ describe("health and readiness endpoints", () => {
     const app = createApp({ logger: quiet().logger });
     assert.equal((await app.request("/health")).status, 404);
     assert.equal((await app.request("/ready")).status, 404);
-    assert.deepEqual(app.describe().endpoints, { openapi: "/openapi.json", mcp: false, health: false, ready: false });
+    assert.deepEqual(app.describe().endpoints, { openapi: "/openapi.json", mcp: false, health: false, ready: false, metrics: false });
   });
 
   test("GET /health answers 200 without auth and without running checks", async () => {
@@ -54,7 +54,7 @@ describe("health and readiness endpoints", () => {
       assert.equal(check.status, "ok");
       assert.equal(typeof check.durationMs, "number");
     }
-    assert.deepEqual(app.describe().endpoints, { openapi: "/openapi.json", mcp: false, health: "/health", ready: "/ready" });
+    assert.deepEqual(app.describe().endpoints, { openapi: "/openapi.json", mcp: false, health: "/health", ready: "/ready", metrics: false });
   });
 
   test("a failing check answers 503 with a generic error and logs the real one", async () => {

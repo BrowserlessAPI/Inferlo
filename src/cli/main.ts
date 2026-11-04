@@ -127,6 +127,7 @@ async function cmdDescribe(args: Args) {
     if (d.endpoints.openapi) lines.push(`OpenAPI: ${d.endpoints.openapi}`);
     if (d.endpoints.mcp) lines.push(`MCP: ${d.endpoints.mcp}`);
     if (d.endpoints.health) lines.push(`Health: ${d.endpoints.health} (liveness), ${d.endpoints.ready} (readiness)`);
+    if (d.endpoints.metrics) lines.push(`Metrics: ${d.endpoints.metrics} (Prometheus)`);
     if (d.logging) lines.push(`Logging: ${d.logging.format}${d.logging.requests ? ", every request logged" : ""}`);
     return lines.join("\n");
   });
