@@ -4,7 +4,7 @@
  */
 import { bindTools, createAI, type AI, type AIConfig } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
-import { createDb, type Db } from "./db/table.ts";
+import { bindDb, createDb, guardAdapter, type Db } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { describeApp, type AppDescription } from "./describe.ts";
 import { InferloError, didYouMean, suggest } from "./errors.ts";
@@ -127,6 +127,11 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
    * { "X-Frame-Options": "SAMEORIGIN", "Content-Security-Policy": false }. false sends none. Default true.
    */
   secureHeaders?: boolean | SecureHeadersConfig;
+  /**
+   * Longest time in milliseconds a route may take (reading the body and running the handler) before it answers
+   * 503 IL2007 and ctx.signal is aborted. Routes can set their own timeoutMs. false turns it off. Default 60000.
+   */
+  requestTimeoutMs?: number | false;
   /** Include error messages of unexpected (500) errors in responses. Default false. */
   exposeErrors?: boolean;
   logger?: Logger;
@@ -235,11 +240,13 @@ function corsHeaders(config: CorsConfig, origin: string | null): Record<string, 
   return h;
 }
 
-async function readBody(req: Request, limit: number): Promise<string> {
+async function readBody(req: Request, limit: number, signal?: AbortSignal): Promise<string> {
   const length = Number(req.headers.get("content-length") ?? "0");
   if (length > limit) throw new InferloError("IL2004", `Request body is larger than ${limit} bytes.`, { status: 413 });
   if (!req.body) return "";
   const reader = req.body.getReader();
+  // Stop reading a slow body once the request timed out.
+  signal?.addEventListener("abort", () => void reader.cancel().catch(() => {}), { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
   while (true) {
@@ -323,6 +330,8 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   }
 
   for (const r of routes) if (r.options.rateLimit !== undefined) checkRateLimit(r.options.rateLimit, `${r.method} ${r.path}`);
+  const requestTimeoutMs = config.requestTimeoutMs === undefined ? 60_000 : checkTimeout(config.requestTimeoutMs, "createApp({ requestTimeoutMs })");
+  for (const r of routes) if (r.options.timeoutMs !== undefined) checkTimeout(r.options.timeoutMs, `${r.method} ${r.path} { timeoutMs }`);
   const storeName = config.rateLimit?.store ?? "memory";
   if (storeName !== "memory" && storeName !== "database") {
     throw new InferloError("IL6007", `Invalid rateLimit store "${String(storeName)}".`, { fix: 'Use createApp({ rateLimit: { store: "memory" } }) or { store: "database" }.' });
@@ -401,7 +410,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     const { name, description, inputSchema } = registeredTool(route);
     return { name, description, inputSchema };
   };
-  const toolsFor = (req: Request): AI =>
+  const toolsFor = (req: Request, signal: AbortSignal): AI =>
     bindTools(ai, async (route, input) => {
       const tool = registeredTool(route);
       const response = await callTool(app, tool, input as Record<string, unknown>, req, testUsers);
@@ -413,7 +422,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         // Not JSON: the model sees the text as it is.
       }
       return { name: tool.name, status: response.status, output, text: text || String(response.status) };
-    }, describeTool);
+    }, describeTool, signal);
 
   const roles = (user: AppUser): string[] => config.auth?.roles?.(user) ?? ((user as { roles?: string[] }).roles ?? []);
 
@@ -475,80 +484,113 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
       }
       const { def, keys } = match.route;
       const opts = def.options;
+      const limit = opts.timeoutMs === undefined ? requestTimeoutMs : opts.timeoutMs;
+      // timeout aborts when the route takes too long; signal (ctx.signal) also when the client disconnects.
+      const timeout = new AbortController();
+      const signal = AbortSignal.any([req.signal, timeout.signal]);
+      let requestDb: Db<Models> | undefined;
+      const run = async (): Promise<Response> => {
+        // Auth
+        let user: AppUser | null = null;
+        if (testUsers.has(req)) user = testUsers.get(req) ?? null;
+        else if (config.auth) user = (await config.auth.resolve(req, { db: db as never, url })) ?? null;
+        const level = opts.auth ?? "user";
+        if (level !== "public") {
+          if (!user) throw new InferloError("IL3001", "Sign in required.", { status: 401, fix: "Send valid credentials, e.g. an Authorization: Bearer <token> header." });
+          if (level !== "user" && !roles(user).includes(level)) throw new InferloError("IL3002", `This requires the "${level}" role.`, { status: 403 });
+        }
 
-      // Auth
-      let user: AppUser | null = null;
-      if (testUsers.has(req)) user = testUsers.get(req) ?? null;
-      else if (config.auth) user = (await config.auth.resolve(req, { db: db as never, url })) ?? null;
-      const level = opts.auth ?? "user";
-      if (level !== "public") {
-        if (!user) throw new InferloError("IL3001", "Sign in required.", { status: 401, fix: "Send valid credentials, e.g. an Authorization: Bearer <token> header." });
-        if (level !== "user" && !roles(user).includes(level)) throw new InferloError("IL3002", `This requires the "${level}" role.`, { status: 403 });
-      }
+        // Rate limit: counted per user (or IP without one), after auth so failed sign-ins on private routes do not use it up.
+        if (opts.rateLimit) {
+          const who = (opts.rateLimit.by ?? "user") === "user" && user ? `user:${user.id}` : `ip:${ip}`;
+          const hit = await rateLimits.hit(`${def.method} ${def.path} ${who}`, windowMs(opts.rateLimit));
+          const limited = rateLimitResult(opts.rateLimit, hit);
+          for (const [k, v] of Object.entries(limited.headers)) headers.set(k, v);
+          if (limited.error) throw limited.error;
+        }
 
-      // Rate limit: counted per user (or IP without one), after auth so failed sign-ins on private routes do not use it up.
-      if (opts.rateLimit) {
-        const who = (opts.rateLimit.by ?? "user") === "user" && user ? `user:${user.id}` : `ip:${ip}`;
-        const hit = await rateLimits.hit(`${def.method} ${def.path} ${who}`, windowMs(opts.rateLimit));
-        const limited = rateLimitResult(opts.rateLimit, hit);
-        for (const [k, v] of Object.entries(limited.headers)) headers.set(k, v);
-        if (limited.error) throw limited.error;
-      }
-
-      // Input
-      const rawParams: Record<string, string> = {};
-      keys.forEach((key, i) => {
-        const v = match!.values[i];
-        if (v !== undefined) rawParams[key] = decodeURIComponent(v);
-      });
-      const params = opts.params ? parseOrThrow(opts.params, rawParams, "path parameters", true) : rawParams;
-      const rawQuery = queryObject(url);
-      const query = opts.query ? parseOrThrow(opts.query.strip(), rawQuery, "query string", true) : rawQuery;
-      let body: unknown;
-      if (opts.body) {
-        const text = method === "GET" || method === "HEAD" ? "" : await readBody(req, maxBody);
-        const type = req.headers.get("content-type") ?? "";
-        let raw: unknown = undefined;
-        if (text) {
-          if (type.includes("application/x-www-form-urlencoded")) raw = Object.fromEntries(new URLSearchParams(text));
-          else {
-            try {
-              raw = JSON.parse(text);
-            } catch {
-              throw new InferloError("IL2003", "Request body is not valid JSON.", { status: 400, fix: "Send JSON with Content-Type: application/json." });
+        // Input
+        const rawParams: Record<string, string> = {};
+        keys.forEach((key, i) => {
+          const v = match!.values[i];
+          if (v !== undefined) rawParams[key] = decodeURIComponent(v);
+        });
+        const params = opts.params ? parseOrThrow(opts.params, rawParams, "path parameters", true) : rawParams;
+        const rawQuery = queryObject(url);
+        const query = opts.query ? parseOrThrow(opts.query.strip(), rawQuery, "query string", true) : rawQuery;
+        let body: unknown;
+        if (opts.body) {
+          const text = method === "GET" || method === "HEAD" ? "" : await readBody(req, maxBody, timeout.signal);
+          const type = req.headers.get("content-type") ?? "";
+          let raw: unknown = undefined;
+          if (text) {
+            if (type.includes("application/x-www-form-urlencoded")) raw = Object.fromEntries(new URLSearchParams(text));
+            else {
+              try {
+                raw = JSON.parse(text);
+              } catch {
+                throw new InferloError("IL2003", "Request body is not valid JSON.", { status: 400, fix: "Send JSON with Content-Type: application/json." });
+              }
             }
           }
+          body = parseOrThrow(opts.body, raw, "request body", type.includes("application/x-www-form-urlencoded"));
         }
-        body = parseOrThrow(opts.body, raw, "request body", type.includes("application/x-www-form-urlencoded"));
-      }
 
-      let status = 0;
-      const ctx: AnyContext = {
-        body,
-        query,
-        params,
-        user,
-        db: db as never,
-        ai: toolsFor(req),
-        jobs,
-        req,
-        url,
-        headers: req.headers,
-        state,
-        status: (code: number) => void (status = code),
-        header: (name: string, value: string) => headers.set(name, value),
-        waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e))),
+        let status = 0;
+        const ctx: AnyContext = {
+          body,
+          query,
+          params,
+          user,
+          get db() {
+            // Built on first use: after a timeout, new queries fail with IL2007 instead of running.
+            return (requestDb ??= bindDb(models, guardAdapter(adapter, timeout.signal))) as never;
+          },
+          ai: toolsFor(req, signal),
+          signal,
+          jobs,
+          req,
+          url,
+          headers: req.headers,
+          state,
+          status: (code: number) => void (status = code),
+          header: (name: string, value: string) => headers.set(name, value),
+          waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e))),
+        };
+        const result = await def.handler(ctx);
+        if (result instanceof Response) {
+          headers.forEach((v, k) => {
+            if (!result.headers.has(k)) result.headers.set(k, v);
+          });
+          return result;
+        }
+        if (result === undefined) return new Response(null, { status: status || 204, headers });
+        const response = json(result, status || 200, headers);
+        return method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;
       };
-      const result = await def.handler(ctx);
-      if (result instanceof Response) {
-        headers.forEach((v, k) => {
-          if (!result.headers.has(k)) result.headers.set(k, v);
-        });
-        return result;
+      if (limit === false) return await run();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const running = run();
+      // After a timeout the handler keeps running; its later result or error is dropped.
+      running.catch(() => {});
+      try {
+        return await Promise.race([
+          running,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              const error = new InferloError("IL2007", `The request took longer than ${limit} ms.`, {
+                status: 503,
+                expose: true,
+                fix: `Make the handler faster or move slow work to a background job; raise the route's timeoutMs or createApp({ requestTimeoutMs }) if it needs more time.`,
+              });
+              timeout.abort(error);
+              reject(error);
+            }, limit);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
       }
-      if (result === undefined) return new Response(null, { status: status || 204, headers });
-      const response = json(result, status || 200, headers);
-      return method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;
     } catch (error) {
       return errorResponse(error, headers, req);
     }
@@ -719,6 +761,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         health: health?.path ?? false,
         ready: health?.readyPath ?? false,
         secureHeaders: secureHeaders.map(([name]) => name),
+        requestTimeoutMs,
         description: config.description,
       });
     },
@@ -752,6 +795,13 @@ function resolveHealth(option: AppConfig<any>["health"], routes: RouteDef[], tak
     if (route) throw bad(`The health endpoint ${path} is also the route GET ${route.path}.`, `Remove the GET ${route.path} route (createApp({ health }) answers it now), or choose another health.path or health.readyPath.`);
   }
   return resolved;
+}
+
+function checkTimeout(value: unknown, where: string): number | false {
+  if (value === false || (typeof value === "number" && Number.isFinite(value) && value > 0)) return value;
+  throw new InferloError("IL6017", `${where} must be a positive number of milliseconds or false, got ${typeof value === "string" ? JSON.stringify(value) : String(value)}.`, {
+    fix: "Use a number such as 30000 (30 seconds), or false for no timeout.",
+  });
 }
 
 function parseOrThrow(schema: AnySchema, value: unknown, where: string, coerce: boolean): unknown {

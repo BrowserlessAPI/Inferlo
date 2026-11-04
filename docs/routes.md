@@ -30,6 +30,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `summary`, `description`, `tags` | Documentation for OpenAPI, describe and MCP |
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
 | `rateLimit` | `{ max, per, by }` to limit requests per user or IP (see below) |
+| `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
 
@@ -66,6 +67,7 @@ export const summarize = route
 | `status(code)` | Set the status code |
 | `header(name, value)` | Set a response header |
 | `state` | Per-request values from middleware |
+| `signal` | `AbortSignal` aborted when the request times out or the client disconnects. `ai` calls use it automatically; pass it to `fetch` and other slow work |
 | `waitUntil(promise)` | Work that continues after the response |
 
 ## Return values

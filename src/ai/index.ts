@@ -123,11 +123,17 @@ export type ToolRunner = (route: RouteDef, input: unknown) => Promise<{ name: st
 
 const toolRunners = new WeakMap<AI, { runner: ToolRunner; describe: (route: RouteDef) => ToolSpec }>();
 
-/** ctx.ai for one request: the same AI, with tools that run as the request's user. Internal: used by createApp. */
-export function bindTools(ai: AI, runner: ToolRunner, describe: (route: RouteDef) => ToolSpec): AI {
+/**
+ * ctx.ai for one request: the same AI, with tools that run as the request's user, and the request's signal
+ * on every call that does not pass its own. Internal: used by createApp.
+ */
+export function bindTools(ai: AI, runner: ToolRunner, describe: (route: RouteDef) => ToolSpec, signal?: AbortSignal): AI {
   const bound: AI = { ...ai };
   toolRunners.set(bound, { runner, describe });
-  bound.generate = (options) => ai.generate.call(bound, options);
+  const withSignal = <T extends { signal?: AbortSignal }>(options: T): T => (signal && options && options.signal === undefined ? { ...options, signal } : options);
+  bound.generate = (options) => ai.generate.call(bound, withSignal(options));
+  bound.stream = (options) => ai.stream.call(bound, withSignal(options));
+  bound.embed = (options) => ai.embed.call(bound, withSignal(options));
   return bound;
 }
 

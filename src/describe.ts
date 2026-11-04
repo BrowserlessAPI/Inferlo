@@ -30,6 +30,8 @@ export interface AppDescription {
   endpoints: { openapi: string | false; mcp: string | false; health: string | false; ready: string | false };
   /** Security headers sent on responses (lowercase names; strict-transport-security only over HTTPS). */
   secureHeaders: string[];
+  /** Default time limit for routes in milliseconds (createApp({ requestTimeoutMs })), or false. */
+  requestTimeoutMs: number | false;
   models: { name: string; fields: Record<string, FieldDescription> }[];
   routes: {
     name?: string;
@@ -39,6 +41,8 @@ export interface AppDescription {
     summary?: string;
     tool?: string;
     rateLimit?: { max: number; per: string; by: string };
+    /** The route's own timeoutMs, when it sets one (otherwise requestTimeoutMs applies). */
+    timeoutMs?: number | false;
     params?: JSONSchema;
     query?: JSONSchema;
     body?: JSONSchema;
@@ -70,7 +74,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; secureHeaders: string[]; description?: string }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; description?: string }): AppDescription {
   return {
     inferlo: INFERLO_VERSION,
     name: app.name,
@@ -80,6 +84,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     auth: options.auth,
     endpoints: { openapi: options.openapi, mcp: options.mcp, health: options.health, ready: options.ready },
     secureHeaders: options.secureHeaders,
+    requestTimeoutMs: options.requestTimeoutMs,
     models: app.models.map((m: { name: string; fields: Record<string, AnySchema> }) => ({
       name: m.name,
       fields: Object.fromEntries([
@@ -96,6 +101,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       if (o.summary) out.summary = o.summary;
       if (o.tool) out.tool = toolName(r);
       if (o.rateLimit) out.rateLimit = { max: o.rateLimit.max, per: o.rateLimit.per, by: o.rateLimit.by ?? "user" };
+      if (o.timeoutMs !== undefined) out.timeoutMs = o.timeoutMs;
       if (o.params) out.params = o.params.toJSONSchema();
       if (o.query) out.query = o.query.toJSONSchema();
       if (o.body) out.body = o.body.toJSONSchema();

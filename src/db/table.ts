@@ -509,6 +509,12 @@ export interface DbHelpers {
 }
 
 export function createDb<const Models extends readonly AnyModel[]>(models: Models, adapter: Adapter): Db<Models> {
+  adapter.connect?.([...models]);
+  return bindDb(models, adapter);
+}
+
+/** A db client over an adapter that is already connected. Internal: createApp uses it for each request's ctx.db. */
+export function bindDb<const Models extends readonly AnyModel[]>(models: Models, adapter: Adapter): Db<Models> {
   const build = (current: Adapter): Db<Models> => {
     const db: Record<string, unknown> = {};
     for (const m of models) db[m.name] = new Table(m, () => current, models);
@@ -535,6 +541,28 @@ export function createDb<const Models extends readonly AnyModel[]>(models: Model
       },
     }) as Db<Models>;
   };
-  adapter.connect?.([...models]);
   return build(adapter);
+}
+
+/**
+ * An adapter that refuses new calls once signal is aborted, throwing signal.reason. A call already running
+ * finishes. Transactions get the same guard, so an aborted transaction rolls back.
+ */
+export function guardAdapter(adapter: Adapter, signal: AbortSignal): Adapter {
+  const check = () => {
+    if (signal.aborted) throw signal.reason;
+  };
+  const guarded: Adapter = {
+    ...adapter,
+    insert: async (model, row) => (check(), adapter.insert(model, row)),
+    select: async (model, query) => (check(), adapter.select(model, query)),
+    update: async (model, where, patch) => (check(), adapter.update(model, where, patch)),
+    delete: async (model, where) => (check(), adapter.delete(model, where)),
+    count: async (model, where) => (check(), adapter.count(model, where)),
+    sync: async (models, options) => (check(), adapter.sync(models, options)),
+    close: async () => adapter.close?.(),
+  };
+  if (adapter.transaction) guarded.transaction = async (fn) => (check(), adapter.transaction!((tx) => fn(guardAdapter(tx, signal))));
+  if (adapter.sql) guarded.sql = async (text, params) => (check(), adapter.sql!(text, params));
+  return guarded;
 }

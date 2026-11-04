@@ -44,6 +44,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL2006
 **The server is shutting down (503).** `app.close()` was called (usually on SIGTERM during a deploy) and this instance no longer takes new requests. The response has `Connection: close`; retry the request and another instance answers it. See [graceful shutdown](deploy.md#graceful-shutdown).
+
+### IL2007
+**The request took too long (503).** The route did not finish (reading the body and running the handler) within its time limit: `createApp({ requestTimeoutMs })` (default 60000 ms) or the route's own `timeoutMs`. `ctx.signal` is aborted, model calls through `ctx.ai` are cancelled, and new `ctx.db` queries fail with this code. Make the handler faster, move slow work to a [background job](jobs.md), or raise the limit for that route: `route.post(path, { timeoutMs: 120_000 })`. See [request timeouts](security.md#request-timeouts).
 ## Auth (3xxx)
 
 ### IL3001
@@ -187,6 +190,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6016
 **Invalid `secureHeaders`.** `createApp({ secureHeaders })` takes `true` (the default), `false` (no security headers), or an object of header names to a string value or `false` (leave that header out): `{ "X-Frame-Options": "SAMEORIGIN", "Content-Security-Policy": false }`. Values cannot contain line breaks. See [security](security.md#security-headers).
+
+### IL6017
+**Invalid request timeout.** `createApp({ requestTimeoutMs })` and a route's `timeoutMs` take a positive number of milliseconds (`30_000`) or `false` for no limit. The message names the route.
 
 ## Environment (7xxx)
 

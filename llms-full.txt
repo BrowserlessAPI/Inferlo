@@ -641,6 +641,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `summary`, `description`, `tags` | Documentation for OpenAPI, describe and MCP |
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
 | `rateLimit` | `{ max, per, by }` to limit requests per user or IP (see below) |
+| `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
 
@@ -677,6 +678,7 @@ export const summarize = route
 | `status(code)` | Set the status code |
 | `header(name, value)` | Set a response header |
 | `state` | Per-request values from middleware |
+| `signal` | `AbortSignal` aborted when the request times out or the client disconnects. `ai` calls use it automatically; pass it to `fetch` and other slow work |
 | `waitUntil(promise)` | Work that continues after the response |
 
 ## Return values
@@ -1435,6 +1437,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Input is validated.** `body`, `query` and `params` are checked against their `t.*` schemas before the handler runs (IL1001), and unknown fields are removed from bodies.
 - **Database values are parameterised.** `db.<table>` methods never build SQL from strings, and every insert and update is validated against the model.
 - **Request bodies are limited** to 1 MiB (`createApp({ maxBodySize })`, IL2004).
+- **Requests have a time limit** of 60 seconds (`createApp({ requestTimeoutMs })`, per route `timeoutMs`, IL2007), so slow clients and stuck handlers do not hold the server (below).
 - **Errors do not leak.** Unexpected errors answer `500` with IL9000 and `"Internal server error"`; the real error is logged. Readiness checks show `"Check failed."`.
 - **Secrets stay out of logs.** `config({ secrets })` values print as `"[redacted]"` (see [configuration](config.md)).
 - **Security headers** are sent on every response (below).
@@ -1472,6 +1475,29 @@ export const app = createApp({
 ```
 
 `secureHeaders: false` sends none of them, for example when a proxy in front of the app already adds them. Invalid values (not a string or `false`, line breaks, an invalid header name) raise IL6016. `inferlo describe --json` lists the headers that are sent under `secureHeaders`.
+
+## Request timeouts
+
+Every route has 60 seconds to read its body and run its handler. After that it answers `503` with IL2007 (`"The request took longer than 60000 ms."`), and the request's `ctx.signal` is aborted:
+
+- model calls through `ctx.ai` (`generate`, `stream`, `embed`, including tool rounds) are cancelled, so a stuck provider call stops costing money;
+- new `ctx.db` queries fail with IL2007 instead of running (a query already running finishes; put writes that belong together in `db.$transaction`, which then rolls back);
+- reading a slow request body stops.
+
+JavaScript cannot stop a running function, so the handler itself keeps going until its next `await` on something that uses the signal; its result is dropped. Pass `ctx.signal` to your own slow work:
+
+```ts
+export const importFeed = route
+  .post("/feeds/import", { body: Feed, timeoutMs: 120_000 })   // this route may take 2 minutes
+  .handle(async ({ body, signal }) => {
+    const res = await fetch(body.url, { signal });
+    // ...
+  });
+```
+
+Change the default with `createApp({ requestTimeoutMs: 30_000 })`, give a route its own limit with `timeoutMs`, and turn the limit off with `false` (app-wide or per route), for example for a route that you know streams for a long time. The limit ends when the handler returns: a streamed response (`ai.stream(...).toResponse()`) can keep streaming after it. `ctx.signal` is also aborted when the client disconnects, which cancels `ctx.ai` calls, but not `ctx.db` queries, so a disconnect never leaves half-written data. Invalid values raise IL6017 at startup. `inferlo describe --json` shows `requestTimeoutMs` and each route's own `timeoutMs`.
+
+Tool calls (`ai.generate({ tools })`) and MCP calls run each route with its own limit.
 
 ## Shutting down
 
@@ -1632,6 +1658,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL2006
 **The server is shutting down (503).** `app.close()` was called (usually on SIGTERM during a deploy) and this instance no longer takes new requests. The response has `Connection: close`; retry the request and another instance answers it. See [graceful shutdown](deploy.md#graceful-shutdown).
+
+### IL2007
+**The request took too long (503).** The route did not finish (reading the body and running the handler) within its time limit: `createApp({ requestTimeoutMs })` (default 60000 ms) or the route's own `timeoutMs`. `ctx.signal` is aborted, model calls through `ctx.ai` are cancelled, and new `ctx.db` queries fail with this code. Make the handler faster, move slow work to a [background job](jobs.md), or raise the limit for that route: `route.post(path, { timeoutMs: 120_000 })`. See [request timeouts](security.md#request-timeouts).
 ## Auth (3xxx)
 
 ### IL3001
@@ -1775,6 +1804,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6016
 **Invalid `secureHeaders`.** `createApp({ secureHeaders })` takes `true` (the default), `false` (no security headers), or an object of header names to a string value or `false` (leave that header out): `{ "X-Frame-Options": "SAMEORIGIN", "Content-Security-Policy": false }`. Values cannot contain line breaks. See [security](security.md#security-headers).
+
+### IL6017
+**Invalid request timeout.** `createApp({ requestTimeoutMs })` and a route's `timeoutMs` take a positive number of milliseconds (`30_000`) or `false` for no limit. The message names the route.
 
 ## Environment (7xxx)
 

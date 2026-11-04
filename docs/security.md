@@ -8,6 +8,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Input is validated.** `body`, `query` and `params` are checked against their `t.*` schemas before the handler runs (IL1001), and unknown fields are removed from bodies.
 - **Database values are parameterised.** `db.<table>` methods never build SQL from strings, and every insert and update is validated against the model.
 - **Request bodies are limited** to 1 MiB (`createApp({ maxBodySize })`, IL2004).
+- **Requests have a time limit** of 60 seconds (`createApp({ requestTimeoutMs })`, per route `timeoutMs`, IL2007), so slow clients and stuck handlers do not hold the server (below).
 - **Errors do not leak.** Unexpected errors answer `500` with IL9000 and `"Internal server error"`; the real error is logged. Readiness checks show `"Check failed."`.
 - **Secrets stay out of logs.** `config({ secrets })` values print as `"[redacted]"` (see [configuration](config.md)).
 - **Security headers** are sent on every response (below).
@@ -45,6 +46,29 @@ export const app = createApp({
 ```
 
 `secureHeaders: false` sends none of them, for example when a proxy in front of the app already adds them. Invalid values (not a string or `false`, line breaks, an invalid header name) raise IL6016. `inferlo describe --json` lists the headers that are sent under `secureHeaders`.
+
+## Request timeouts
+
+Every route has 60 seconds to read its body and run its handler. After that it answers `503` with IL2007 (`"The request took longer than 60000 ms."`), and the request's `ctx.signal` is aborted:
+
+- model calls through `ctx.ai` (`generate`, `stream`, `embed`, including tool rounds) are cancelled, so a stuck provider call stops costing money;
+- new `ctx.db` queries fail with IL2007 instead of running (a query already running finishes; put writes that belong together in `db.$transaction`, which then rolls back);
+- reading a slow request body stops.
+
+JavaScript cannot stop a running function, so the handler itself keeps going until its next `await` on something that uses the signal; its result is dropped. Pass `ctx.signal` to your own slow work:
+
+```ts
+export const importFeed = route
+  .post("/feeds/import", { body: Feed, timeoutMs: 120_000 })   // this route may take 2 minutes
+  .handle(async ({ body, signal }) => {
+    const res = await fetch(body.url, { signal });
+    // ...
+  });
+```
+
+Change the default with `createApp({ requestTimeoutMs: 30_000 })`, give a route its own limit with `timeoutMs`, and turn the limit off with `false` (app-wide or per route), for example for a route that you know streams for a long time. The limit ends when the handler returns: a streamed response (`ai.stream(...).toResponse()`) can keep streaming after it. `ctx.signal` is also aborted when the client disconnects, which cancels `ctx.ai` calls, but not `ctx.db` queries, so a disconnect never leaves half-written data. Invalid values raise IL6017 at startup. `inferlo describe --json` shows `requestTimeoutMs` and each route's own `timeoutMs`.
+
+Tool calls (`ai.generate({ tools })`) and MCP calls run each route with its own limit.
 
 ## Shutting down
 

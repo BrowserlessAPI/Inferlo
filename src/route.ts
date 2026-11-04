@@ -61,6 +61,11 @@ export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectS
   tool?: boolean | ToolOptions;
   /** Limit requests per user or IP: { max: 10, per: "minute", by: "user" }. More raise IL2005 (HTTP 429). */
   rateLimit?: RateLimit;
+  /**
+   * Longest time in milliseconds this route may take (reading the body and running the handler) before it
+   * answers 503 IL2007 and ctx.signal is aborted. Overrides createApp({ requestTimeoutMs }); false turns it off.
+   */
+  timeoutMs?: number | false;
 }
 
 type PathParams<P extends string> = P extends `${string}:${infer Param}/${infer Rest}`
@@ -90,6 +95,11 @@ export interface Context<Body, Query, Params, User> {
   header(name: string, value: string): void;
   /** Values shared by middleware for this request. */
   state: Record<string, unknown>;
+  /**
+   * Aborted when the request times out (requestTimeoutMs or the route's timeoutMs) or the client disconnects.
+   * ctx.ai calls use it automatically; pass it to fetch and other slow work: fetch(url, { signal }).
+   */
+  signal: AbortSignal;
   /** Run work after the response is sent (logging, webhooks). Errors are logged, not thrown. */
   waitUntil(promise: Promise<unknown>): void;
 }
