@@ -12,6 +12,8 @@ export const app = createApp({
   routes: [notes],
   // GET /health (liveness) and GET /ready (readiness: database and AI configuration).
   health: true,
+  // Config secrets never appear in logs (provider keys, tokens and passwords in URLs are hidden too).
+  redact: [settings],
   db: settings.DATABASE_URL ? postgres({ url: settings.DATABASE_URL }) : memory(),
 
   // Requests send "Authorization: Bearer <api key>". Keys are stored as SHA-256 hashes.

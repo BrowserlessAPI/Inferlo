@@ -13,6 +13,7 @@ import { InferloError, didYouMean } from "../errors.ts";
 import { type AnySchema, type Infer, toJSONSchema } from "../schema.ts";
 import type { RouteDef } from "../route.ts";
 import { functionToolSpec, isTool, runFunctionTool, type ToolDef } from "./tool.ts";
+import { createRedactor, secretsOf } from "../redact.ts";
 import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolSpec } from "./providers.ts";
 
 export * from "./providers.ts";
@@ -231,6 +232,8 @@ export function extractJson(text: string): unknown {
 
 export function createAI(config?: AIConfig): AI {
   const providers = config?.providers ?? {};
+  // Errors logged here never show the providers' API keys or other credentials.
+  const redactor = createRedactor(Object.values(providers).flatMap((p) => secretsOf(p)));
   const aliases: Record<string, string[]> = {};
   for (const [alias, ids] of Object.entries(config?.models ?? {})) aliases[alias] = Array.isArray(ids) ? ids : [ids];
 
@@ -271,7 +274,7 @@ export function createAI(config?: AIConfig): AI {
     try {
       await config?.onUsage?.(usage);
     } catch (error) {
-      console.error("[inferlo] ai.onUsage failed:", error);
+      console.error("[inferlo] ai.onUsage failed:", redactor.value(error));
     }
   };
 
@@ -538,7 +541,7 @@ export function createAI(config?: AIConfig): AI {
                 const code = error instanceof InferloError ? error.code : "IL9000";
                 controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ code })}\n\n`));
                 controller.close();
-                console.error("[inferlo] stream failed:", error);
+                console.error("[inferlo] stream failed:", redactor.value(error));
               }
             },
             cancel() {

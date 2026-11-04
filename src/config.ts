@@ -13,6 +13,7 @@
  */
 import { readEnv } from "./env.ts";
 import { InferloError, didYouMean } from "./errors.ts";
+import { holdConfigSecrets } from "./redact.ts";
 import { ObjectSchema, type Infer, type Shape } from "./schema.ts";
 
 type Key<S extends Shape> = keyof S & string;
@@ -106,5 +107,6 @@ export function config<const S extends Shape>(options: ConfigOptions<S>): Config
     [inspectSymbol]: { value: () => redacted(), enumerable: false },
   });
   for (const value of Object.values(values)) if (Array.isArray(value)) Object.freeze(value);
+  holdConfigSecrets(settings, [...secrets].map((key) => values[key]));
   return Object.freeze(settings) as unknown as Config<S>;
 }

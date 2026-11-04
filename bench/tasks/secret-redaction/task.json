@@ -1,0 +1,4 @@
+{
+  "title": "Keep config secrets out of the logs",
+  "prompt": "src/config.ts lists STRIPE_SECRET_KEY as a secret, but when an error message from another service contains the key (for example a failed model call that echoes it back), the full key shows up in the app's error log. Make sure the values of every config secret are hidden in everything the app logs, without changing what the routes do."
+}

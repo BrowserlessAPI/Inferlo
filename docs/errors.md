@@ -194,6 +194,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6017
 **Invalid request timeout.** `createApp({ requestTimeoutMs })` and a route's `timeoutMs` take a positive number of milliseconds (`30_000`) or `false` for no limit. The message names the route.
 
+### IL6018
+**Invalid `redact`.** `createApp({ redact })` takes an array of strings (values to hide from logs) and `config()` results (their `secrets` are hidden): `redact: [settings, process.env.WEBHOOK_SECRET]`. `undefined` and empty strings are skipped. See [secrets in logs](security.md#secrets-in-logs).
+
 ## Environment (7xxx)
 
 ### IL7001

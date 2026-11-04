@@ -17,6 +17,7 @@ import { clientIp, clientIps } from "./client-ip.ts";
 import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
 import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
+import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
 export interface AuthConfig {
@@ -132,6 +133,12 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
    * 503 IL2007 and ctx.signal is aborted. Routes can set their own timeoutMs. false turns it off. Default 60000.
    */
   requestTimeoutMs?: number | false;
+  /**
+   * More values to hide from logs, besides credentials Inferlo finds itself (authorization and cookie headers,
+   * tokens, API keys, passwords in URLs) and the AI provider keys: your config() result (its secrets) or
+   * strings: redact: [settings, process.env.WEBHOOK_SECRET]. They are replaced with "[redacted]".
+   */
+  redact?: readonly (string | object | undefined | null)[];
   /** Include error messages of unexpected (500) errors in responses. Default false. */
   exposeErrors?: boolean;
   logger?: Logger;
@@ -283,10 +290,15 @@ function json(data: unknown, status: number, headers: Headers): Response {
 }
 
 export function createApp<const Models extends readonly AnyModel[] = []>(config: AppConfig<Models> = {}): App<Models> {
-  const logger: Logger = config.logger ?? {
-    info: (m, d) => console.log(`[inferlo] ${m}`, d ?? ""),
-    error: (m, d) => console.error(`[inferlo] ${m}`, d ?? ""),
-  };
+  // Everything the app logs goes through the redactor: credentials and secrets never reach the logs.
+  const redactor = createRedactor([...redactValues(config.redact), ...Object.values(config.ai?.providers ?? {}).flatMap((p) => secretsOf(p))]);
+  const logger: Logger = redactingLogger(
+    config.logger ?? {
+      info: (m, d) => console.log(`[inferlo] ${m}`, d ?? ""),
+      error: (m, d) => console.error(`[inferlo] ${m}`, d ?? ""),
+    },
+    redactor,
+  );
   const models = (config.models ?? []) as unknown as Models;
   const modelNames = new Set<string>();
   for (const m of models) {
@@ -390,7 +402,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     } catch (error) {
       logger.error(`Readiness check "${name}" failed`, error);
       const shown = (error instanceof InferloError && error.expose) || (config.exposeErrors && error instanceof Error);
-      return { status: "error", durationMs: Date.now() - started, error: shown ? (error as Error).message : "Check failed." };
+      return { status: "error", durationMs: Date.now() - started, error: shown ? redactor.text((error as Error).message) : "Check failed." };
     } finally {
       clearTimeout(timer);
     }
@@ -430,11 +442,11 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     if (error instanceof InferloError) {
       if (error.status >= 500) logger.error(`${req.method} ${new URL(req.url).pathname} failed: ${error.format()}`, error.cause ?? "");
       const body = error.toJSON();
-      if (config.exposeErrors && !error.expose) (body.error as Record<string, unknown>).message = error.message;
+      if (config.exposeErrors && !error.expose) (body.error as Record<string, unknown>).message = redactor.text(error.message);
       return json(body, error.status, headers);
     }
     logger.error(`${req.method} ${new URL(req.url).pathname} failed`, error);
-    const message = config.exposeErrors && error instanceof Error ? error.message : "Internal server error";
+    const message = config.exposeErrors && error instanceof Error ? redactor.text(error.message) : "Internal server error";
     return json({ error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } }, 500, headers);
   };
 

@@ -5,6 +5,7 @@
  *   expressApp.use("/ai", toNodeHandler(app))                     // Express strips the mount path
  *   http.createServer(toNodeHandler(app, { prefix: "/ai" }))       // or strip it with prefix
  */
+import { createRedactor } from "./redact.ts";
 import type { App } from "./app.ts";
 import { clientIps } from "./client-ip.ts";
 
@@ -175,7 +176,7 @@ export function toNodeHandler(app: Pick<App<any>, "fetch">, options: NodeHandler
       const response = await app.fetch(request);
       await writeResponse(res, response, request.method);
     } catch (error) {
-      console.error("[inferlo] server error", error);
+      console.error("[inferlo] server error", createRedactor([]).value(error));
       if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: { code: "IL9000", message: "Internal server error" } }));
     }

@@ -10,7 +10,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Request bodies are limited** to 1 MiB (`createApp({ maxBodySize })`, IL2004).
 - **Requests have a time limit** of 60 seconds (`createApp({ requestTimeoutMs })`, per route `timeoutMs`, IL2007), so slow clients and stuck handlers do not hold the server (below).
 - **Errors do not leak.** Unexpected errors answer `500` with IL9000 and `"Internal server error"`; the real error is logged. Readiness checks show `"Check failed."`.
-- **Secrets stay out of logs.** `config({ secrets })` values print as `"[redacted]"` (see [configuration](config.md)).
+- **Secrets stay out of logs.** Authorization and cookie headers, tokens, API keys, passwords in URLs, the AI provider keys and your `config({ secrets })` are replaced with `"[redacted]"` in everything the app logs (below).
 - **Security headers** are sent on every response (below).
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
 
@@ -69,6 +69,28 @@ export const importFeed = route
 Change the default with `createApp({ requestTimeoutMs: 30_000 })`, give a route its own limit with `timeoutMs`, and turn the limit off with `false` (app-wide or per route), for example for a route that you know streams for a long time. The limit ends when the handler returns: a streamed response (`ai.stream(...).toResponse()`) can keep streaming after it. `ctx.signal` is also aborted when the client disconnects, which cancels `ctx.ai` calls, but not `ctx.db` queries, so a disconnect never leaves half-written data. Invalid values raise IL6017 at startup. `inferlo describe --json` shows `requestTimeoutMs` and each route's own `timeoutMs`.
 
 Tool calls (`ai.generate({ tools })`) and MCP calls run each route with its own limit.
+
+## Secrets in logs
+
+Everything an Inferlo app logs (failed requests, failed jobs, readiness checks, shutdown) goes through a redactor before it reaches your `logger` or the console, and so do error messages shown with `exposeErrors`. It replaces with `"[redacted]"`:
+
+- header values of `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key` and `Api-Key`, also inside error text and JSON (`Authorization: Bearer [redacted]`), and `Bearer` or `Basic` credentials anywhere;
+- passwords in URLs and connection strings (`postgres://app:[redacted]@db:5432/app`) and secrets in query strings (`?key=`, `token=`, `access_token=`, `api_key=`, `password=`, `signature=`);
+- common API key formats (`sk-...` for OpenAI and Anthropic, `AIza...` for Google, GitHub tokens);
+- the API keys of the app's AI providers (`anthropic({ apiKey })`, `openai`, `gemini`, `openaiCompatible`), even when a provider echoes one back in an error;
+- the values you pass to `createApp({ redact })`: your `config()` result (the values of its `secrets`) and any other strings;
+- in logged objects, values under keys such as `authorization`, `cookie`, `password`, `secret`, `token`, `apiKey`, `accessToken`, `clientSecret` and `privateKey`.
+
+```ts
+import { settings } from "./config.ts";
+
+export const app = createApp({
+  // ...
+  redact: [settings, process.env.LEGACY_WEBHOOK_SECRET],
+});
+```
+
+Logged errors stay errors (same class, `code`, `status` and `cause`, with redacted `message` and `stack`), so a custom `logger` can still read them; the originals are not changed. `undefined` and empty values in `redact` are skipped (an unset optional variable); anything that is not a string or a `config()` result raises IL6018. Values shorter than 6 characters are not replaced, because they would hide ordinary text. The standalone `createAI` hides its providers' keys in what it logs too.
 
 ## Shutting down
 

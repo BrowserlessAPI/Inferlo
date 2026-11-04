@@ -54,6 +54,8 @@ IL7003  Configuration is invalid (environment "production"). DATABASE_URL: Requi
 
 Fields listed in `secrets` are never shown: `JSON.stringify(settings)`, `console.log(settings)` and `String(settings)` print `"[redacted]"` instead of their values, and IL7003 does not include them. Reading `settings.DATABASE_URL` in code still gives the real value, so pass it to `postgres({ url })` or a provider, never to a log line. List every API key, password, token and connection URL as a secret.
 
+Pass the settings to `createApp({ redact: [settings] })` (new projects do) and the values of its secrets are also replaced with `"[redacted]"` wherever they turn up in what the app logs, for example inside an error message from another service. See [secrets in logs](security.md#secrets-in-logs).
+
 The returned object is frozen, so code cannot change configuration at runtime.
 
 ## Testing

@@ -4,6 +4,7 @@
  * Ollama, vLLM, LM Studio and any other server that speaks the Chat Completions API.
  */
 import { InferloError } from "../errors.ts";
+import { holdSecrets } from "../redact.ts";
 
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
@@ -170,7 +171,7 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
     return out;
   };
 
-  return {
+  return holdSecrets({
     name,
     async generate(r) {
       const response = await post(name, fetchImpl, `${base}/chat/completions`, headers, body(r, false), r.signal);
@@ -202,7 +203,7 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
       const embeddings = [...data.data].sort((a, b) => a.index - b.index).map((d) => d.embedding);
       return { embeddings, usage: { inputTokens: data.usage?.prompt_tokens ?? 0, outputTokens: 0 } };
     },
-  };
+  }, [options.apiKey, ...Object.entries(options.headers ?? {}).filter(([k]) => /^(authorization|x-api-key|api-key)$/i.test(k)).map(([, v]) => v)]);
 }
 
 /** Chat Completions message shape, including tool calls and tool results. */
@@ -304,7 +305,7 @@ export function anthropic(options: { apiKey: string; baseURL?: string; version?:
     return out;
   };
 
-  return {
+  return holdSecrets({
     name,
     async generate(r) {
       const response = await post(name, fetchImpl, `${base}/v1/messages`, headers, body(r, false), r.signal);
@@ -332,7 +333,7 @@ export function anthropic(options: { apiKey: string; baseURL?: string; version?:
       }
       yield { usage };
     },
-  };
+  }, [options.apiKey]);
 }
 
 /** Gemini through Google's OpenAI-compatible endpoint. */

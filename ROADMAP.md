@@ -20,7 +20,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [ ] Permissions: role- and policy-based access control (`can("ticket.update", { user, ticket })`) usable in routes, tools and jobs, plus an audit log of who changed what
 - [x] Security hardening part 1: secure response headers by default (`createApp({ secureHeaders })`, CSP, HSTS over HTTPS, nosniff, frame and referrer policies), and docs/security.md listing the secure defaults
 - [x] Security hardening part 2: request timeouts (`createApp({ requestTimeoutMs })` and per-route `timeoutMs`, with an abort `signal` in the handler context passed on to AI and database calls)
-- [ ] Security hardening part 3: secret redaction in logs and errors (authorization headers, cookies, `config` secrets and provider API keys never appear in logged errors)
+- [x] Security hardening part 3: secret redaction in logs and errors (authorization headers, cookies, `config` secrets and provider API keys never appear in logged errors)
 - [ ] Security hardening part 4: CSRF protection for cookie sessions (together with the cookie sessions item)
 - [ ] Security hardening part 5: `SECURITY.md` with the supported versions and a vulnerability reporting process (needs the owner: enable private vulnerability reporting on GitHub or choose a contact address)
 - [ ] API versioning: `/v1` and `/v2` route groups with deprecation headers, and OpenAPI per version
