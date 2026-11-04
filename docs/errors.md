@@ -173,6 +173,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6013
 **Invalid cron.** `cron(schedule, job)` needs five fields, `minute hour day-of-month month day-of-week` in UTC (numbers, `*`, ranges `1-5`, lists `1,15`, steps `*/15`, and month and weekday names such as `jan` or `mon`), a schedule that matches some date, and a job whose input schema accepts `{}`.
 
+### IL6014
+**Invalid health options.** `createApp({ health })` takes `true` or `{ path, readyPath, checks, timeoutMs }`: paths start with `/`, differ from each other and from the OpenAPI and MCP paths, and no `GET` route uses them (remove your own `/health` route when you turn this on); `checks` are functions named anything but the built-in `database` and `ai`; `timeoutMs` is a positive number.
+
 ## Environment (7xxx)
 
 ### IL7001

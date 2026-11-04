@@ -44,6 +44,32 @@ export interface Logger {
   error(message: string, data?: unknown): void;
 }
 
+/** A readiness check: resolve (or return) when the dependency is usable, throw when it is not. */
+export type HealthCheck = () => unknown | Promise<unknown>;
+
+export interface HealthConfig {
+  /** Liveness endpoint: 200 while the process can answer requests. Default "/health". */
+  path?: string;
+  /** Readiness endpoint: 200 when every check passes, 503 otherwise. Default "/ready". */
+  readyPath?: string;
+  /** Your own checks, by name ("database" and "ai" are built in): { redis: () => redis.ping() }. */
+  checks?: Record<string, HealthCheck>;
+  /** Time each check may take before it fails. Default 5000 ms. */
+  timeoutMs?: number;
+}
+
+export interface CheckResult {
+  status: "ok" | "error";
+  durationMs: number;
+  /** "Check failed." unless the check threw an exposed InferloError (httpError) or exposeErrors is on. */
+  error?: string;
+}
+
+export interface ReadinessReport {
+  status: "ready" | "not_ready";
+  checks: Record<string, CheckResult>;
+}
+
 /** Anything that contains routes: a route, an array, or a module (import * as tickets from "./routes/tickets.ts"). */
 export type RouteSource = RouteDef | readonly RouteSource[] | { readonly [name: string]: unknown };
 
@@ -77,6 +103,11 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
    * (for rateLimit by "ip"). Default false, because clients can send that header themselves.
    */
   trustProxy?: boolean;
+  /**
+   * Health endpoints for load balancers and orchestrators: GET /health (liveness) and GET /ready (readiness:
+   * the database, the AI configuration and your checks). Public, never cached. Off by default.
+   */
+  health?: boolean | HealthConfig;
   /** Include error messages of unexpected (500) errors in responses. Default false. */
   exposeErrors?: boolean;
   logger?: Logger;
@@ -115,6 +146,8 @@ export interface App<Models extends readonly AnyModel[]> {
   request(path: string, options?: RequestOptions): Promise<Response>;
   /** Start an HTTP server (Node, Bun or Deno). */
   listen(port?: number, hostname?: string): Promise<{ port: number; close(): Promise<void> }>;
+  /** Run the readiness checks (the same report as GET /ready, also when health is off). */
+  checkReady(): Promise<ReadinessReport>;
   /** Machine-readable map of the whole app: routes, models, auth and AI. */
   describe(): AppDescription;
   openapi(): Record<string, unknown>;
@@ -278,6 +311,53 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   const openapiPath = config.openapi === undefined ? "/openapi.json" : config.openapi;
   const hasTools = routes.some((r) => r.options.tool);
   const mcpPath = config.mcp === undefined ? (hasTools ? "/mcp" : false) : config.mcp;
+  const health = resolveHealth(config.health, routes, [openapiPath, mcpPath]);
+
+  // Readiness: the database answers, every AI alias points to a configured provider, and the app's own checks pass.
+  const readinessChecks: Record<string, HealthCheck> = {
+    database: async () => {
+      if (adapter.sql) await adapter.sql("select 1");
+    },
+  };
+  const aiProviders = Object.keys(config.ai?.providers ?? {});
+  if (aiProviders.length || Object.keys(config.ai?.models ?? {}).length) {
+    readinessChecks.ai = () => {
+      for (const [alias, targets] of Object.entries(ai.aliases)) {
+        for (const target of targets) {
+          const provider = target.split(":")[0]!;
+          if (!aiProviders.includes(provider)) {
+            throw new InferloError("IL5001", `AI alias "${alias}" uses provider "${provider}", which is not configured.`, { status: 503, expose: true });
+          }
+        }
+      }
+    };
+  }
+  Object.assign(readinessChecks, health?.checks);
+  const runCheck = async (name: string, check: HealthCheck): Promise<CheckResult> => {
+    const started = Date.now();
+    const timeoutMs = health?.timeoutMs ?? 5000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = Symbol("timeout");
+    try {
+      const outcome = await Promise.race([
+        Promise.resolve().then(check),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(timedOut), timeoutMs);
+        }),
+      ]);
+      if (outcome === timedOut) {
+        logger.error(`Readiness check "${name}" timed out after ${timeoutMs} ms`);
+        return { status: "error", durationMs: Date.now() - started, error: `Timed out after ${timeoutMs} ms.` };
+      }
+      return { status: "ok", durationMs: Date.now() - started };
+    } catch (error) {
+      logger.error(`Readiness check "${name}" failed`, error);
+      const shown = (error instanceof InferloError && error.expose) || (config.exposeErrors && error instanceof Error);
+      return { status: "error", durationMs: Date.now() - started, error: shown ? (error as Error).message : "Check failed." };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   // Routes passed to ai.generate({ tools }) are matched to the registered route by method and path.
   const registeredTool = (route: RouteDef) => {
@@ -331,6 +411,12 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         headers.set("access-control-allow-headers", (cors.headers ?? ["content-type", "authorization"]).join(", "));
         headers.set("access-control-max-age", String(cors.maxAge ?? 600));
         return new Response(null, { status: 204, headers });
+      }
+      if (health && (method === "GET" || method === "HEAD") && (url.pathname === health.path || url.pathname === health.readyPath)) {
+        headers.set("cache-control", "no-store");
+        const report = url.pathname === health.path ? { status: "ok" } : await app.checkReady();
+        const response = json(report, report.status === "not_ready" ? 503 : 200, headers);
+        return method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;
       }
       if (openapiPath && url.pathname === openapiPath && method === "GET") return json(app.openapi(), 200, headers);
       if (mcpPath && url.pathname === mcpPath) return await handleMcp(app, req, headers, testUsers);
@@ -491,8 +577,23 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
       return serve(app, { port, hostname });
     },
 
+    async checkReady() {
+      const names = Object.keys(readinessChecks);
+      const results = await Promise.all(names.map((name) => runCheck(name, readinessChecks[name]!)));
+      const checks: Record<string, CheckResult> = {};
+      names.forEach((name, i) => (checks[name] = results[i]!));
+      return { status: results.every((r) => r.status === "ok") ? "ready" : "not_ready", checks };
+    },
+
     describe() {
-      return describeApp(app, { auth: Boolean(config.auth), openapi: openapiPath, mcp: mcpPath, description: config.description });
+      return describeApp(app, {
+        auth: Boolean(config.auth),
+        openapi: openapiPath,
+        mcp: mcpPath,
+        health: health?.path ?? false,
+        ready: health?.readyPath ?? false,
+        description: config.description,
+      });
     },
 
     openapi() {
@@ -500,6 +601,30 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     },
   };
   return app;
+}
+
+function resolveHealth(option: AppConfig<any>["health"], routes: RouteDef[], taken: (string | false)[]): (Required<Omit<HealthConfig, "checks">> & { checks: Record<string, HealthCheck> }) | undefined {
+  if (option === undefined || option === false) return undefined;
+  const bad = (message: string, fix: string) => new InferloError("IL6014", message, { fix });
+  if (option !== true && (typeof option !== "object" || option === null)) throw bad("health must be true or an object.", "Use createApp({ health: true }) or createApp({ health: { checks: { ... } } }).");
+  const o: HealthConfig = option === true ? {} : option;
+  const resolved = { path: o.path ?? "/health", readyPath: o.readyPath ?? "/ready", timeoutMs: o.timeoutMs ?? 5000, checks: o.checks ?? {} };
+  for (const [key, value] of [["path", resolved.path], ["readyPath", resolved.readyPath]] as const) {
+    if (typeof value !== "string" || !value.startsWith("/")) throw bad(`health.${key} must be a path starting with "/", got ${JSON.stringify(value)}.`, `Use health: { ${key}: "/${String(value).replace(/^\/+/, "")}" }.`);
+  }
+  if (resolved.path === resolved.readyPath) throw bad(`health.path and health.readyPath are both "${resolved.path}".`, 'Use different paths, for example "/health" and "/ready".');
+  if (!Number.isFinite(resolved.timeoutMs) || resolved.timeoutMs <= 0) throw bad(`health.timeoutMs must be a positive number of milliseconds, got ${String(resolved.timeoutMs)}.`, "Use health: { timeoutMs: 5000 }.");
+  if (typeof resolved.checks !== "object" || resolved.checks === null) throw bad("health.checks must be an object of functions.", "Use health: { checks: { redis: () => redis.ping() } }.");
+  for (const [name, check] of Object.entries(resolved.checks)) {
+    if (name === "database" || name === "ai") throw bad(`health.checks.${name} is built in.`, `Give your check another name, for example "${name}Replica".`);
+    if (typeof check !== "function") throw bad(`health.checks.${name} must be a function.`, `Use health: { checks: { ${name}: async () => { ... } } }; throw when it is not ready.`);
+  }
+  for (const path of [resolved.path, resolved.readyPath]) {
+    if (taken.includes(path)) throw bad(`The health endpoint ${path} is also the OpenAPI or MCP path.`, "Choose another health.path or health.readyPath.");
+    const route = routes.find((r) => r.method === "GET" && r.path.replace(/\/+$/, "") === path.replace(/\/+$/, ""));
+    if (route) throw bad(`The health endpoint ${path} is also the route GET ${route.path}.`, `Remove the GET ${route.path} route (createApp({ health }) answers it now), or choose another health.path or health.readyPath.`);
+  }
+  return resolved;
 }
 
 function parseOrThrow(schema: AnySchema, value: unknown, where: string, coerce: boolean): unknown {

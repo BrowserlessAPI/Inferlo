@@ -27,7 +27,7 @@ export interface AppDescription {
   description?: string;
   database: string;
   auth: boolean;
-  endpoints: { openapi: string | false; mcp: string | false };
+  endpoints: { openapi: string | false; mcp: string | false; health: string | false; ready: string | false };
   models: { name: string; fields: Record<string, FieldDescription> }[];
   routes: {
     name?: string;
@@ -68,7 +68,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; description?: string }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; description?: string }): AppDescription {
   return {
     inferlo: INFERLO_VERSION,
     name: app.name,
@@ -76,7 +76,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     description: options.description,
     database: app.db.$adapter.dialect,
     auth: options.auth,
-    endpoints: { openapi: options.openapi, mcp: options.mcp },
+    endpoints: { openapi: options.openapi, mcp: options.mcp, health: options.health, ready: options.ready },
     models: app.models.map((m: { name: string; fields: Record<string, AnySchema> }) => ({
       name: m.name,
       fields: Object.fromEntries([

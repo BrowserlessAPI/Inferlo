@@ -126,6 +126,7 @@ async function cmdDescribe(args: Args) {
     lines.push("", `AI: ${d.ai.configured ? Object.entries<string[]>(d.ai.aliases).map(([a, ids]) => `${a} = ${ids.join(" > ")}`).join("; ") || "configured" : "not configured"}`);
     if (d.endpoints.openapi) lines.push(`OpenAPI: ${d.endpoints.openapi}`);
     if (d.endpoints.mcp) lines.push(`MCP: ${d.endpoints.mcp}`);
+    if (d.endpoints.health) lines.push(`Health: ${d.endpoints.health} (liveness), ${d.endpoints.ready} (readiness)`);
     return lines.join("\n");
   });
 }

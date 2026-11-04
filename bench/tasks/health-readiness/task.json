@@ -1,0 +1,4 @@
+{
+  "title": "Health and readiness endpoints",
+  "prompt": "Our load balancer needs Inferlo's built-in health endpoints: GET /health for liveness and GET /ready for readiness. Readiness must check the database and AI configuration as Inferlo does, plus a check named \"storage\" that calls storage.ping() from src/storage.ts. GET /ready must answer 503 while storage cannot be reached."
+}
