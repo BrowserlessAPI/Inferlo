@@ -16,7 +16,9 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Typed configuration: `config({ schema })` validated at startup from environment and `.env` files, with per-environment overrides and secrets never logged
 - [x] Health and readiness part 1: `createApp({ health })` with `/health` and `/ready` endpoints checking the database (and with it the database queue and rate limits), the AI configuration and custom checks, with timeouts and no leaked error details
 - [x] Health and readiness part 2: graceful shutdown, `app.close()` that makes `/ready` answer 503, stops taking new requests, waits for in-flight requests and the running job, then closes the database; the app template uses it and the built-in health endpoints
-- [ ] Observability: structured JSON logging with request ids, Prometheus metrics endpoint, and OpenTelemetry tracing for requests, database queries, jobs and AI calls
+- [x] Observability part 1: request ids (`X-Request-Id`, `ctx.requestId`), request logs with timing, and JSON log output (`createApp({ logging: { format: "json", requests: true } })`)
+- [ ] Observability part 2: Prometheus metrics endpoint (request counts and durations by route and status, job runs, AI calls, tokens and cost per alias)
+- [ ] Observability part 3: OpenTelemetry tracing for requests, database queries, jobs and AI calls (optional peer dependency, trace ids in logs)
 - [ ] Permissions: role- and policy-based access control (`can("ticket.update", { user, ticket })`) usable in routes, tools and jobs, plus an audit log of who changed what
 - [x] Security hardening part 1: secure response headers by default (`createApp({ secureHeaders })`, CSP, HSTS over HTTPS, nosniff, frame and referrer policies), and docs/security.md listing the secure defaults
 - [x] Security hardening part 2: request timeouts (`createApp({ requestTimeoutMs })` and per-route `timeoutMs`, with an abort `signal` in the handler context passed on to AI and database calls)
@@ -63,7 +65,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Fix: `--json` CLI errors leave out `fix` for errors with a 500 status (for example IL8007 and IL8008 from `inferlo worker`), because `InferloError.toJSON()` hides it for server errors; the CLI should always include `fix`
 - [x] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`
 - [ ] Cookie sessions: `sessions({ secret })` auth helper with signed, HttpOnly cookies and CSRF protection for forms
-- [ ] Structured request logging with request ids and timing, JSON output option
+- [x] Structured request logging with request ids and timing, JSON output option (done as Observability part 1)
 - [ ] Deno support: run the test suite on Deno in CI (oldest supported and latest), fix anything that fails
 
 ## AI depth

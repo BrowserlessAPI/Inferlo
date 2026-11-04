@@ -203,6 +203,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6018
 **Invalid `redact`.** `createApp({ redact })` takes an array of strings (values to hide from logs) and `config()` results (their `secrets` are hidden): `redact: [settings, process.env.WEBHOOK_SECRET]`. `undefined` and empty strings are skipped. See [secrets in logs](security.md#secrets-in-logs).
 
+### IL6019
+**Invalid `logging`.** `createApp({ logging })` takes `{ format, requests }`: `format` is `"text"` (default) or `"json"`, and `requests` is `true` or `false`. `format` only applies to the built-in logger, so leave it out when you pass your own `logger` (it decides how entries are written, and gets fields such as `requestId` as the third argument). See [Observability](observability.md).
+
 ## Environment (7xxx)
 
 ### IL7001

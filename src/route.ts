@@ -100,6 +100,8 @@ export interface Context<Body, Query, Params, User> {
    * ctx.ai calls use it automatically; pass it to fetch and other slow work: fetch(url, { signal }).
    */
   signal: AbortSignal;
+  /** This request's id: sent back in the X-Request-Id header and added to the request's log entries. */
+  requestId: string;
   /** Run work after the response is sent (logging, webhooks). Errors are logged, not thrown. */
   waitUntil(promise: Promise<unknown>): void;
 }

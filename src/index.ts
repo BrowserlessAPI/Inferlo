@@ -3,6 +3,7 @@
  * https://github.com/BrowserlessAPI/Inferlo
  */
 export { createApp } from "./app.ts";
+export type { LogFields, LoggingConfig } from "./logging.ts";
 export type { App, AppConfig, AuthConfig, CorsConfig, Middleware, MiddlewareContext, RequestOptions, RouteSource, Logger, HealthConfig, HealthCheck, CheckResult, ReadinessReport, CloseOptions } from "./app.ts";
 export type { SecureHeadersConfig } from "./secure-headers.ts";
 

@@ -1,0 +1,4 @@
+{
+  "title": "JSON logs and request ids",
+  "prompt": "Our log collector only understands JSON: make the app write its logs as one JSON object per line, and keep logging every request. Also add a public route GET /debug/request in a new file src/routes/debug.ts that returns { \"requestId\": <the id of the current request> }, the same id the response sends in its X-Request-Id header."
+}

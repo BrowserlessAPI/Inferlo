@@ -32,6 +32,8 @@ export interface AppDescription {
   secureHeaders: string[];
   /** Default time limit for routes in milliseconds (createApp({ requestTimeoutMs })), or false. */
   requestTimeoutMs: number | false;
+  /** The built-in logger's format and whether each request is logged (createApp({ logging })). "custom" when the app has its own logger. */
+  logging: { format: "text" | "json" | "custom"; requests: boolean };
   models: { name: string; fields: Record<string, FieldDescription> }[];
   routes: {
     name?: string;
@@ -74,7 +76,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; description?: string }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string }): AppDescription {
   return {
     inferlo: INFERLO_VERSION,
     name: app.name,
@@ -85,6 +87,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     endpoints: { openapi: options.openapi, mcp: options.mcp, health: options.health, ready: options.ready },
     secureHeaders: options.secureHeaders,
     requestTimeoutMs: options.requestTimeoutMs,
+    logging: options.logging,
     models: app.models.map((m: { name: string; fields: Record<string, AnySchema> }) => ({
       name: m.name,
       fields: Object.fromEntries([

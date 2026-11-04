@@ -102,15 +102,24 @@ export function createRedactor(secretValues: readonly string[]): Redactor {
 }
 
 export interface LoggerLike {
-  info(message: string, data?: unknown): void;
-  error(message: string, data?: unknown): void;
+  info(message: string, data?: unknown, fields?: Record<string, string | number | boolean | undefined>): void;
+  error(message: string, data?: unknown, fields?: Record<string, string | number | boolean | undefined>): void;
 }
 
-/** A logger that redacts every message and data value before passing them on. */
+/** A logger that redacts every message, data value and field before passing them on. */
 export function redactingLogger(logger: LoggerLike, redactor: Redactor): LoggerLike {
+  const pass = (level: "info" | "error", message: string, data: unknown, fields: Record<string, string | number | boolean | undefined> | undefined) => {
+    const text = redactor.text(String(message));
+    if (fields !== undefined) {
+      const clean: Record<string, string | number | boolean | undefined> = {};
+      for (const [key, value] of Object.entries(fields)) clean[key] = typeof value === "string" ? redactor.text(value) : value;
+      return logger[level](text, data === undefined ? undefined : redactor.value(data), clean);
+    }
+    return data === undefined ? logger[level](text) : logger[level](text, redactor.value(data));
+  };
   return {
-    info: (message, data) => (data === undefined ? logger.info(redactor.text(String(message))) : logger.info(redactor.text(String(message)), redactor.value(data))),
-    error: (message, data) => (data === undefined ? logger.error(redactor.text(String(message))) : logger.error(redactor.text(String(message)), redactor.value(data))),
+    info: (message, data, fields) => pass("info", message, data, fields),
+    error: (message, data, fields) => pass("error", message, data, fields),
   };
 }
 

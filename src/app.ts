@@ -18,6 +18,7 @@ import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type A
 import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
+import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
 export interface AuthConfig {
@@ -39,12 +40,18 @@ export interface MiddlewareContext {
   req: Request;
   url: URL;
   state: Record<string, unknown>;
+  /** This request's id, sent back in the X-Request-Id header and added to its log entries. */
+  requestId: string;
 }
 export type Middleware = (ctx: MiddlewareContext, next: () => Promise<Response>) => Promise<Response>;
 
+/**
+ * Where the app writes logs. fields holds structured values such as requestId (a request's log entries)
+ * or method, path, status and durationMs (request logs); loggers that only take two arguments ignore them.
+ */
 export interface Logger {
-  info(message: string, data?: unknown): void;
-  error(message: string, data?: unknown): void;
+  info(message: string, data?: unknown, fields?: LogFields): void;
+  error(message: string, data?: unknown, fields?: LogFields): void;
 }
 
 /** A readiness check: resolve (or return) when the dependency is usable, throw when it is not. */
@@ -141,7 +148,13 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
   redact?: readonly (string | object | undefined | null)[];
   /** Include error messages of unexpected (500) errors in responses. Default false. */
   exposeErrors?: boolean;
+  /** Your own logger (for example pino or winston): { info(message, data, fields), error(message, data, fields) }. */
   logger?: Logger;
+  /**
+   * The built-in logger's format ("text" or "json", one object per line) and request logs (requests: true logs
+   * each request's id, method, path, status and duration). Every response has an X-Request-Id header.
+   */
+  logging?: LoggingConfig;
 }
 
 interface CompiledRoute {
@@ -284,6 +297,19 @@ function queryObject(url: URL): Record<string, string | string[]> {
   return out;
 }
 
+/** Sets a header unless the response already has it; copies responses with immutable headers. */
+function withHeader(response: Response, name: string, value: string): Response {
+  if (response.headers.has(name)) return response;
+  try {
+    response.headers.set(name, value);
+    return response;
+  } catch {
+    const copy = new Response(response.body, response);
+    copy.headers.set(name, value);
+    return copy;
+  }
+}
+
 function json(data: unknown, status: number, headers: Headers): Response {
   headers.set("content-type", "application/json; charset=utf-8");
   return new Response(JSON.stringify(data), { status, headers });
@@ -292,13 +318,8 @@ function json(data: unknown, status: number, headers: Headers): Response {
 export function createApp<const Models extends readonly AnyModel[] = []>(config: AppConfig<Models> = {}): App<Models> {
   // Everything the app logs goes through the redactor: credentials and secrets never reach the logs.
   const redactor = createRedactor([...redactValues(config.redact), ...Object.values(config.ai?.providers ?? {}).flatMap((p) => secretsOf(p))]);
-  const logger: Logger = redactingLogger(
-    config.logger ?? {
-      info: (m, d) => console.log(`[inferlo] ${m}`, d ?? ""),
-      error: (m, d) => console.error(`[inferlo] ${m}`, d ?? ""),
-    },
-    redactor,
-  );
+  const logging = loggingOptions(config.logging, config.logger !== undefined);
+  const logger: Logger = redactingLogger(config.logger ?? defaultLogger(logging.format, config.name ?? "inferlo-app"), redactor);
   const models = (config.models ?? []) as unknown as Models;
   const modelNames = new Set<string>();
   for (const m of models) {
@@ -438,19 +459,20 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
 
   const roles = (user: AppUser): string[] => config.auth?.roles?.(user) ?? ((user as { roles?: string[] }).roles ?? []);
 
-  const errorResponse = (error: unknown, headers: Headers, req: Request): Response => {
+  const errorResponse = (error: unknown, headers: Headers, req: Request, requestId: string): Response => {
+    const fields = { requestId };
     if (error instanceof InferloError) {
-      if (error.status >= 500) logger.error(`${req.method} ${new URL(req.url).pathname} failed: ${error.format()}`, error.cause ?? "");
+      if (error.status >= 500) logger.error(`${req.method} ${new URL(req.url).pathname} failed: ${error.format()}`, error.cause ?? "", fields);
       const body = error.toJSON();
       if (config.exposeErrors && !error.expose) (body.error as Record<string, unknown>).message = redactor.text(error.message);
       return json(body, error.status, headers);
     }
-    logger.error(`${req.method} ${new URL(req.url).pathname} failed`, error);
+    logger.error(`${req.method} ${new URL(req.url).pathname} failed`, error, fields);
     const message = config.exposeErrors && error instanceof Error ? redactor.text(error.message) : "Internal server error";
     return json({ error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } }, 500, headers);
   };
 
-  const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[], ip: string): Promise<Response> => {
+  const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[], ip: string, requestId: string): Promise<Response> => {
     const headers = new Headers();
     if (cors) for (const [k, v] of Object.entries(corsHeaders(cors, req.headers.get("origin")))) headers.set(k, v);
     try {
@@ -560,6 +582,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
           },
           ai: toolsFor(req, signal),
           signal,
+          requestId,
           jobs,
           req,
           url,
@@ -567,7 +590,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
           state,
           status: (code: number) => void (status = code),
           header: (name: string, value: string) => headers.set(name, value),
-          waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e))),
+          waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e, { requestId }))),
         };
         const result = await def.handler(ctx);
         if (result instanceof Response) {
@@ -604,7 +627,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         clearTimeout(timer);
       }
     } catch (error) {
-      return errorResponse(error, headers, req);
+      return errorResponse(error, headers, req, requestId);
     }
   };
 
@@ -636,7 +659,11 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   };
 
   async function handle(req: Request, rest: unknown[]): Promise<Response> {
+    const started = performance.now();
     const url = new URL(req.url);
+    // Behind a trusted proxy, keep the id it sent so log entries line up across services.
+    const incoming = config.trustProxy ? req.headers.get("x-request-id") : null;
+    const requestId = incoming && REQUEST_ID.test(incoming) ? incoming : crypto.randomUUID();
     const ip = clientIp(req, Boolean(config.trustProxy), rest[0]);
     if (ip !== "unknown") clientIps.set(req, ip);
     const state: Record<string, unknown> = {};
@@ -644,14 +671,20 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     const chain = [...(config.middleware ?? [])];
     const run = (i: number): Promise<Response> => {
       const mw = chain[i];
-      if (!mw) return dispatch(req, url, state, pending, ip);
-      return mw({ req, url, state }, () => run(i + 1));
+      if (!mw) return dispatch(req, url, state, pending, ip, requestId);
+      return mw({ req, url, state, requestId }, () => run(i + 1));
     };
     let response: Response;
     try {
       response = await run(0);
     } catch (error) {
-      response = errorResponse(error, new Headers(), req);
+      response = errorResponse(error, new Headers(), req, requestId);
+    }
+    response = withHeader(response, "x-request-id", requestId);
+    if (logging.requests && url.pathname !== health?.path && url.pathname !== health?.readyPath) {
+      const durationMs = Math.round((performance.now() - started) * 10) / 10;
+      const method = req.method.toUpperCase();
+      logger.info(`${method} ${url.pathname} ${response.status} ${durationMs}ms`, undefined, { requestId, method, path: url.pathname, status: response.status, durationMs });
     }
     if (secureHeaders.length) {
       const https = url.protocol === "https:" || (Boolean(config.trustProxy) && req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https");
@@ -774,6 +807,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         ready: health?.readyPath ?? false,
         secureHeaders: secureHeaders.map(([name]) => name),
         requestTimeoutMs,
+        logging: { format: config.logger ? "custom" : logging.format, requests: logging.requests },
         description: config.description,
       });
     },

@@ -68,6 +68,7 @@ export const summarize = route
 | `header(name, value)` | Set a response header |
 | `state` | Per-request values from middleware |
 | `signal` | `AbortSignal` aborted when the request times out or the client disconnects. `ai` calls use it automatically; pass it to `fetch` and other slow work |
+| `requestId` | This request's id, also in the `X-Request-Id` response header and in its log entries (see [Observability](observability.md)) |
 | `waitUntil(promise)` | Work that continues after the response |
 
 ## Return values
