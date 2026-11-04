@@ -17,10 +17,11 @@ function makeAI(reply = '{"label":"bug"}') {
 /** Boots an AdonisJS web app with the Inferlo provider and the given config/ai.ts value. */
 async function boot(aiConfig: unknown) {
   const ignitor = new IgnitorFactory()
-    .withCoreProviders()
     .withCoreConfig()
     .merge({
-      rcFileContents: { providers: [() => import("../src/adonisjs.ts")] },
+      // The app provider (HTTP server, router) and Inferlo's. Not withCoreProviders(): its REPL provider
+      // needs node:repl features that Bun 1.3.0 does not have.
+      rcFileContents: { providers: [() => import("@adonisjs/core/providers/app_provider"), () => import("../src/adonisjs.ts")] },
       config: aiConfig === undefined ? {} : { ai: aiConfig },
     })
     .create(APP_ROOT, { importer: (path) => import(path) });
