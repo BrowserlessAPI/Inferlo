@@ -60,7 +60,7 @@ export interface AppDescription {
   jobQueue: "memory" | "database";
 }
 
-export const INFERLO_VERSION = "0.4.0";
+export const INFERLO_VERSION = "0.5.0";
 
 function field(name: string, schema: AnySchema): FieldDescription {
   const d = schema.def;
