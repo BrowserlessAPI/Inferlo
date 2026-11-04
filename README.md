@@ -49,6 +49,8 @@ That one model definition gives you the database table, insert and update valida
 
 ## Why Inferlo
 
+See the full [comparison with NestJS, AdonisJS, Fastify, Hono, ElysiaJS, Ts.ED, tRPC and Encore.ts](docs/comparison.md). Integrations that let you use Inferlo's AI features inside those frameworks are in progress (see the [roadmap](ROADMAP.md)).
+
 | | NestJS | Hono | AdonisJS | Express | **Inferlo** |
 |---|---|---|---|---|---|
 | Batteries included (DB, validation, auth) | Partial | No | Yes | No | **Yes** |
@@ -106,6 +108,7 @@ npm install @browserlessapi/inferlo
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
+- [Comparison with other frameworks](docs/comparison.md)
 - [Schemas](docs/schema.md)
 - [Models and database](docs/database.md)
 - [Routes](docs/routes.md)

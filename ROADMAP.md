@@ -8,6 +8,25 @@ Priority order: AI model support is Inferlo's core promise, so the "Now" section
 
 ## Now (highest priority)
 
+### Works with other frameworks (top priority)
+
+Inferlo's AI features should work inside every popular TypeScript backend framework, so teams can adopt Inferlo without rewriting their app. Each integration gets a docs page and a tested example in `examples/with-<framework>`, tested in CI against the oldest supported and latest version of that framework (the version policy applies).
+
+- [ ] `@browserlessapi/inferlo/ai`: the AI module as a standalone entry point (providers, aliases with fallback, structured output, streaming, embeddings, image input, tool calling with plain functions, usage tracking) with no dependency on `createApp`, usable in any framework
+- [ ] `toNodeHandler(app)` and `fromNodeRequest(req)`: mount a whole Inferlo app (routes, MCP server, OpenAPI) inside Node frameworks under a path prefix
+- [ ] Hono: `app.mount("/ai", inferlo.fetch)` docs and example, plus `inferloAI()` middleware that puts `c.var.ai` on the context
+- [ ] ElysiaJS: `.mount("/ai", inferlo.fetch)` docs and example, plus a plugin that decorates the context with `ai`
+- [ ] Fastify: `inferloPlugin` (register with a prefix) and `fastify.ai` decorator
+- [ ] NestJS: `InferloModule.forRoot({ ai })` providing an injectable AI service, and mounting an Inferlo app with `toNodeHandler`
+- [ ] AdonisJS: provider that binds `ai` in the container and an example route
+- [ ] Ts.ED: service wrapper and Express middleware mount
+- [ ] tRPC: helpers to expose `ai.generate` and `ai.stream` as typed procedures, and tRPC procedures as AI tools
+- [ ] Encore.ts: mount an Inferlo app as a raw endpoint, and use `@browserlessapi/inferlo/ai` inside Encore services
+- [ ] Express: middleware mount and `req.ai`
+- [ ] Migration guides: from Express, NestJS and Hono to Inferlo, step by step
+
+### Core
+
 - [x] Agent tool calling: `ai.generate({ tools: [createTicket, getTicket] })` lets a model call routes as tools with the current user's permissions, with a step limit and usage tracked per step
 - [x] Relations part 1: `db.tickets.findMany({ include: { owner: true } })` for `t.ref` fields, typed results, one extra query per relation (no N+1)
 - [x] Relations part 2: reverse (has-many) relations, `db.users.findMany({ include: { tickets: true } })` for models with a `t.ref` to this one, also one query per relation
