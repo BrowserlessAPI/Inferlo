@@ -52,6 +52,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Bun | 1.3.0 | `latest` |
 | PostgreSQL | oldest major still supported upstream (14 until 2026-11-12, then 15) and every major after it | `latest` |
 | TypeScript | 5.9 | `latest` |
+| Hono (`@browserlessapi/inferlo/hono`, examples/with-hono) | 4.0.0 | `latest` |
 
 Rules:
 

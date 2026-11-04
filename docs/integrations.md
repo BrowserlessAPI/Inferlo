@@ -73,11 +73,41 @@ await nest.listen(3000);
 const response = await inferlo.fetch(fromNodeRequest(req, { prefix: "/ai" }));
 ```
 
-## Web-standard frameworks
+## Hono
+
+Hono 4.0 and later. `@browserlessapi/inferlo/hono` has no dependency on Hono and never loads Inferlo's router, database or jobs code.
 
 ```ts
-// Hono: app.mount strips "/ai" before calling the handler
-honoApp.mount("/ai", inferlo.fetch);
+import { Hono } from "hono";
+import { anthropic, createAI, env, t } from "@browserlessapi/inferlo/ai";
+import { inferloAI, type InferloVariables } from "@browserlessapi/inferlo/hono";
+
+const ai = createAI({ providers: { anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+const hono = new Hono<{ Variables: InferloVariables }>();
+hono.use(inferloAI(ai)); // or hono.use("/chat/*", inferloAI(ai))
+
+hono.post("/classify", async (c) => {
+  const { text } = await c.req.json<{ text: string }>();
+  const { object } = await c.var.ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+  return c.json(object);
+});
+
+hono.get("/chat", (c) => c.var.ai.stream({ model: "fast", prompt: c.req.query("q") ?? "" }).toResponse()); // server-sent events
 ```
 
-Framework-specific helpers with examples tested in CI against each framework's oldest supported and latest version (Hono middleware, a Fastify plugin, a NestJS module and others) are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+`inferloAI(ai)` puts the AI client on the context as `c.var.ai` (typed with `new Hono<{ Variables: InferloVariables }>()`). Pass `createAI(...)` or an Inferlo app's `app.ai`; anything else raises IL5014. Function tools (`tool(...)`) work in `c.var.ai.generate({ tools })`; routes as tools need an Inferlo route handler (IL5009).
+
+To mount a whole Inferlo app, use Hono's `mount`, which removes the path before calling the app:
+
+```ts
+hono.mount("/api", inferlo.fetch); // /api/tickets, /api/openapi.json, /api/mcp
+```
+
+The [with-hono example](../examples/with-hono) uses both, and CI tests it with Hono 4.0.0 and the latest Hono.
+
+## Other web-standard frameworks
+
+ElysiaJS (`mount`), Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
+
+Framework-specific helpers for ElysiaJS, Fastify, NestJS, AdonisJS, Ts.ED, tRPC, Encore.ts and Express, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

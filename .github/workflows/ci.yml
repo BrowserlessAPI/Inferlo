@@ -98,6 +98,26 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
+  hono:
+    name: Hono ${{ matrix.hono }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 4.0.0 = oldest supported (@browserlessapi/inferlo/hono), latest = newest release.
+        hono: ["4.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save hono@${{ matrix.hono }}
+      - run: node -p "'Hono ' + require('./node_modules/hono/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/hono.test.ts "examples/with-hono/test/*.test.ts"
+
   bun:
     name: Bun ${{ matrix.bun }}
     runs-on: ubuntu-latest

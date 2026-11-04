@@ -72,6 +72,12 @@ async function prepare(taskId: string): Promise<string> {
   await mkdir(path.join(work, "node_modules", "@browserlessapi"), { recursive: true });
   await symlink(repo, path.join(work, "node_modules", "@browserlessapi", "inferlo"), "dir");
   await symlink(path.join(repo, "node_modules", "@types", "node"), path.join(work, "node_modules", "@types", "node"), "dir");
+  // Tasks about framework integrations list the other packages they need (dev dependencies of this repo).
+  const task = JSON.parse(await readFile(path.join(tasksDir, taskId, "task.json"), "utf8")) as { packages?: string[] };
+  for (const name of task.packages ?? []) {
+    await mkdir(path.dirname(path.join(work, "node_modules", name)), { recursive: true });
+    await symlink(path.join(repo, "node_modules", name), path.join(work, "node_modules", name), "dir");
+  }
   return work;
 }
 

@@ -4,7 +4,7 @@ Measures how often an AI model completes real backend tasks in Inferlo correctly
 
 Each task in `tasks/<id>/` has:
 
-- `task.json`: the instruction given to the model
+- `task.json`: the instruction given to the model (`prompt`), and `packages` for tasks that need another framework (for example `["hono"]`, linked from this repository's dev dependencies)
 - `setup/` (optional): files that change the starting project, e.g. to plant a bug
 - `check.test.ts`: the hidden test that decides pass or fail
 - `solution/`: a reference solution, used to prove the task is solvable

@@ -131,6 +131,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5013
 **Invalid tool.** A `tool(name, { description, input }).handle(fn)` definition is not usable: the name must be letters, digits, `_` and `-`, starting with a letter, at most 64 characters (what providers accept); `description` must say what the tool does; `input` must be a `t.object({ ... })` schema; `handle` needs a function. Also raised when two tools in one `ai.generate` call have the same name.
 
+### IL5014
+**inferloAI() needs an AI client.** The Hono middleware from `@browserlessapi/inferlo/hono` was given something that is not an AI client. Pass `createAI({ providers, models })` from `@browserlessapi/inferlo/ai`, or an Inferlo app's `app.ai`: `hono.use(inferloAI(ai))`.
+
 ## App configuration (6xxx)
 
 ### IL6001

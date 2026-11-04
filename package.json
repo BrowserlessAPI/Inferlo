@@ -39,6 +39,10 @@
       "types": "./dist/ai/public.d.ts",
       "default": "./dist/ai/public.js"
     },
+    "./hono": {
+      "types": "./dist/hono.d.ts",
+      "default": "./dist/hono.js"
+    },
     "./postgres": {
       "types": "./dist/db/postgres.d.ts",
       "default": "./dist/db/postgres.js"
@@ -61,7 +65,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono",
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\" \"examples/*/test/*.test.ts\"",
     "test:bun": "bun test test/",
     "llms": "node scripts/build-llms.ts",
@@ -79,6 +83,7 @@
   "devDependencies": {
     "@types/node": "^22.18.0",
     "@types/pg": "^8.15.0",
+    "hono": "^4.13.16",
     "pg": "^8.16.0",
     "typescript": "^5.9.3"
   },
