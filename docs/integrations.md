@@ -129,6 +129,8 @@ server.listen(3000);
 - `sendResponse(res, response)` sends a Web `Response` from an Express handler: status, headers (every `Set-Cookie`) and the body, streamed. Use it for `ai.stream(...).toResponse()`.
 - A whole Inferlo app mounts with `toNodeHandler` (above). Express removes the mount path, so no `prefix` is needed; a body already parsed by `express.json()` is passed on.
 
+To move an Express app to Inferlo route by route, see [Migrate from Express](migrate-from-express.md).
+
 The [with-express example](../examples/with-express) uses all three, and CI tests it with Express 4 (the newest 4.x release, still maintained upstream) and the latest Express.
 
 ## Fastify

@@ -137,7 +137,7 @@ jobs:
       - run: npm install --no-save express@${{ matrix.express }}
       - run: node -p "'Express ' + require('./node_modules/express/package.json').version"
       - run: npm run typecheck
-      - run: node --test --test-reporter=spec test/express.test.ts "examples/with-express/test/*.test.ts"
+      - run: node --test --test-reporter=spec test/express.test.ts test/migrate-from-express.test.ts "examples/with-express/test/*.test.ts"
 
   fastify:
     name: Fastify ${{ matrix.fastify }}

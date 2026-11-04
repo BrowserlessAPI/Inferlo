@@ -10,15 +10,16 @@ Key rules: routes are private unless `auth: "public"`; validate input with `t.*`
 - [Configuration](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/config.md): config({ schema, secrets, environments }), typed settings validated at startup, secrets redacted
 - [Schemas](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/schema.md): t.* types, modifiers, validation, JSON Schema
 - [Models and database](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/database.md): model(), queries, adapters, db push, transactions
-- [Routes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/routes.md): options, handler context, return values, errors, middleware
+- [Routes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/routes.md): options, handler context, return values, errors, middleware, deprecated routes (Deprecation and Sunset headers)
 - [Auth](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/auth.md): auth.resolve, roles, bearer API keys, passwords
 - [AI](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/ai.md): providers, aliases and fallback, structured output, streaming, embeddings, usage and budgets
 - [MCP, OpenAPI and describe](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/mcp.md)
 - [CLI](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/cli.md)
 - [Testing](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/testing.md)
-- [Use with other frameworks](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/integrations.md): the AI module in any framework, toNodeHandler and fromNodeRequest to mount an app in Express, Fastify, NestJS or node:http, inferloAI() middleware for Hono (c.var.ai), Express (req.ai), Elysia (ai) and tRPC (ctx.ai), inferloPlugin for Fastify (request.ai, app under a prefix), InferloModule for NestJS, an AdonisJS provider (ctx.ai, config/ai.ts), trpcTools() for tRPC procedures as AI tools
+- [Use with other frameworks](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/integrations.md): the AI module in any framework, toNodeHandler and fromNodeRequest to mount an app in Express, Fastify, NestJS or node:http, inferloAI() middleware for Hono (c.var.ai), Express (req.ai), Elysia (ai) and tRPC (ctx.ai), inferloPlugin for Fastify (request.ai, app under a prefix), InferloModule for NestJS, an AdonisJS provider (ctx.ai, config/ai.ts), InferloAI and inferloAI() for Ts.ED injection, trpcTools() for tRPC procedures as AI tools
+- [Migrate from Express](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/migrate-from-express.md): move an Express app to Inferlo route by route at the same URLs, with a concept mapping table, shared auth and tests
 - [Security](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/security.md): secure defaults and security headers (createApp({ secureHeaders }))
-- [Observability](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/observability.md): request ids (X-Request-Id, ctx.requestId), request logs and JSON logs with createApp({ logging: { format: "json", requests: true } }), your own logger
+- [Observability](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/observability.md): request ids (X-Request-Id, ctx.requestId), request logs and JSON logs with createApp({ logging: { format: "json", requests: true } }), your own logger, Prometheus metrics with createApp({ metrics: { token } })
 - [Deployment](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/deploy.md): Node, Bun, Deno, edge, health and readiness endpoints, graceful shutdown with app.close()
 - [Support policy](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/support.md): semantic versioning, which versions get fixes, LTS after 1.0, deprecation rules and supported runtime, database and framework versions
 - [Error codes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/errors.md): every ILxxxx code with its fix
