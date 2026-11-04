@@ -1,10 +1,9 @@
-import { anthropic, bearer, createApp, env, hashToken, memory, openai } from "@browserlessapi/inferlo";
+import { anthropic, bearer, createApp, hashToken, memory, openai } from "@browserlessapi/inferlo";
 import { postgres } from "@browserlessapi/inferlo/postgres";
+import { settings } from "./config.ts";
 import { models } from "./models.ts";
 import * as health from "./routes/health.ts";
 import * as notes from "./routes/notes.ts";
-
-const databaseUrl = env("DATABASE_URL", { optional: true });
 
 export const app = createApp({
   name: "{{name}}",
@@ -12,7 +11,7 @@ export const app = createApp({
   models,
   // inferlo:routes
   routes: [health, notes],
-  db: databaseUrl ? postgres({ url: databaseUrl }) : memory(),
+  db: settings.DATABASE_URL ? postgres({ url: settings.DATABASE_URL }) : memory(),
 
   // Requests send "Authorization: Bearer <api key>". Keys are stored as SHA-256 hashes.
   auth: bearer(async (token, { db }) => {
@@ -24,8 +23,8 @@ export const app = createApp({
 
   ai: {
     providers: {
-      anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY", { default: "" }) }),
-      openai: openai({ apiKey: env("OPENAI_API_KEY", { default: "" }) }),
+      anthropic: anthropic({ apiKey: settings.ANTHROPIC_API_KEY }),
+      openai: openai({ apiKey: settings.OPENAI_API_KEY }),
     },
     // Aliases keep model ids in one place. A list means: try in order.
     models: {

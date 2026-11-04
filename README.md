@@ -112,6 +112,7 @@ npm install @browserlessapi/inferlo
 
 - [Getting started](docs/getting-started.md)
 - [Comparison with other frameworks](docs/comparison.md)
+- [Configuration](docs/config.md)
 - [Schemas](docs/schema.md)
 - [Models and database](docs/database.md)
 - [Routes](docs/routes.md)

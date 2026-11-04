@@ -1,0 +1,4 @@
+{
+  "title": "Add configuration variables",
+  "prompt": "Add two environment variables to the app's configuration: SUPPORT_EMAIL, required and must be a valid email address, and STRIPE_SECRET_KEY, optional and a secret that must never appear in logs. Then add a public route GET /support that returns { \"email\": <the SUPPORT_EMAIL value> }."
+}

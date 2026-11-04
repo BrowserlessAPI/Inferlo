@@ -22,6 +22,7 @@ Do not finish until `inferlo check` passes.
 |---|---|
 | `src/models.ts` | Every model (`model("table_name", { ... })`) and the `models` array |
 | `src/routes/<feature>.ts` | Routes for one feature, each one an exported `const` |
+| `src/config.ts` | `settings`: every environment variable, validated at startup with `config({ schema, secrets })` |
 | `src/app.ts` | `createApp({ models, routes, db, auth, ai })`. Import route modules with `import * as x` |
 | `src/server.ts` | Starts the server. Keep it small |
 | `test/<feature>.test.ts` | Tests using `app.request(path, { method, json, as: user })` |
@@ -40,8 +41,9 @@ Do not finish until `inferlo check` passes.
 10. **AI calls** use aliases from `src/app.ts` (`model: "fast"`), never hard-coded provider model ids in routes. Use `output: schema` for structured data and `for: user.id` so usage is tracked per user. To let the model act, pass routes as tools: `ai.generate({ prompt, tools: [createNote, getNote], for: user.id })`. Each tool call runs as the current user with that route's auth and validation. For work that is not a route (an external API, a calculation), make a function tool: `tool("getWeather", { description, input: t.object({ ... }) }).handle(async ({ input }) => ...)`. To send images: `ai.generate({ prompt, images: [{ url }] })` or `[{ base64, mediaType: "image/png" }]`. Give routes that call AI models, send email or check passwords a `rateLimit: { max, per, by }` (IL2005 is the 429 it returns).
 11. **Errors:** throw `notFound()`, `forbidden()`, `badRequest()` or `httpError(status, message)`. Every Inferlo error has a code (ILxxxx), a fix and a docs link: read the fix before changing code.
 12. **Imports:** relative imports end in `.ts` (`import { Note } from "../models.ts"`).
-13. **Expose to AI agents:** add `tool: true` to a route to make it an MCP tool at `/mcp`. Same auth applies.
-14. **Slow work after the response** (email, slow AI calls) is a background job: `export const x = job("send-email", { input: t.object({ ... }) }).handle(async ({ input, db, ai }) => { ... })` in `src/jobs.ts`, registered with `createApp({ jobs: [jobs] })`, queued with `await ctx.jobs.enqueue(x, { ... })`. Pass ids in the input, not rows. In tests, run queued jobs with `await app.jobs.runDue()`. Jobs run in the server process (`app.jobs.start()` in `src/server.ts`); with `createApp({ jobQueue: { store: "database" } })` they are kept in Postgres and `npm run worker` (`inferlo worker`) runs them in separate processes. Scheduled work is a cron next to its job: `export const nightly = cron("0 3 * * *", cleanupJob)` (UTC; the job's input must be `t.object({})`).
+13. **Configuration:** read environment variables only through `settings` from `src/config.ts`. A new variable is a new field in its `t.object({ ... })` schema (`.default(...)` or `.optional()` unless the app cannot start without it), and API keys, passwords and connection URLs go in `secrets` so they are never logged. Never read `process.env` in routes.
+14. **Expose to AI agents:** add `tool: true` to a route to make it an MCP tool at `/mcp`. Same auth applies.
+15. **Slow work after the response** (email, slow AI calls) is a background job: `export const x = job("send-email", { input: t.object({ ... }) }).handle(async ({ input, db, ai }) => { ... })` in `src/jobs.ts`, registered with `createApp({ jobs: [jobs] })`, queued with `await ctx.jobs.enqueue(x, { ... })`. Pass ids in the input, not rows. In tests, run queued jobs with `await app.jobs.runDue()`. Jobs run in the server process (`app.jobs.start()` in `src/server.ts`); with `createApp({ jobQueue: { store: "database" } })` they are kept in Postgres and `npm run worker` (`inferlo worker`) runs them in separate processes. Scheduled work is a cron next to its job: `export const nightly = cron("0 3 * * *", cleanupJob)` (UTC; the job's input must be `t.object({})`).
 
 ## Testing
 

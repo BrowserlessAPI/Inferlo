@@ -178,6 +178,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL7002
 **Environment variable has the wrong format** (for `env.int` or `env.bool`).
 
+### IL7003
+**Configuration is invalid.** `config({ schema })` found variables that are missing or do not match their field. The message and `details.issues` list each one (`key`, `code`, `message`); values of `secrets` are never shown. Set the variables in your environment or `.env` file, add values for this environment to `environments`, or give the fields a `.default(...)` or `.optional()`. `details.environment` says which environment was used (`INFERLO_ENV`, then `NODE_ENV`, then `"development"`).
+
+### IL7004
+**Invalid config options.** `config()` needs `schema: t.object({ ... })` with one non-object field per variable, `secrets` that are fields of the schema, and `environments` whose values are objects of schema fields: `environments: { test: { PORT: "3001" } }`.
+
 ### IL4013
 **Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and type, default, required and enum value changes with `--allow-change` (IL4019). Your models change an existing column's reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `reference authors on delete cascade -> authors on delete restrict`). Undo the model change, or write the SQL yourself in a new migration file.
 

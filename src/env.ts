@@ -15,7 +15,8 @@ export function setEnv(values: Record<string, string | undefined> | undefined): 
   overrides = values;
 }
 
-function read(name: string): string | undefined {
+/** The raw value of an environment variable (or of setEnv overrides). */
+export function readEnv(name: string): string | undefined {
   if (overrides && name in overrides) return overrides[name];
   const g = globalThis as { process?: { env?: Record<string, string | undefined> }; Deno?: { env: { get(n: string): string | undefined } } };
   if (g.process?.env) return g.process.env[name];
@@ -45,7 +46,7 @@ interface EnvFn {
 
 export const env: EnvFn = Object.assign(
   (name: string, options: { default?: string; optional?: boolean } = {}): any => {
-    const value = read(name);
+    const value = readEnv(name);
     if (value !== undefined && value !== "") return value;
     if (options.default !== undefined) return options.default;
     if (options.optional) return undefined;
@@ -53,7 +54,7 @@ export const env: EnvFn = Object.assign(
   },
   {
     int(name: string, options: { default?: number } = {}): number {
-      const value = read(name);
+      const value = readEnv(name);
       if (value === undefined || value === "") {
         if (options.default !== undefined) return options.default;
         throw missing(name);
@@ -63,7 +64,7 @@ export const env: EnvFn = Object.assign(
       return n;
     },
     bool(name: string, options: { default?: boolean } = {}): boolean {
-      const value = read(name)?.toLowerCase();
+      const value = readEnv(name)?.toLowerCase();
       if (value === undefined || value === "") {
         if (options.default !== undefined) return options.default;
         throw missing(name);

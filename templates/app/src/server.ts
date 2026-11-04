@@ -1,5 +1,6 @@
-import { createToken, env, hashToken } from "@browserlessapi/inferlo";
+import { createToken, hashToken } from "@browserlessapi/inferlo";
 import { app } from "./app.ts";
+import { settings } from "./config.ts";
 
 await app.db.$sync();
 
@@ -9,10 +10,10 @@ if (app.db.$adapter.dialect === "memory") {
   const token = createToken("dev");
   await app.db.api_keys.insert({ userId: user.id, hash: await hashToken(token) });
   console.log(`Dev API key: ${token}`);
-  console.log(`Try: curl -H "Authorization: Bearer ${token}" http://localhost:${env("PORT", { default: "3000" })}/notes`);
+  console.log(`Try: curl -H "Authorization: Bearer ${token}" http://localhost:${settings.PORT}/notes`);
 }
 
-const server = await app.listen(env.int("PORT", { default: 3000 }));
+const server = await app.listen(settings.PORT);
 console.log(`{{name}} running on http://localhost:${server.port}`);
 
 // Background jobs run in this process. With jobQueue: { store: "database" } in src/app.ts they can

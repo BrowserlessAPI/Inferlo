@@ -7,6 +7,7 @@ Key rules: routes are private unless `auth: "public"`; validate input with `t.*`
 ## Docs
 
 - [Getting started](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/getting-started.md): install, project layout, minimal app
+- [Configuration](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/config.md): config({ schema, secrets, environments }), typed settings validated at startup, secrets redacted
 - [Schemas](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/schema.md): t.* types, modifiers, validation, JSON Schema
 - [Models and database](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/database.md): model(), queries, adapters, db push, transactions
 - [Routes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/routes.md): options, handler context, return values, errors, middleware

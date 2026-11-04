@@ -60,6 +60,8 @@ export type { CronDef } from "./cron.ts";
 export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, JobQueueConfig, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
 export { env, setEnv } from "./env.ts";
+export { config } from "./config.ts";
+export type { Config, ConfigOptions } from "./config.ts";
 export { InferloError, httpError, notFound, forbidden, badRequest, docsUrl } from "./errors.ts";
 export { serve, toNodeHandler, fromNodeRequest } from "./serve.ts";
 export type { ServeOptions, Server, NodeRequest, NodeResponse, NodeHandler, NodeHandlerOptions, FromNodeRequestOptions } from "./serve.ts";

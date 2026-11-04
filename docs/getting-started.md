@@ -24,6 +24,7 @@ curl -X POST http://localhost:3000/notes \
 
 ```
 src/
+  config.ts        settings: every environment variable, validated at startup
   models.ts        every model and the models array
   routes/notes.ts  routes for one feature
   app.ts           createApp({ models, routes, db, auth, ai })

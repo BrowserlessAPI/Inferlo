@@ -13,7 +13,7 @@ Priority order: AI model support is Inferlo's core promise, so the "Now" section
 Inferlo must be a production-grade, general-purpose framework at the level of NestJS and Fastify, not only an AI tool. These items come first together with the framework integrations below.
 
 - [ ] Modules: `module("billing", { models, routes, jobs, provides })` to split large apps into feature modules with explicit dependencies (no decorators, no hidden injection), shown in `inferlo describe`
-- [ ] Typed configuration: `config({ schema })` validated at startup from environment and `.env` files, with per-environment overrides and secrets never logged
+- [x] Typed configuration: `config({ schema })` validated at startup from environment and `.env` files, with per-environment overrides and secrets never logged
 - [ ] Health and readiness: `/health` and `/ready` endpoints checking the database, queue and AI providers, plus graceful shutdown that drains requests and jobs
 - [ ] Observability: structured JSON logging with request ids, Prometheus metrics endpoint, and OpenTelemetry tracing for requests, database queries, jobs and AI calls
 - [ ] Permissions: role- and policy-based access control (`can("ticket.update", { user, ticket })`) usable in routes, tools and jobs, plus an audit log of who changed what
