@@ -108,18 +108,19 @@ if (PG_URL) {
 
     test("a running job that still reports is not picked up again", async () => {
       const db = pg();
-      const store = databaseJobStore(db, { staleAfterMs: 200 });
+      // Wide margins: on a busy CI runner the time between a report and the next claim can be over 200 ms.
+      const store = databaseJobStore(db, { staleAfterMs: 1000 });
       const name = `slow-${suffix}`;
       const now = new Date();
       const id = crypto.randomUUID();
       await store.add({ id, name, input: {}, status: "pending", attempts: 0, maxAttempts: 3, runAt: now, createdAt: now, updatedAt: now });
       assert.equal((await store.claim(new Date(), 5, [name])).length, 1);
       for (let i = 0; i < 3; i++) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 250));
         await store.touch!(id);
         assert.equal((await store.claim(new Date(), 5, [name])).length, 0);
       }
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 1300));
       const reclaimed = await store.claim(new Date(), 5, [name]);
       assert.equal(reclaimed.length, 1);
       assert.equal(reclaimed[0]!.attempts, 2);
