@@ -211,6 +211,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL4023
 **Unknown relation in include.** The model has no relation with that name. Relations come from `t.ref` fields named `<name>Id` (`ownerId` gives `owner`), and from other models with such a field pointing to this one (included by their table name, `tickets`, or `<table>By<Name>` such as `ticketsByOwner` when that table has several). A table name with several ref fields to this model is ambiguous; the fix names the `<table>By<Name>` relations to use. The fix lists the model's relations. Values must be `true` or `false`.
 
+### IL4024
+**Invalid pagination cursor (400).** The `cursor` passed to `paginate()` is not a `nextCursor` from it, was changed, or was made for a different `orderBy`. Pass `nextCursor` back unchanged with the same `orderBy`, or leave `cursor` out for the first page. The status is 400, so a bad `?cursor=` from a client gets a clear error.
+
+### IL4025
+**Invalid paginate options.** `paginate()` orders by one field, which must be required (not optional without a default, not nullable) and not `json`, `array` or `object`, and it does not take `offset`. Use for example `orderBy: { createdAt: "desc" }`; use `findMany({ offset })` for numbered pages.
+
 ## CLI (8xxx)
 
 ### IL8000

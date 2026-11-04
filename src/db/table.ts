@@ -34,6 +34,25 @@ export interface FindManyOptions<R> {
   offset?: number;
 }
 
+export interface PaginateOptions<R> {
+  where?: Where<R>;
+  /**
+   * One field and direction: { createdAt: "desc" } (default { createdAt: "asc" }). Rows with the same
+   * value are ordered by id. The field must be required (not optional or nullable) and not json, array or object.
+   */
+  orderBy?: OrderBy<R>;
+  /** nextCursor from the previous page. Leave out (or null) for the first page. */
+  cursor?: string | null;
+  /** Rows per page. Default 100, maximum 1000. */
+  limit?: number;
+}
+
+/** One page: the rows, and the cursor for the next page (null on the last page). */
+export interface Page<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
 type RefTable<S> = S extends { readonly _ref: infer T extends string } ? T : never;
 
 /** Relations of a model: one per t.ref field named <name>Id, mapped to the referenced table. ownerId: t.ref("users") gives owner -> "users". */
@@ -166,6 +185,97 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
     const rows = await this.#adapter().select(this.model, this.#query(options));
     await this.#load(rows, relations);
     return rows as WithInclude<M, Models, I>[];
+  }
+
+  /**
+   * One page of rows in a stable order, for "load more" and API pagination:
+   * const { items, nextCursor } = await db.tickets.paginate({ where, orderBy: { createdAt: "desc" }, cursor, limit: 20 }).
+   * Pass nextCursor back as cursor for the next page; it is null on the last page. Pages never skip or repeat
+   * rows when rows are added or removed elsewhere in the list (keyset pagination, no offset).
+   */
+  async paginate<const I extends Include<M, Models> = {}>(options: PaginateOptions<Row<M>> & FindOptions<I> = {}): Promise<Page<WithInclude<M, Models, I>>> {
+    if ("offset" in options) {
+      throw new InferloError("IL4025", `paginate() on "${this.model.name}" does not take offset.`, {
+        fix: "Pass the previous page's nextCursor as cursor. Use findMany({ offset }) for numbered pages.",
+      });
+    }
+    const relations = this.#relations(options.include);
+    const [field, direction] = this.#pageOrder(options.orderBy);
+    const base = this.#query({ where: options.where, limit: options.limit });
+    const limit = base.limit!;
+    const after = options.cursor == null ? null : this.#decodeCursor(options.cursor, field, direction);
+    const next = direction === "asc" ? "gt" : "lt";
+    const take = limit + 1;
+    let rows: DbRecord[];
+    if (!after) {
+      rows = await this.#adapter().select(this.model, { where: base.where, orderBy: field === "id" ? [["id", direction]] : [[field, direction], ["id", direction]], limit: take });
+    } else if (field === "id") {
+      rows = await this.#adapter().select(this.model, { where: [...base.where, { field: "id", op: next, value: after.id }], orderBy: [["id", direction]], limit: take });
+    } else {
+      // Keyset (field, id) > (value, id) as two queries, because conditions are combined with AND:
+      // the rest of the rows with the same value, then the rows after that value.
+      rows = await this.#adapter().select(this.model, {
+        where: [...base.where, { field, op: "eq", value: after.value }, { field: "id", op: next, value: after.id }],
+        orderBy: [["id", direction]],
+        limit: take,
+      });
+      if (rows.length < take) {
+        rows = rows.concat(
+          await this.#adapter().select(this.model, {
+            where: [...base.where, { field, op: next, value: after.value }],
+            orderBy: [[field, direction], ["id", direction]],
+            limit: take - rows.length,
+          }),
+        );
+      }
+    }
+    const items = rows.slice(0, limit);
+    const last = items.at(-1);
+    const nextCursor = rows.length > limit && last ? encodeCursor(field, direction, last[field], String(last.id)) : null;
+    await this.#load(items, relations);
+    return { items: items as WithInclude<M, Models, I>[], nextCursor };
+  }
+
+  /** The one field paginate() orders by. */
+  #pageOrder(raw: OrderBy<any> | undefined): [string, "asc" | "desc"] {
+    const entries = (Array.isArray(raw) ? raw : Object.entries(raw ?? {})) as [string, string][];
+    if (entries.length > 1) {
+      throw new InferloError("IL4025", `paginate() on "${this.model.name}" orders by one field, got ${entries.map(([f]) => f).join(", ")}.`, {
+        fix: 'Use one field, e.g. orderBy: { createdAt: "desc" }. Rows with the same value are ordered by id.',
+      });
+    }
+    const [field, direction] = entries[0] ?? ["createdAt", "asc"];
+    this.#checkField(field, "orderBy");
+    if (direction !== "asc" && direction !== "desc") throw new InferloError("IL4003", `orderBy direction for "${field}" must be "asc" or "desc".`);
+    const def = (this.model.row.shape as Record<string, AnySchema>)[field]!.def;
+    if (!SORTABLE.has(def.kind) || def.nullable || (def.optional && !def.hasDefault)) {
+      throw new InferloError("IL4025", `paginate() on "${this.model.name}" cannot order by "${field}": it is ${def.nullable || def.optional ? "optional or nullable" : `a ${def.kind} field`}.`, {
+        fix: "Order by a required field such as createdAt, a number, a date or a string, or give the field a default.",
+      });
+    }
+    return [field, direction];
+  }
+
+  #decodeCursor(cursor: string, field: string, direction: "asc" | "desc"): { value: unknown; id: string } {
+    const bad = (why: string) =>
+      new InferloError("IL4024", `Invalid cursor for ${this.model.name}: ${why}.`, {
+        status: 400,
+        expose: true,
+        fix: "Pass the nextCursor from the previous page unchanged, with the same orderBy. Leave cursor out for the first page.",
+      });
+    let data: { f?: unknown; d?: unknown; v?: unknown; id?: unknown };
+    try {
+      data = JSON.parse(base64urlDecode(cursor));
+    } catch {
+      throw bad("it is not a cursor from paginate()");
+    }
+    if (!data || typeof data !== "object") throw bad("it is not a cursor from paginate()");
+    if (data.f !== field || data.d !== direction) throw bad(`it was made for orderBy ${String(data.f)} ${String(data.d)}, not ${field} ${direction}`);
+    if (typeof data.id !== "string" || !UUID.test(data.id)) throw bad("the id is not valid");
+    const schema = (this.model.row.shape as Record<string, AnySchema>)[field]!;
+    const parsed = schema.safeParse(data.v);
+    if (!parsed.ok) throw bad(`the ${field} value is not valid`);
+    return { value: parsed.value, id: data.id };
   }
 
   /**
@@ -345,6 +455,24 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
     const offset = Math.max(0, Math.floor(options.offset ?? 0));
     return { where: this.#where(options.where), orderBy, limit, offset };
   }
+}
+
+const SORTABLE = new Set(["string", "text", "email", "url", "uuid", "ref", "number", "int", "boolean", "date", "enum", "literal"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function encodeCursor(field: string, direction: string, value: unknown, id: string): string {
+  const v = value instanceof Date ? value.toISOString() : value;
+  const json = JSON.stringify({ f: field, d: direction, v, id });
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64urlDecode(text: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(text)) throw new Error("not base64url");
+  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
 }
 
 interface Relation {

@@ -397,6 +397,7 @@ await db.tickets.findMany({
   offset: 0,
 });
 await db.tickets.count({ status: "open" });
+await db.tickets.paginate({ where: { status: "open" }, orderBy: { createdAt: "desc" }, cursor, limit: 20 }); // { items, nextCursor }, see Pagination
 await db.tickets.update(id, { status: "closed" });                      // validated, throws 404 if missing
 await db.tickets.updateMany({ ownerId: user.id }, { status: "closed" });
 await db.tickets.delete(id);                                            // true if deleted
@@ -440,6 +441,25 @@ const team = await db.teams.get(id, { include: { tickets: true } });
 - If the other table has **several** ref fields to this model (`ownerId` and `assigneeId`), each is named `<table>By<Name>`: `include: { ticketsByOwner: true, ticketsByAssignee: true }`. The plain table name is then ambiguous and raises IL4023, naming both.
 - A reverse name that is already a field or a relation of this model is not available.
 - Forward and reverse relations can be combined in one `include`.
+
+## Pagination
+
+`paginate` returns one page and a cursor for the next one. Pass `nextCursor` back as `cursor`; it is `null` on the last page.
+
+```ts
+export const listTickets = route
+  .get("/tickets", { query: t.object({ limit: t.int().min(1).max(100).default(20), cursor: t.string().max(500).optional() }) })
+  .handle(({ query, user, db }) =>
+    db.tickets.paginate({ where: { ownerId: user.id }, orderBy: { createdAt: "desc" }, limit: query.limit, cursor: query.cursor }),
+  );
+// { "items": [...], "nextCursor": "eyJmIjoiY3JlYXRlZEF0Ii..." }
+```
+
+- **Stable pages.** Pagination is by key (the last row's value and id), not by offset, so pages never skip or repeat rows when rows are added or deleted elsewhere in the list, and deep pages are as fast as the first.
+- **Order** by one field: `orderBy: { createdAt: "desc" }` (the default is `{ createdAt: "asc" }`). Rows with the same value are ordered by `id`. The field must be required (not `.optional()` without a default, not `.nullable()`) and not `json`, `array` or `object`; otherwise IL4025. More than one field, or `offset`, also raises IL4025.
+- `where`, `limit` (default 100, maximum 1000) and `include` work as in `findMany`. A page costs one query, or two after the first page when ordering by a field other than `id`, plus one per included relation.
+- **Cursors** are opaque strings. Pass them back unchanged with the same `orderBy`. A cursor that was changed, is not from `paginate`, or was made for another order raises IL4024 with status 400, so a bad `?cursor=` from a client is a 400 response. Cursors are not secret: they contain the last row's id and order value, and `where` still applies to every page.
+- For numbered pages ("page 3 of 12"), use `findMany({ limit, offset })` with `count(where)`.
 
 ## Adapters
 
@@ -1429,6 +1449,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL4023
 **Unknown relation in include.** The model has no relation with that name. Relations come from `t.ref` fields named `<name>Id` (`ownerId` gives `owner`), and from other models with such a field pointing to this one (included by their table name, `tickets`, or `<table>By<Name>` such as `ticketsByOwner` when that table has several). A table name with several ref fields to this model is ambiguous; the fix names the `<table>By<Name>` relations to use. The fix lists the model's relations. Values must be `true` or `false`.
+
+### IL4024
+**Invalid pagination cursor (400).** The `cursor` passed to `paginate()` is not a `nextCursor` from it, was changed, or was made for a different `orderBy`. Pass `nextCursor` back unchanged with the same `orderBy`, or leave `cursor` out for the first page. The status is 400, so a bad `?cursor=` from a client gets a clear error.
+
+### IL4025
+**Invalid paginate options.** `paginate()` orders by one field, which must be required (not optional without a default, not nullable) and not `json`, `array` or `object`, and it does not take `offset`. Use for example `orderBy: { createdAt: "desc" }`; use `findMany({ offset })` for numbered pages.
 
 ## CLI (8xxx)
 

@@ -1,0 +1,4 @@
+{
+  "title": "Cursor pagination",
+  "prompt": "Change GET /notes in src/routes/notes.ts to cursor pagination: it takes an optional `cursor` query string and a `limit` (1 to 100, default 20) instead of `offset`, and returns { \"items\": [...], \"nextCursor\": string | null } with the current user's notes, newest first. Passing nextCursor back as cursor returns the next page, without skipping or repeating notes; an invalid cursor must answer 400."
+}
