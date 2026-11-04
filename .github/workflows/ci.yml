@@ -188,6 +188,26 @@ jobs:
       - if: matrix.runtime == 'bun'
         run: bun test test/elysia.test.ts examples/with-elysia/test/
 
+  nestjs:
+    name: NestJS ${{ matrix.nestjs }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 11.0.0 = oldest supported (oldest NestJS major with security support), latest = newest release.
+        nestjs: ["11.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save @nestjs/common@${{ matrix.nestjs }} @nestjs/core@${{ matrix.nestjs }} @nestjs/platform-express@${{ matrix.nestjs }}
+      - run: node -p "'NestJS ' + require('./node_modules/@nestjs/core/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/nestjs.test.ts "examples/with-nestjs/test/*.test.ts"
+
   bun:
     name: Bun ${{ matrix.bun }}
     runs-on: ubuntu-latest

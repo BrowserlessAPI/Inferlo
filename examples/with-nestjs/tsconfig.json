@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // NestJS apps use TypeScript decorators with metadata and constructor parameter properties.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "erasableSyntaxOnly": false
+  },
+  "include": ["src", "test"]
+}

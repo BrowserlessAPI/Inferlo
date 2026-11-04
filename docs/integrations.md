@@ -56,6 +56,8 @@ nest.use("/ai", toNodeHandler(inferlo)); // the Express adapter strips "/ai"
 await nest.listen(3000);
 ```
 
+To inject the AI client into Nest services, see [NestJS](#nestjs-1) below.
+
 ## fromNodeRequest
 
 `fromNodeRequest(req, { prefix?, signal? })` converts a Node request to a Web `Request` (method, URL with `https` for TLS sockets, headers, streamed or already parsed body) when you want to call `app.fetch` yourself:
@@ -189,8 +191,40 @@ server.mount("/api", inferlo.fetch); // /api/tickets, /api/openapi.json, /api/mc
 
 The [with-elysia example](../examples/with-elysia) uses both, and CI tests it with Elysia 1.0.0 and the latest Elysia on Node.js and Bun.
 
+## NestJS
+
+NestJS 11 and 12. `@browserlessapi/inferlo/nestjs` has no runtime dependency on NestJS and never loads Inferlo's router, database or jobs code.
+
+```ts
+import { Inject, Injectable, Module } from "@nestjs/common";
+import { anthropic, createAI, t, type AI } from "@browserlessapi/inferlo/ai";
+import { INFERLO_AI, InferloModule } from "@browserlessapi/inferlo/nestjs";
+
+const ai = createAI({ providers: { anthropic: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+@Injectable()
+export class ClassifyService {
+  constructor(@Inject(INFERLO_AI) private readonly ai: AI) {}
+
+  async classify(text: string) {
+    const { object } = await this.ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+    return object;
+  }
+}
+
+@Module({ imports: [InferloModule.forRoot({ ai })], providers: [ClassifyService] })
+export class AppModule {}
+```
+
+- `InferloModule.forRoot({ ai })` provides the AI client (`createAI(...)` or an Inferlo app's `app.ai`) under the token `INFERLO_AI`. The module is global by default, so every module can inject it; pass `global: false` to import it where it is needed.
+- `InferloModule.forRootAsync({ imports, inject, useFactory })` creates the client when Nest starts, for example from `ConfigService`: `forRootAsync({ inject: [ConfigService], useFactory: (config) => createAI({ providers: { anthropic: anthropic({ apiKey: config.getOrThrow("ANTHROPIC_API_KEY") }) }, models }) })`.
+- Anything that is not an AI client raises IL5014 (for `useFactory`, when Nest starts); missing options raise IL5016.
+- In a controller, return `this.ai.stream(...).toResponse()` through `@Res()` with `sendResponse(res, response)` from `@browserlessapi/inferlo/express` to stream server-sent events.
+
+A whole Inferlo app mounts with `nest.use("/api", toNodeHandler(inferlo))` on the Express platform (above), or with `inferloPlugin` from `@browserlessapi/inferlo/fastify` on the Fastify platform. The [with-nestjs example](../examples/with-nestjs) uses both, and CI tests it with NestJS 11.0.0 (the oldest major with security support) and the latest NestJS.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
 
-Framework-specific helpers for NestJS, AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+Framework-specific helpers for AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

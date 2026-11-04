@@ -53,7 +53,7 @@ That one model definition gives you the database table, insert and update valida
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
-- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, and `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai` (see [Use with other frameworks](docs/integrations.md)).
+- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, and `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS (see [Use with other frameworks](docs/integrations.md)).
 - **Background jobs for slow AI work.** Queue a typed job from a route with `ctx.jobs.enqueue(...)` and it runs after the response, with retries, from a Postgres queue shared by every instance (`inferlo worker` runs them in their own process), and schedule jobs with `cron("0 3 * * *", job)`.
 
 ## Why Inferlo
@@ -1318,6 +1318,8 @@ nest.use("/ai", toNodeHandler(inferlo)); // the Express adapter strips "/ai"
 await nest.listen(3000);
 ```
 
+To inject the AI client into Nest services, see [NestJS](#nestjs-1) below.
+
 ## fromNodeRequest
 
 `fromNodeRequest(req, { prefix?, signal? })` converts a Node request to a Web `Request` (method, URL with `https` for TLS sockets, headers, streamed or already parsed body) when you want to call `app.fetch` yourself:
@@ -1451,11 +1453,43 @@ server.mount("/api", inferlo.fetch); // /api/tickets, /api/openapi.json, /api/mc
 
 The [with-elysia example](../examples/with-elysia) uses both, and CI tests it with Elysia 1.0.0 and the latest Elysia on Node.js and Bun.
 
+## NestJS
+
+NestJS 11 and 12. `@browserlessapi/inferlo/nestjs` has no runtime dependency on NestJS and never loads Inferlo's router, database or jobs code.
+
+```ts
+import { Inject, Injectable, Module } from "@nestjs/common";
+import { anthropic, createAI, t, type AI } from "@browserlessapi/inferlo/ai";
+import { INFERLO_AI, InferloModule } from "@browserlessapi/inferlo/nestjs";
+
+const ai = createAI({ providers: { anthropic: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+@Injectable()
+export class ClassifyService {
+  constructor(@Inject(INFERLO_AI) private readonly ai: AI) {}
+
+  async classify(text: string) {
+    const { object } = await this.ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+    return object;
+  }
+}
+
+@Module({ imports: [InferloModule.forRoot({ ai })], providers: [ClassifyService] })
+export class AppModule {}
+```
+
+- `InferloModule.forRoot({ ai })` provides the AI client (`createAI(...)` or an Inferlo app's `app.ai`) under the token `INFERLO_AI`. The module is global by default, so every module can inject it; pass `global: false` to import it where it is needed.
+- `InferloModule.forRootAsync({ imports, inject, useFactory })` creates the client when Nest starts, for example from `ConfigService`: `forRootAsync({ inject: [ConfigService], useFactory: (config) => createAI({ providers: { anthropic: anthropic({ apiKey: config.getOrThrow("ANTHROPIC_API_KEY") }) }, models }) })`.
+- Anything that is not an AI client raises IL5014 (for `useFactory`, when Nest starts); missing options raise IL5016.
+- In a controller, return `this.ai.stream(...).toResponse()` through `@Res()` with `sendResponse(res, response)` from `@browserlessapi/inferlo/express` to stream server-sent events.
+
+A whole Inferlo app mounts with `nest.use("/api", toNodeHandler(inferlo))` on the Express platform (above), or with `inferloPlugin` from `@browserlessapi/inferlo/fastify` on the Fastify platform. The [with-nestjs example](../examples/with-nestjs) uses both, and CI tests it with NestJS 11.0.0 (the oldest major with security support) and the latest NestJS.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
 
-Framework-specific helpers for NestJS, AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+Framework-specific helpers for AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
 
 ---
 
@@ -1806,10 +1840,13 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid tool.** A `tool(name, { description, input }).handle(fn)` definition is not usable: the name must be letters, digits, `_` and `-`, starting with a letter, at most 64 characters (what providers accept); `description` must say what the tool does; `input` must be a `t.object({ ... })` schema; `handle` needs a function. Also raised when two tools in one `ai.generate` call have the same name.
 
 ### IL5014
-**inferloAI() needs an AI client.** The Hono middleware from `@browserlessapi/inferlo/hono`, the Express middleware from `@browserlessapi/inferlo/express` `inferloPlugin` from `@browserlessapi/inferlo/fastify` or the Elysia plugin from `@browserlessapi/inferlo/elysia` was given something that is not an AI client. Pass `createAI({ providers, models })` from `@browserlessapi/inferlo/ai`, or an Inferlo app's `app.ai`: `hono.use(inferloAI(ai))`, `server.use(inferloAI(ai))` or `new Elysia().use(inferloAI(ai))`.
+**inferloAI() needs an AI client.** The Hono middleware from `@browserlessapi/inferlo/hono`, the Express middleware from `@browserlessapi/inferlo/express` `inferloPlugin` from `@browserlessapi/inferlo/fastify` , the Elysia plugin from `@browserlessapi/inferlo/elysia` or `InferloModule` from `@browserlessapi/inferlo/nestjs` was given something that is not an AI client. Pass `createAI({ providers, models })` from `@browserlessapi/inferlo/ai`, or an Inferlo app's `app.ai`: `hono.use(inferloAI(ai))`, `server.use(inferloAI(ai))` or `new Elysia().use(inferloAI(ai))`.
 
 ### IL5015
 **Invalid inferloPlugin options.** `fastify.register(inferloPlugin, options)` from `@browserlessapi/inferlo/fastify` needs `ai` (for `fastify.ai` and `request.ai`), `app` (an Inferlo app from `createApp`) with a `prefix` such as `"/api"` (starting with `/`, not ending with `/`), or both: `fastify.register(inferloPlugin, { app, prefix: "/api" })`.
+
+### IL5016
+**Invalid InferloModule options.** `InferloModule.forRoot()` from `@browserlessapi/inferlo/nestjs` needs `{ ai }`, and `InferloModule.forRootAsync()` needs a `useFactory` function that returns the AI client: `InferloModule.forRootAsync({ inject: [ConfigService], useFactory: (config) => createAI({ ... }) })`.
 
 ## App configuration (6xxx)
 

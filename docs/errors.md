@@ -138,10 +138,13 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid tool.** A `tool(name, { description, input }).handle(fn)` definition is not usable: the name must be letters, digits, `_` and `-`, starting with a letter, at most 64 characters (what providers accept); `description` must say what the tool does; `input` must be a `t.object({ ... })` schema; `handle` needs a function. Also raised when two tools in one `ai.generate` call have the same name.
 
 ### IL5014
-**inferloAI() needs an AI client.** The Hono middleware from `@browserlessapi/inferlo/hono`, the Express middleware from `@browserlessapi/inferlo/express` `inferloPlugin` from `@browserlessapi/inferlo/fastify` or the Elysia plugin from `@browserlessapi/inferlo/elysia` was given something that is not an AI client. Pass `createAI({ providers, models })` from `@browserlessapi/inferlo/ai`, or an Inferlo app's `app.ai`: `hono.use(inferloAI(ai))`, `server.use(inferloAI(ai))` or `new Elysia().use(inferloAI(ai))`.
+**inferloAI() needs an AI client.** The Hono middleware from `@browserlessapi/inferlo/hono`, the Express middleware from `@browserlessapi/inferlo/express` `inferloPlugin` from `@browserlessapi/inferlo/fastify` , the Elysia plugin from `@browserlessapi/inferlo/elysia` or `InferloModule` from `@browserlessapi/inferlo/nestjs` was given something that is not an AI client. Pass `createAI({ providers, models })` from `@browserlessapi/inferlo/ai`, or an Inferlo app's `app.ai`: `hono.use(inferloAI(ai))`, `server.use(inferloAI(ai))` or `new Elysia().use(inferloAI(ai))`.
 
 ### IL5015
 **Invalid inferloPlugin options.** `fastify.register(inferloPlugin, options)` from `@browserlessapi/inferlo/fastify` needs `ai` (for `fastify.ai` and `request.ai`), `app` (an Inferlo app from `createApp`) with a `prefix` such as `"/api"` (starting with `/`, not ending with `/`), or both: `fastify.register(inferloPlugin, { app, prefix: "/api" })`.
+
+### IL5016
+**Invalid InferloModule options.** `InferloModule.forRoot()` from `@browserlessapi/inferlo/nestjs` needs `{ ai }`, and `InferloModule.forRootAsync()` needs a `useFactory` function that returns the AI client: `InferloModule.forRootAsync({ inject: [ConfigService], useFactory: (config) => createAI({ ... }) })`.
 
 ## App configuration (6xxx)
 

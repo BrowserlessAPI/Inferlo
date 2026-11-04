@@ -4,3 +4,4 @@ dist
 .env
 bench/results/*.json
 !bench/results/.gitkeep
+examples/with-nestjs/.compiled
