@@ -85,7 +85,7 @@ If you change docs, run `npm run llms` to regenerate `llms-full.txt`.
 
 ## Releases
 
-Releases are published to npm by `.github/workflows/release.yml` when a commit on main changes `package.json` to a version that is not on npm yet. The workflow also creates the `vX.Y.Z` tag and GitHub release, so never push tags yourself. Release at most once a week, and only when the latest CI run on main is green and CHANGELOG.md has entries under "Unreleased":
+Releases are published to npm by `.github/workflows/release.yml` when a commit on main changes `package.json` to a version that is not on npm yet. The workflow also creates the `vX.Y.Z` tag and GitHub release, so never push tags yourself. Release at most once a day, and only when the latest CI run on main is green and CHANGELOG.md has entries under "Unreleased":
 
 1. Choose the version: before 1.0, bump the minor version (0.2.0) if anything under "Unreleased" adds features or is breaking, otherwise the patch version (0.1.1).
 2. Set it in `package.json` and `src/describe.ts` (`INFERLO_VERSION`), move the "Unreleased" entries under `## X.Y.Z - YYYY-MM-DD`, leave an empty "Unreleased" heading, and run all checks.
