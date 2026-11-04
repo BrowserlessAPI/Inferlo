@@ -117,7 +117,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **A stream was read twice.** Call `ai.stream()` again.
 
 ### IL5009
-**Tools outside a route handler.** `ai.generate({ tools })` only works through `ctx.ai` in a route handler, so every tool call runs as the signed-in user with the route's auth and validation.
+**Route tools outside a route handler.** Routes passed to `ai.generate({ tools })` only work through `ctx.ai` in a route handler, so every tool call runs as the signed-in user with the route's auth and validation. Outside a route handler (with `createAI`), make function tools with `tool(name, { description, input }).handle(fn)` instead.
 
 ### IL5010
 **Step limit reached (502).** The model was still calling tools after `maxSteps` model calls (default 5). Raise `maxSteps`, give the model fewer and more specific tools, or say in the prompt when to stop. `details` (server log) lists the tools called in each step.
@@ -127,6 +127,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5012
 **Invalid image.** An image passed to `ai.generate` or `ai.stream` (with `images` next to `prompt`, or on a message) is not usable. Each image is `{ url }` with an `https://`, `http://` or `data:` URL, or `{ base64, mediaType }` with base64 data (no `data:` prefix, no line breaks) and a media type of `image/png`, `image/jpeg`, `image/gif` or `image/webp`. Only user messages can have images, and `images` needs a `prompt`. The call is rejected before any model is called.
+
+### IL5013
+**Invalid tool.** A `tool(name, { description, input }).handle(fn)` definition is not usable: the name must be letters, digits, `_` and `-`, starting with a letter, at most 64 characters (what providers accept); `description` must say what the tool does; `input` must be a `t.object({ ... })` schema; `handle` needs a function. Also raised when two tools in one `ai.generate` call have the same name.
 
 ## App configuration (6xxx)
 

@@ -54,7 +54,7 @@ const { object } = await ai.generate({
 });
 ```
 
-`createAI` takes the same options as `createApp({ ai })`, and `ai` has the same `generate`, `stream`, `embed` and `aliases` as `ctx.ai` in a route handler. The entry point also exports the providers, `mockProvider` for tests, `t` and `toJSONSchema` for structured output, `env`, `InferloError` and the types (`AI`, `AIConfig`, `Usage`, `Message`, `Provider`, ...). Tools made from routes need a route handler (IL5009).
+`createAI` takes the same options as `createApp({ ai })`, and `ai` has the same `generate`, `stream`, `embed` and `aliases` as `ctx.ai` in a route handler. The entry point also exports the providers, `mockProvider` for tests, `t` and `toJSONSchema` for structured output, `tool` for [function tools](#tools-let-the-model-call-your-functions), `env`, `InferloError`, `httpError` and the types (`AI`, `AIConfig`, `Usage`, `Message`, `Provider`, `ToolDef`, ...). Tools made from routes need a route handler (IL5009); function tools work anywhere.
 
 `openaiCompatible()` works with any Chat Completions server: OpenAI, DeepSeek, Qwen (DashScope), Groq, Together, OpenRouter, vLLM, LM Studio and others.
 
@@ -107,6 +107,32 @@ object.priority; // "low" | "normal" | "urgent"
 
 Inferlo sends the JSON Schema to the model, extracts the JSON (tolerating code fences), validates it, and if it does not match, asks the model once to fix it, quoting the exact problems. If it still fails you get IL5002. Model fields can be reused directly: `priority: Ticket.fields.priority`.
 
+## Tools: let the model call your functions
+
+Make a tool from a plain function with `tool(name, { description, input }).handle(fn)` and pass it in `tools`. Function tools work everywhere: with `createAI` from `@browserlessapi/inferlo/ai` in any framework, and with `ctx.ai` in a route handler, next to route tools.
+
+```ts
+import { createAI, tool, t, httpError } from "@browserlessapi/inferlo/ai";
+
+export const getWeather = tool("getWeather", {
+  description: "Current weather for a city",
+  input: t.object({ city: t.string(), unit: t.enum(["c", "f"]).default("c") }),
+}).handle(async ({ input, signal }) => {
+  const weather = await weatherApi(input.city, input.unit, { signal });
+  if (!weather) throw httpError(404, `No weather for ${input.city}.`);
+  return weather;
+});
+
+const { text, steps } = await ai.generate({ model: "fast", prompt: "Do I need an umbrella in Oslo?", tools: [getWeather] });
+```
+
+- **Input is validated.** The model's arguments are checked against `input` (defaults applied) before your function runs. Invalid arguments go back to the model as a failed tool result with status 422 and IL1001, so it can correct itself.
+- **Output** is any JSON value, sent to the model as JSON, or a string, sent as it is. `steps[i].toolCalls` has the `output` with status 200.
+- **Errors.** Throw `httpError(404, "...")` (or `notFound`, `forbidden`, any `InferloError` with a status below 500) to send a failed tool result to the model. Any other error is not hidden: `ai.generate` rejects with it, after reporting the usage so far.
+- **Names** are letters, digits, `_` and `-` (the provider limit), and must be unique in one call. Invalid definitions raise IL5013.
+- `signal` is the `ai.generate` call's `signal`, so long tools stop with the call.
+- Step limit, usage per step, budgets and fallback work as for route tools below.
+
 ## Tools: let the model call your routes
 
 Pass routes as `tools` and the model can call them while it works out its answer. Each tool call runs as an HTTP request to the route **as the current user**: the route's `auth`, roles and schema validation apply exactly as they do for any other client, so a model can never do more than the user could.
@@ -136,7 +162,7 @@ export const assistant = route
 - **Usage per step.** `steps` lists every model call with its `text`, `toolCalls` (`name`, `input`, `status`, `output`, `isError`) and `usage`; `usage` has the totals and is reported to `onUsage` once. `allow` is checked again before every model call that follows tool calls, so budgets stop a long run.
 - **Fallback.** Once a tool has run, Inferlo does not retry on the next model in the alias (that would run the tools again); the call fails with IL5006.
 - **Structured output** works with tools: pass `output` and the final answer is validated as usual.
-- Works with Anthropic, OpenAI, Gemini and OpenAI-compatible servers whose models support tool calling. Tools only work through `ctx.ai` inside a route handler (IL5009), and must be routes registered in `createApp` (IL5011). Streaming with tools is not supported yet.
+- Works with Anthropic, OpenAI, Gemini and OpenAI-compatible servers whose models support tool calling. Route tools only work through `ctx.ai` inside a route handler (IL5009), and must be routes registered in `createApp` (IL5011); function tools work anywhere. Streaming with tools is not supported yet.
 
 In tests, a `mockProvider` can return tool calls:
 

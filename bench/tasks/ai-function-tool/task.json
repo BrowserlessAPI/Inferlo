@@ -1,0 +1,4 @@
+{
+  "title": "Function tool for the AI model",
+  "prompt": "Create src/lib/assistant.ts. Export `checkStock`, an Inferlo AI tool made from a plain function (not a route) named \"checkStock\" that takes { sku: string } and returns { sku, inStock } using stockLevel from src/lib/inventory.ts; when stockLevel returns undefined, the tool must report a 404 error to the model with the message \"Unknown SKU\". Also export `async function answer(ai: AI, question: string)` that asks the \"fast\" model alias the question with checkStock as a tool (at most 3 steps) and returns the text answer."
+}

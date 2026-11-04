@@ -39,7 +39,7 @@ That one model definition gives you the database table, insert and update valida
 - **Every major provider, one API.** Anthropic, OpenAI, Gemini, Ollama and any OpenAI-compatible server (DeepSeek, Qwen, Groq, OpenRouter, vLLM and more).
 - **Model aliases with fallback.** Routes ask for `"fast"` or `"smart"`; if the first model is down or rate limited, Inferlo tries the next one.
 - **Typed structured output.** Pass a schema and get validated, typed data back. Invalid answers are repaired automatically.
-- **Tool calling.** Pass routes as `tools` and the model calls them as the current user, with the same auth and validation, a step limit and usage per step.
+- **Tool calling.** Pass routes as `tools` and the model calls them as the current user, with the same auth and validation, or plain functions made with `tool(name, { description, input }).handle(fn)`, with validated arguments; a step limit and usage per step either way.
 - **Streaming.** Send model output to the browser as it is generated with one call.
 - **Images.** Send image URLs or base64 data with a prompt to any vision model.
 - **Embeddings** for search and recommendations.

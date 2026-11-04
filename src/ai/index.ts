@@ -12,9 +12,12 @@
 import { InferloError, didYouMean } from "../errors.ts";
 import { type AnySchema, type Infer, toJSONSchema } from "../schema.ts";
 import type { RouteDef } from "../route.ts";
+import { functionToolSpec, isTool, runFunctionTool, type ToolDef } from "./tool.ts";
 import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolSpec } from "./providers.ts";
 
 export * from "./providers.ts";
+export { tool, isTool, ToolBuilder } from "./tool.ts";
+export type { ToolDef, FunctionToolOptions, ToolContext } from "./tool.ts";
 
 export interface Pricing {
   /** USD per million input tokens. */
@@ -75,10 +78,11 @@ export interface GenerateOptions<O extends AnySchema | undefined> {
   /** Extra attempts when structured output does not match the schema (default 1). */
   repairAttempts?: number;
   /**
-   * Routes the model may call as tools, with the current user's permissions:
-   * ctx.ai.generate({ prompt, tools: [createTicket, getTicket] }). Only inside a route handler.
+   * Tools the model may call: functions made with tool(name, { description, input }).handle(fn), which work
+   * anywhere, and routes, which run with the current user's permissions and only work through ctx.ai
+   * inside a route handler: ctx.ai.generate({ prompt, tools: [getWeather, createTicket] }).
    */
-  tools?: readonly RouteDef[];
+  tools?: readonly (ToolDef | RouteDef)[];
   /** Most model calls when tools are given: tool rounds plus the final answer (default 5). More raises IL5010. */
   maxSteps?: number;
 }
@@ -86,14 +90,14 @@ export interface GenerateOptions<O extends AnySchema | undefined> {
 /** One tool call the model made, with what the route returned. */
 export interface ToolCallResult {
   id: string;
-  /** Tool name: the route's export name (createTicket). */
+  /** Tool name: the tool's name, or the route's export name (createTicket). */
   name: string;
   input: unknown;
-  /** HTTP status the route answered with. */
+  /** HTTP status the route answered with (a function tool: 200, 422 for invalid input, or the status of the httpError it threw). */
   status: number;
   /** Parsed JSON response (or text), exactly what the model saw. */
   output: unknown;
-  /** True when the route answered with an error status. */
+  /** True when the tool failed (status 400 or more). */
   isError: boolean;
 }
 
@@ -301,16 +305,21 @@ export function createAI(config?: AIConfig): AI {
     async generate(options) {
       const requested = options.model ?? config?.defaultModel ?? Object.keys(aliases)[0] ?? "";
       const targets = resolve(options.model);
-      const tooling = options.tools?.length ? toolRunners.get(this as AI) : undefined;
-      if (options.tools?.length && !tooling) {
-        throw new InferloError("IL5009", "ai.generate({ tools }) only works inside a route handler.", {
-          fix: "Call ctx.ai.generate({ tools }) from a route handler, so each tool runs as the signed-in user with the route's auth and validation.",
+      const routeTools = (options.tools ?? []).filter((t) => !isTool(t)) as RouteDef[];
+      const tooling = routeTools.length ? toolRunners.get(this as AI) : undefined;
+      if (routeTools.length && !tooling) {
+        throw new InferloError("IL5009", "Routes as tools in ai.generate({ tools }) only work inside a route handler.", {
+          fix: "Call ctx.ai.generate({ tools }) from a route handler, so each route runs as the signed-in user with its auth and validation, or make a function tool with tool(name, { description, input }).handle(fn), which works anywhere.",
         });
       }
-      const tools = new Map<string, { route: RouteDef; spec: ToolSpec }>();
-      for (const route of options.tools ?? []) {
-        const spec = tooling!.describe(route);
-        tools.set(spec.name, { route, spec });
+      const tools = new Map<string, { route?: RouteDef; fn?: ToolDef; spec: ToolSpec }>();
+      for (const entry of options.tools ?? []) {
+        const fn = isTool(entry) ? entry : undefined;
+        const spec = fn ? functionToolSpec(fn) : tooling!.describe(entry as RouteDef);
+        if (tools.has(spec.name)) {
+          throw new InferloError("IL5013", `Two tools are named "${spec.name}" in one ai.generate call.`, { fix: "Give each tool a unique name (a route's tool name is its export name, or tool: { name })." });
+        }
+        tools.set(spec.name, fn ? { fn, spec } : { route: entry as RouteDef, spec });
       }
       const specs = tools.size ? [...tools.values()].map((t) => t.spec) : undefined;
       const maxSteps = Math.max(1, options.maxSteps ?? 5);
@@ -386,7 +395,14 @@ export function createAI(config?: AIConfig): AI {
                 result = { status: 422, output: text, text };
               } else {
                 toolsRan = true;
-                result = await tooling!.runner(tool.route, call.input);
+                if (tool.fn) {
+                  try {
+                    result = await runFunctionTool(tool.fn, call.input, options.signal);
+                  } catch (error) {
+                    await record(usageNow());
+                    throw error;
+                  }
+                } else result = await tooling!.runner(tool.route!, call.input);
               }
               const isError = result.status >= 400;
               step.toolCalls.push({ id: call.id, name: call.name, input: call.input, status: result.status, output: result.output, isError });

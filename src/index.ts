@@ -30,6 +30,8 @@ export type {
 } from "./db/migrate.ts";
 
 export { createAI, cosineSimilarity, extractJson, openai, openaiCompatible, anthropic, gemini, ollama, mockProvider, ProviderError } from "./ai/index.ts";
+export { tool, isTool, ToolBuilder } from "./ai/tool.ts";
+export type { ToolDef, FunctionToolOptions, ToolContext } from "./ai/tool.ts";
 export type {
   AI,
   AIConfig,
