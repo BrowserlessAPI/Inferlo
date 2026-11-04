@@ -1,0 +1,5 @@
+{
+  "title": "Use Inferlo's AI inside an Express app",
+  "prompt": "Create src/express.ts for an existing Express app. Export `server`, an Express app whose handlers get the AI client from the request as req.ai, put there by Inferlo's Express middleware. The AI client uses an Anthropic provider (API key from the ANTHROPIC_API_KEY environment variable) with a \"fast\" alias for anthropic:claude-haiku-4-5. Add POST /translate to the Express app: it reads { \"text\": string, \"to\": string } from the JSON body, asks the \"fast\" model to translate the text into that language, and returns { \"translation\": <the model's text> }. Also mount the existing Inferlo app from src/app.ts under /api, so GET /api/health reaches its health endpoint. Do not call listen() in src/express.ts.",
+  "packages": ["express", "@types/express"]
+}

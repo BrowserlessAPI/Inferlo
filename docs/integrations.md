@@ -42,6 +42,8 @@ server.use("/ai", toNodeHandler(inferlo)); // Express strips "/ai" from req.url
 server.listen(3000);
 ```
 
+For `req.ai` in your own Express routes, see [Express](#express) below.
+
 ### Fastify
 
 ```ts
@@ -106,8 +108,40 @@ hono.mount("/api", inferlo.fetch); // /api/tickets, /api/openapi.json, /api/mcp
 
 The [with-hono example](../examples/with-hono) uses both, and CI tests it with Hono 4.0.0 and the latest Hono.
 
+## Express
+
+Express 4 and 5. `@browserlessapi/inferlo/express` has no dependency on Express and never loads Inferlo's router, database or jobs code.
+
+```ts
+import express from "express";
+import { anthropic, createAI, t } from "@browserlessapi/inferlo/ai";
+import { toNodeHandler } from "@browserlessapi/inferlo";
+import { inferloAI, sendResponse } from "@browserlessapi/inferlo/express";
+
+const ai = createAI({ providers: { anthropic: anthropic() }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+const server = express();
+server.use(express.json());
+server.use(inferloAI(ai)); // or server.use("/chat", inferloAI(ai))
+
+server.post("/classify", async (req, res) => {
+  const { object } = await req.ai.generate({ model: "fast", prompt: req.body.text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+  res.json(object);
+});
+server.get("/chat", (req, res) => sendResponse(res, req.ai.stream({ model: "fast", prompt: String(req.query.q ?? "") }).toResponse())); // server-sent events
+
+server.use("/api", toNodeHandler(inferloApp)); // a whole Inferlo app: /api/tickets, /api/openapi.json, /api/mcp
+server.listen(3000);
+```
+
+- `inferloAI(ai)` puts the AI client on every request as `req.ai`. Importing `@browserlessapi/inferlo/express` adds `ai` to Express's `Request` type (with `@types/express`), so `req.ai` is typed in every handler. Pass `createAI(...)` or an Inferlo app's `app.ai`; anything else raises IL5014. Function tools (`tool(...)`) work in `req.ai.generate({ tools })`; routes as tools need an Inferlo route handler (IL5009).
+- `sendResponse(res, response)` sends a Web `Response` from an Express handler: status, headers (every `Set-Cookie`) and the body, streamed. Use it for `ai.stream(...).toResponse()`.
+- A whole Inferlo app mounts with `toNodeHandler` (above). Express removes the mount path, so no `prefix` is needed; a body already parsed by `express.json()` is passed on.
+
+The [with-express example](../examples/with-express) uses all three, and CI tests it with Express 4 (the newest 4.x release, still maintained upstream) and the latest Express.
+
 ## Other web-standard frameworks
 
 ElysiaJS (`mount`), Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
 
-Framework-specific helpers for ElysiaJS, Fastify, NestJS, AdonisJS, Ts.ED, tRPC, Encore.ts and Express, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+Framework-specific helpers for ElysiaJS, Fastify, NestJS, AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

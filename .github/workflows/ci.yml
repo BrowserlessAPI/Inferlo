@@ -118,6 +118,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/hono.test.ts "examples/with-hono/test/*.test.ts"
 
+  express:
+    name: Express ${{ matrix.express }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 4 = oldest supported (Express 4 is in maintenance upstream, so its newest 4.x release is tested),
+        # latest = newest release (Express 5).
+        express: ["4", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save express@${{ matrix.express }}
+      - run: node -p "'Express ' + require('./node_modules/express/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/express.test.ts "examples/with-express/test/*.test.ts"
+
   bun:
     name: Bun ${{ matrix.bun }}
     runs-on: ubuntu-latest

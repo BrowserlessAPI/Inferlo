@@ -103,6 +103,8 @@ test("@browserlessapi/inferlo/hono is exported and loads no router, database or 
   assert.equal(pkg.dependencies, undefined, "no runtime dependencies");
   const source = readFileSync(path.join(repo, "src/hono.ts"), "utf8");
   const runtimeImports = [...source.matchAll(/^import\s+(?!type\s)[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]);
-  assert.deepEqual(runtimeImports, ["./errors.ts"]);
+  assert.deepEqual(runtimeImports, ["./ai-client.ts"]);
+  const shared = readFileSync(path.join(repo, "src/ai-client.ts"), "utf8");
+  assert.deepEqual([...shared.matchAll(/^import\s+(?!type\s)[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]), ["./errors.ts"]);
   assert.ok(existsSync(path.join(repo, "src/hono.ts")));
 });

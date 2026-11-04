@@ -137,7 +137,8 @@ export function fromNodeRequest(req: NodeRequest, options: FromNodeRequestOption
   return buildRequest(req, path, options.signal);
 }
 
-async function writeResponse(res: NodeResponse, response: Response, method: string): Promise<void> {
+/** Write a Web Response (status, headers with every Set-Cookie, streamed body) to a Node response. */
+export async function writeResponse(res: NodeResponse, response: Response, method: string): Promise<void> {
   const outHeaders: Record<string, string | string[]> = {};
   response.headers.forEach((value, key) => {
     if (key === "set-cookie") return;

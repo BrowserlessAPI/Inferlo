@@ -12,7 +12,7 @@
  * This entry point never loads the router, database or jobs code.
  */
 import type { AI } from "./ai/index.ts";
-import { InferloError } from "./errors.ts";
+import { assertAIClient } from "./ai-client.ts";
 
 /** Context variables set by inferloAI(): new Hono<{ Variables: InferloVariables }>(). */
 export type InferloVariables = { ai: AI };
@@ -27,12 +27,7 @@ export type InferloAIMiddleware = (c: HonoContextLike, next: () => Promise<void>
 
 /** Puts an AI client (createAI(...) or an Inferlo app's app.ai) on the Hono context as c.var.ai. */
 export function inferloAI(ai: AI): InferloAIMiddleware {
-  const candidate = ai as Partial<AI> | undefined;
-  if (!candidate || typeof candidate.generate !== "function" || typeof candidate.stream !== "function" || typeof candidate.embed !== "function") {
-    throw new InferloError("IL5014", "inferloAI() needs an AI client.", {
-      fix: 'Pass createAI({ providers, models }) from "@browserlessapi/inferlo/ai", or an Inferlo app\'s app.ai: hono.use(inferloAI(ai)).',
-    });
-  }
+  assertAIClient(ai, 'Pass createAI({ providers, models }) from "@browserlessapi/inferlo/ai", or an Inferlo app\'s app.ai: hono.use(inferloAI(ai)).');
   return async (c, next) => {
     c.set("ai", ai);
     await next();
