@@ -68,6 +68,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | ElysiaJS (`/elysia`), on Node.js and Bun | 1.0.0 and newer |
 | NestJS (`/nestjs`) | 11.0.0 and newer |
 | tRPC (`/trpc`) | 11.0.0 and newer |
+| AdonisJS (`/adonisjs`) | 6.2.0 and newer (AdonisJS 7 needs Node.js 24) |
 
 When a version reaches end of life upstream, the next Inferlo release stops supporting it: the minimum moves forward, `engines` and these docs change, and the changelog lists it under "Breaking". When a new major version is released upstream, it is added to CI and supported as soon as it passes.
 

@@ -228,6 +228,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/trpc.test.ts "examples/with-trpc/test/*.test.ts"
 
+  adonisjs:
+    name: AdonisJS ${{ matrix.adonisjs }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 6.2.0 = oldest supported (first stable AdonisJS 6 release, still maintained), latest = newest release (7).
+        adonisjs: ["6.2.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          # AdonisJS 7 needs Node.js 24.
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save @adonisjs/core@${{ matrix.adonisjs }}
+      - run: node -p "'AdonisJS ' + require('./node_modules/@adonisjs/core/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/adonisjs.test.ts "examples/with-adonisjs/test/*.test.ts"
+
   bun:
     name: Bun ${{ matrix.bun }}
     runs-on: ubuntu-latest

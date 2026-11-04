@@ -275,8 +275,50 @@ const { text } = await ai.generate({ model: "fast", prompt: "File a ticket: the 
 
 A whole Inferlo app runs next to tRPC on the same server: mount `inferlo.fetch` (Web servers) or `toNodeHandler(inferlo)` (Node servers) under its own path. The [with-trpc example](../examples/with-trpc) uses both helpers with tRPC's fetch adapter, and CI tests it with tRPC 11.0.0 (the oldest supported major; tRPC 10 is no longer maintained) and the latest tRPC.
 
+## AdonisJS
+
+AdonisJS 6 and 7. `@browserlessapi/inferlo/adonisjs` is an AdonisJS provider: it binds the AI client from `config/ai.ts` in the container as `ai` and adds `ctx.ai` to every HTTP context. It has no runtime dependency on AdonisJS beyond the app it runs in, and never loads Inferlo's router, database or jobs code.
+
+```ts
+// config/ai.ts
+import env from "#start/env";
+import { anthropic, createAI } from "@browserlessapi/inferlo/ai";
+
+export default createAI({
+  providers: { anthropic: anthropic({ apiKey: env.get("ANTHROPIC_API_KEY") }) },
+  models: { fast: "anthropic:claude-haiku-4-5" },
+});
+```
+
+```ts
+// adonisrc.ts
+providers: [
+  () => import("@adonisjs/core/providers/app_provider"),
+  // ...
+  () => import("@browserlessapi/inferlo/adonisjs"),
+],
+```
+
+```ts
+// start/routes.ts
+import router from "@adonisjs/core/services/router";
+import { t } from "@browserlessapi/inferlo/ai";
+
+router.post("/classify", async ({ ai, request }) => {
+  const { object } = await ai.generate({ model: "fast", prompt: request.input("text"), output: t.object({ label: t.enum(["bug", "feature"]) }) });
+  return object;
+});
+```
+
+- `ctx.ai` and the container binding `ai` are typed: importing the provider adds `ai` to `HttpContext` and `ContainerBindings`.
+- Outside an HTTP context (services, commands, queue jobs), resolve it from the container: `const ai = await app.container.make("ai")`.
+- The client is checked when the app boots: a missing `config/ai.ts` raises IL5018, and a default export that is not an AI client (`createAI(...)` or an Inferlo app's `app.ai`) raises IL5014.
+- To stream to the browser, write the chunks of `ai.stream(...)` to `response.response` (the Node response), or return `await ai.stream(...).text()` when you do not need streaming.
+
+The [with-adonisjs example](../examples/with-adonisjs) boots an AdonisJS app with the provider, and CI tests it with AdonisJS 6.2.0 (the first stable 6.x; AdonisJS 6 is still maintained) and the latest AdonisJS (7, on Node.js 24).
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
 
-Framework-specific helpers for AdonisJS, Ts.ED and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+Framework-specific helpers for Ts.ED and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

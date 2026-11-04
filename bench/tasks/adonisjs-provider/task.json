@@ -1,0 +1,7 @@
+{
+  "title": "Use Inferlo's AI inside an AdonisJS app",
+  "prompt": "This project also has an AdonisJS app in src/adonis/ (adonisrc.ts and start/routes.ts). Give its route handlers an AI client as ctx.ai with Inferlo's AdonisJS provider: register the provider in src/adonis/adonisrc.ts, and create src/adonis/config/ai.ts whose default export is the AI client, using an Anthropic provider (API key from the ANTHROPIC_API_KEY environment variable) with a \"fast\" alias for anthropic:claude-haiku-4-5. Then add POST /translate to src/adonis/start/routes.ts: it reads { \"text\": string, \"to\": string } from the JSON body, asks the \"fast\" model to translate the text into that language, and returns { \"translation\": <the model's text> }.",
+  "packages": [
+    "@adonisjs/core"
+  ]
+}
