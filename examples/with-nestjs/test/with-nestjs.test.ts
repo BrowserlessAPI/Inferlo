@@ -3,17 +3,19 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
 import { mockProvider } from "../../../src/ai/public.ts";
 
 // NestJS uses decorators, which Node cannot run from TypeScript source, so the test compiles src/ the way
-// tsc does for a Nest app (experimentalDecorators, emitDecoratorMetadata) and runs the output.
+// tsc does for a Nest app (experimentalDecorators, emitDecoratorMetadata) and runs the output. The compiler
+// API is loaded untyped: this repo's TypeScript (5.x) has it, while TypeScript 7 (tested in CI for
+// typechecking only) ships without a JavaScript API.
+const ts: any = (await import("typescript" as string)).default;
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(here, "..", ".compiled");
 before(() => {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  const options = ts.getParsedCommandLineOfConfigFile(path.join(here, "..", "tsconfig.json"), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })!.options;
+  const options = ts.getParsedCommandLineOfConfigFile(path.join(here, "..", "tsconfig.json"), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} }).options;
   for (const file of readdirSync(path.join(here, "..", "src"))) {
     const source = readFileSync(path.join(here, "..", "src", file), "utf8");
     const { outputText } = ts.transpileModule(source, { compilerOptions: { ...options, module: ts.ModuleKind.ESNext, rewriteRelativeImportExtensions: false, noEmit: false }, fileName: file });
