@@ -1023,7 +1023,7 @@ Register jobs in `createApp`, like routes:
 ```ts
 import * as jobs from "./jobs.ts";
 
-export const app = createApp({ models, routes: [health, notes], jobs: [jobs], ... });
+export const app = createApp({ models, routes: [notes], jobs: [jobs], ... });
 ```
 
 ## Enqueue
@@ -1059,14 +1059,11 @@ Throw to fail an attempt. A failed job runs again after 10 seconds, then 20, 40,
 ```ts
 // src/server.ts
 const server = await app.listen(Number(process.env.PORT ?? 3000));
-const worker = app.jobs.start();        // runs due jobs every second (pollMs: 1000)
-process.on("SIGTERM", async () => {
-  await worker.stop();                 // waits for the running job
-  await server.close();
-});
+app.jobs.start();                      // runs due jobs every second (pollMs: 1000)
+process.on("SIGTERM", () => void app.close());   // stops the worker, waits for the running job
 ```
 
-New projects do this in `src/server.ts`.
+New projects do this in `src/server.ts`. `app.close()` stops every worker started with `app.jobs.start()` and waits for its running job, together with in-flight requests, then closes the server and the database (see [graceful shutdown](deploy.md#graceful-shutdown)). To stop only the jobs, keep the worker and call `await worker.stop()`.
 
 To run jobs in separate processes, keep them in the database (below) and start `inferlo worker` (`npm run worker` in new projects). It runs `app.jobs.start()` and, on SIGTERM or Ctrl+C, waits for the running job before it exits. Web servers and workers share the queue, so you can run jobs in both or only in workers. See [CLI](cli.md#inferlo-worker).
 
@@ -1431,6 +1428,27 @@ livenessProbe: { httpGet: { path: /health, port: 3000 } }
 readinessProbe: { httpGet: { path: /ready, port: 3000 }, periodSeconds: 10 }
 ```
 
+## Graceful shutdown
+
+When an instance is stopped (a deploy, scaling down, a node drain), the orchestrator sends SIGTERM and waits a grace period before it kills the process. `app.close()` uses that time so no request or job is cut off:
+
+```ts
+// src/server.ts (new projects do this)
+const server = await app.listen(settings.PORT);
+app.jobs.start();
+process.on("SIGTERM", () => void app.close({ delayMs: 5000 }));
+```
+
+In order:
+
+1. `app.closing` becomes `true` and `GET /ready` answers `503` with `{ "status": "not_ready", "checks": { "shutdown": { "status": "error", "durationMs": 0, "error": "The app is shutting down." } } }`, so load balancers stop sending traffic. `GET /health` keeps answering `200`, so the instance is not restarted.
+2. For `delayMs` (default 0) requests are still served. Set it a little longer than the readiness probe period plus the time your load balancer needs to remove the instance (5 to 10 seconds is common on Kubernetes).
+3. New requests then get `503` with code IL2006 and `Connection: close`, so clients and proxies retry on another instance.
+4. In-flight requests, `ctx.waitUntil` tasks and the job workers started with `app.jobs.start()` (with their running job) finish, for at most `timeoutMs` (default 10000). If they take longer, `app.close()` logs what was still running and goes on.
+5. Servers started with `app.listen()` close (open connections are closed when the time is up), then the database.
+
+Calling `app.close()` again returns the same promise. Keep `delayMs + timeoutMs` below the orchestrator's grace period (30 seconds on Kubernetes by default). A request counts as in flight until its handler returns; a streamed response that is still sending when the time is up is cut off when the server closes. Invalid options raise IL6015. `inferlo worker` shuts down the same way for jobs: it stops taking jobs on SIGTERM and waits for the running one.
+
 ## Bun
 
 ```bash
@@ -1503,6 +1521,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL2005
 **Too many requests (429).** The route's `rateLimit` allows `max` requests per window for this user or IP. Wait the number of seconds in the `Retry-After` header before retrying.
+
+### IL2006
+**The server is shutting down (503).** `app.close()` was called (usually on SIGTERM during a deploy) and this instance no longer takes new requests. The response has `Connection: close`; retry the request and another instance answers it. See [graceful shutdown](deploy.md#graceful-shutdown).
 ## Auth (3xxx)
 
 ### IL3001
@@ -1637,6 +1658,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6014
 **Invalid health options.** `createApp({ health })` takes `true` or `{ path, readyPath, checks, timeoutMs }`: paths start with `/`, differ from each other and from the OpenAPI and MCP paths, and no `GET` route uses them (remove your own `/health` route when you turn this on); `checks` are functions named anything but the built-in `database` and `ai`; `timeoutMs` is a positive number.
+
+### IL6015
+**Invalid `app.close()` options.** `delayMs` and `timeoutMs` are numbers of milliseconds, 0 or more: `app.close({ delayMs: 5000, timeoutMs: 10000 })`.
 
 ## Environment (7xxx)
 

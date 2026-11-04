@@ -15,7 +15,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [ ] Modules: `module("billing", { models, routes, jobs, provides })` to split large apps into feature modules with explicit dependencies (no decorators, no hidden injection), shown in `inferlo describe`
 - [x] Typed configuration: `config({ schema })` validated at startup from environment and `.env` files, with per-environment overrides and secrets never logged
 - [x] Health and readiness part 1: `createApp({ health })` with `/health` and `/ready` endpoints checking the database (and with it the database queue and rate limits), the AI configuration and custom checks, with timeouts and no leaked error details
-- [ ] Health and readiness part 2: graceful shutdown, `app.close()` that makes `/ready` answer 503, stops taking new requests, waits for in-flight requests and the running job, then closes the database; the app template uses it and the built-in health endpoints
+- [x] Health and readiness part 2: graceful shutdown, `app.close()` that makes `/ready` answer 503, stops taking new requests, waits for in-flight requests and the running job, then closes the database; the app template uses it and the built-in health endpoints
 - [ ] Observability: structured JSON logging with request ids, Prometheus metrics endpoint, and OpenTelemetry tracing for requests, database queries, jobs and AI calls
 - [ ] Permissions: role- and policy-based access control (`can("ticket.update", { user, ticket })`) usable in routes, tools and jobs, plus an audit log of who changed what
 - [ ] Security hardening: secure headers, request size and timeout limits, CSRF for cookie sessions, secret redaction in logs and errors, and `SECURITY.md` with a vulnerability reporting process

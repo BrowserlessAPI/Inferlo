@@ -13,10 +13,10 @@ test("the Inferlo app is mounted under /api inside the node:http server", async 
   try {
     const health = await fetch(`${base}/api/health`);
     assert.equal(health.status, 200);
-    assert.deepEqual(await health.json(), { ok: true });
+    assert.deepEqual(await health.json(), { status: "ok" });
     const doc = await fetch(`${base}/api/openapi.json`);
     assert.equal(doc.status, 200);
-    assert.ok((await doc.json()).paths["/health"]);
+    assert.ok((await doc.json()).paths["/notes"]);
     const notes = await fetch(`${base}/api/notes`);
     assert.equal(notes.status, 401, "app auth still applies");
     const old = await fetch(`${base}/status`);

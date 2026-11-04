@@ -41,6 +41,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL2005
 **Too many requests (429).** The route's `rateLimit` allows `max` requests per window for this user or IP. Wait the number of seconds in the `Retry-After` header before retrying.
+
+### IL2006
+**The server is shutting down (503).** `app.close()` was called (usually on SIGTERM during a deploy) and this instance no longer takes new requests. The response has `Connection: close`; retry the request and another instance answers it. See [graceful shutdown](deploy.md#graceful-shutdown).
 ## Auth (3xxx)
 
 ### IL3001
@@ -175,6 +178,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6014
 **Invalid health options.** `createApp({ health })` takes `true` or `{ path, readyPath, checks, timeoutMs }`: paths start with `/`, differ from each other and from the OpenAPI and MCP paths, and no `GET` route uses them (remove your own `/health` route when you turn this on); `checks` are functions named anything but the built-in `database` and `ai`; `timeoutMs` is a positive number.
+
+### IL6015
+**Invalid `app.close()` options.** `delayMs` and `timeoutMs` are numbers of milliseconds, 0 or more: `app.close({ delayMs: 5000, timeoutMs: 10000 })`.
 
 ## Environment (7xxx)
 

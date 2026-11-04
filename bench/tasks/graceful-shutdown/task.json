@@ -1,0 +1,4 @@
+{
+  "title": "Graceful shutdown on SIGTERM",
+  "prompt": "Our Kubernetes deployment needs graceful shutdown the Inferlo way. Create src/shutdown.ts exporting `async function shutdown(): Promise<void>` that shuts down the app from src/app.ts: the readiness endpoint must answer 503 at once, requests must still be served for 1 second so the load balancer can stop sending traffic, then new requests are refused while in-flight requests and the running job finish, and the server and database close. Call shutdown() from src/server.ts on SIGTERM."
+}

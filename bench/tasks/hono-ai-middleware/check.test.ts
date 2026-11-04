@@ -28,5 +28,5 @@ test("the Hono app uses inferloAI() and mounts the Inferlo app under /api", asyn
 
   const health = await hono.request("/api/health");
   assert.equal(health.status, 200);
-  assert.deepEqual(await health.json(), { ok: true });
+  assert.deepEqual(await health.json(), { status: "ok" });
 });

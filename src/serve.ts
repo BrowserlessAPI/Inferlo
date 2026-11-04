@@ -206,8 +206,17 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
     server.listen(port, hostname, () => resolve());
   });
   const address = server.address();
-  return {
+  const result: Server = {
     port: typeof address === "object" && address ? address.port : port,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeIdleConnections();
+      }),
   };
+  forceClosers.set(result, () => server.closeAllConnections());
+  return result;
 }
+
+/** Closes every open connection of a Node server from serve(), for app.close() after its timeout. */
+export const forceClosers = new WeakMap<Server, () => void>();

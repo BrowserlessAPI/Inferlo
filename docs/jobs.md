@@ -22,7 +22,7 @@ Register jobs in `createApp`, like routes:
 ```ts
 import * as jobs from "./jobs.ts";
 
-export const app = createApp({ models, routes: [health, notes], jobs: [jobs], ... });
+export const app = createApp({ models, routes: [notes], jobs: [jobs], ... });
 ```
 
 ## Enqueue
@@ -58,14 +58,11 @@ Throw to fail an attempt. A failed job runs again after 10 seconds, then 20, 40,
 ```ts
 // src/server.ts
 const server = await app.listen(Number(process.env.PORT ?? 3000));
-const worker = app.jobs.start();        // runs due jobs every second (pollMs: 1000)
-process.on("SIGTERM", async () => {
-  await worker.stop();                 // waits for the running job
-  await server.close();
-});
+app.jobs.start();                      // runs due jobs every second (pollMs: 1000)
+process.on("SIGTERM", () => void app.close());   // stops the worker, waits for the running job
 ```
 
-New projects do this in `src/server.ts`.
+New projects do this in `src/server.ts`. `app.close()` stops every worker started with `app.jobs.start()` and waits for its running job, together with in-flight requests, then closes the server and the database (see [graceful shutdown](deploy.md#graceful-shutdown)). To stop only the jobs, keep the worker and call `await worker.stop()`.
 
 To run jobs in separate processes, keep them in the database (below) and start `inferlo worker` (`npm run worker` in new projects). It runs `app.jobs.start()` and, on SIGTERM or Ctrl+C, waits for the running job before it exits. Web servers and workers share the queue, so you can run jobs in both or only in workers. See [CLI](cli.md#inferlo-worker).
 

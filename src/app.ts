@@ -14,7 +14,8 @@ import { buildOpenAPI } from "./openapi.ts";
 import { isRoute, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps } from "./client-ip.ts";
-import { collectCrons, collectJobs, createJobs, jobStoreFor, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
+import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
+import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 
 export interface AuthConfig {
@@ -63,6 +64,16 @@ export interface CheckResult {
   durationMs: number;
   /** "Check failed." unless the check threw an exposed InferloError (httpError) or exposeErrors is on. */
   error?: string;
+}
+
+export interface CloseOptions {
+  /**
+   * Keep serving requests for this long after /ready starts answering 503, so load balancers stop sending
+   * traffic first (for example a few seconds more than the readiness probe period). Default 0.
+   */
+  delayMs?: number;
+  /** Longest wait for in-flight requests, waitUntil tasks and the running job before closing anyway. Default 10000. */
+  timeoutMs?: number;
 }
 
 export interface ReadinessReport {
@@ -148,6 +159,14 @@ export interface App<Models extends readonly AnyModel[]> {
   listen(port?: number, hostname?: string): Promise<{ port: number; close(): Promise<void> }>;
   /** Run the readiness checks (the same report as GET /ready, also when health is off). */
   checkReady(): Promise<ReadinessReport>;
+  /** True once app.close() was called: /ready answers 503. */
+  readonly closing: boolean;
+  /**
+   * Graceful shutdown, for SIGTERM: /ready answers 503, then (after delayMs) new requests get 503 IL2006,
+   * in-flight requests, waitUntil tasks and the job workers from app.jobs.start() finish (up to timeoutMs),
+   * servers from app.listen() close, then the database. Calling it again returns the same promise.
+   */
+  close(options?: CloseOptions): Promise<void>;
   /** Machine-readable map of the whole app: routes, models, auth and AI. */
   describe(): AppDescription;
   openapi(): Record<string, unknown>;
@@ -418,6 +437,10 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         const response = json(report, report.status === "not_ready" ? 503 : 200, headers);
         return method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;
       }
+      if (refusing) {
+        headers.set("connection", "close");
+        throw new InferloError("IL2006", "The server is shutting down.", { status: 503, fix: "Retry the request; another instance will answer it." });
+      }
       if (openapiPath && url.pathname === openapiPath && method === "GET") return json(app.openapi(), 200, headers);
       if (mcpPath && url.pathname === mcpPath) return await handleMcp(app, req, headers, testUsers);
 
@@ -522,6 +545,67 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     }
   };
 
+  // Shutdown state: closing makes /ready answer 503, refusing (after delayMs) answers new requests with 503.
+  let closing = false;
+  let refusing = false;
+  let closed: Promise<void> | undefined;
+  let inFlight = 0;
+  const tasks = new Set<Promise<unknown>>();
+  const servers = new Set<Server>();
+  let idle: (() => void)[] = [];
+  const settle = () => {
+    if (inFlight > 0 || tasks.size > 0) return;
+    for (const resolve of idle) resolve();
+    idle = [];
+  };
+  const whenIdle = () => new Promise<void>((resolve) => {
+    idle.push(resolve);
+    settle();
+  });
+  /** Resolves true when promise settled before ms passed, false otherwise. */
+  const within = async (promise: Promise<unknown>, ms: number): Promise<boolean> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([promise.then(() => true, () => true), new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), ms)))]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  async function handle(req: Request, rest: unknown[]): Promise<Response> {
+    const url = new URL(req.url);
+    const ip = clientIp(req, Boolean(config.trustProxy), rest[0]);
+    if (ip !== "unknown") clientIps.set(req, ip);
+    const state: Record<string, unknown> = {};
+    const pending: Promise<unknown>[] = [];
+    const chain = [...(config.middleware ?? [])];
+    const run = (i: number): Promise<Response> => {
+      const mw = chain[i];
+      if (!mw) return dispatch(req, url, state, pending, ip);
+      return mw({ req, url, state }, () => run(i + 1));
+    };
+    let response: Response;
+    try {
+      response = await run(0);
+    } catch (error) {
+      response = errorResponse(error, new Headers(), req);
+    }
+    if (pending.length) {
+      const all = Promise.all(pending);
+      const execution = rest[1] as { waitUntil?(p: Promise<unknown>): void } | undefined;
+      if (execution?.waitUntil) execution.waitUntil(all);
+      else {
+        // Kept until it settles, so app.close() waits for it.
+        tasks.add(all);
+        void all.finally(() => {
+          tasks.delete(all);
+          settle();
+        });
+      }
+    }
+    return response;
+  }
+
   const app: App<Models> = {
     name: config.name ?? "inferlo-app",
     version: config.version ?? "0.0.0",
@@ -531,31 +615,18 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     ai,
     jobs,
 
+    get closing() {
+      return closing;
+    },
+
     async fetch(req, ...rest) {
-      const url = new URL(req.url);
-      const ip = clientIp(req, Boolean(config.trustProxy), rest[0]);
-      if (ip !== "unknown") clientIps.set(req, ip);
-      const state: Record<string, unknown> = {};
-      const pending: Promise<unknown>[] = [];
-      const chain = [...(config.middleware ?? [])];
-      const run = (i: number): Promise<Response> => {
-        const mw = chain[i];
-        if (!mw) return dispatch(req, url, state, pending, ip);
-        return mw({ req, url, state }, () => run(i + 1));
-      };
-      let response: Response;
+      inFlight++;
       try {
-        response = await run(0);
-      } catch (error) {
-        response = errorResponse(error, new Headers(), req);
+        return await handle(req, rest);
+      } finally {
+        inFlight--;
+        settle();
       }
-      if (pending.length) {
-        const all = Promise.all(pending);
-        const execution = rest[1] as { waitUntil?(p: Promise<unknown>): void } | undefined;
-        if (execution?.waitUntil) execution.waitUntil(all);
-        else void all;
-      }
-      return response;
     },
 
     async request(path, options = {}) {
@@ -574,15 +645,57 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
 
     async listen(port = 3000, hostname = "0.0.0.0") {
       const { serve } = await import("./serve.ts");
-      return serve(app, { port, hostname });
+      const server = await serve(app, { port, hostname });
+      servers.add(server);
+      return {
+        port: server.port,
+        close: async () => {
+          servers.delete(server);
+          await server.close();
+        },
+      };
     },
 
     async checkReady() {
+      if (closing) return { status: "not_ready", checks: { shutdown: { status: "error", durationMs: 0, error: "The app is shutting down." } } };
       const names = Object.keys(readinessChecks);
       const results = await Promise.all(names.map((name) => runCheck(name, readinessChecks[name]!)));
       const checks: Record<string, CheckResult> = {};
       names.forEach((name, i) => (checks[name] = results[i]!));
       return { status: results.every((r) => r.status === "ok") ? "ready" : "not_ready", checks };
+    },
+
+    close(options = {}) {
+      if (closed) return closed;
+      const delayMs = options.delayMs ?? 0;
+      const timeoutMs = options.timeoutMs ?? 10_000;
+      for (const [key, value] of [["delayMs", delayMs], ["timeoutMs", timeoutMs]] as const) {
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+          throw new InferloError("IL6015", `app.close({ ${key} }) must be a number of milliseconds of 0 or more, got ${String(value)}.`, {
+            fix: "Use app.close({ delayMs: 5000, timeoutMs: 10000 }) or app.close().",
+          });
+        }
+      }
+      closing = true;
+      closed = (async () => {
+        if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        refusing = true;
+        const deadline = Date.now() + timeoutMs;
+        let workersStopped = false;
+        const drained = Promise.all([whenIdle(), stopWorkers(jobs).then(() => void (workersStopped = true))]);
+        if (!(await within(drained, timeoutMs))) {
+          const left = [`${inFlight} request(s)`, `${tasks.size} waitUntil task(s)`];
+          if (!workersStopped) left.push("the running job");
+          logger.error(`app.close(): stopped waiting after ${timeoutMs} ms with ${left.join(", ")} still running`);
+        }
+        const { forceClosers } = servers.size ? await import("./serve.ts") : { forceClosers: undefined };
+        await Promise.all([...servers].map(async (server) => {
+          servers.delete(server);
+          if (!(await within(server.close(), Math.max(0, deadline - Date.now())))) forceClosers?.get(server)?.();
+        }));
+        await db.$close();
+      })();
+      return closed;
     },
 
     describe() {

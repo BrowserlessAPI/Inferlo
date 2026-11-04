@@ -131,6 +131,14 @@ export interface AppJobs extends Jobs {
   start(options?: { pollMs?: number }): Worker;
 }
 
+/** Workers started with app.jobs.start() that have not been stopped, so app.close() can stop them. */
+const workers = new WeakMap<AppJobs, Set<Worker>>();
+
+/** Stop every worker started with jobs.start() and wait for their running jobs (used by app.close()). */
+export async function stopWorkers(jobs: AppJobs): Promise<void> {
+  await Promise.all([...(workers.get(jobs) ?? [])].map((w) => w.stop()));
+}
+
 const MAX_RETRIES = 25;
 const BASE_DELAY_MS = 10_000;
 const MAX_DELAY_MS = 3_600_000;
@@ -384,6 +392,7 @@ export interface InternalJobs extends AppJobs {
 export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: readonly CronDef[] = []): InternalJobs {
   const byName = new Map(list.map((j) => [j.name, j]));
   const names = list.map((j) => j.name);
+  const running = new Set<Worker>();
 
   const registered = (j: JobDef): JobDef => {
     const found = isJob(j) ? byName.get(j.name) : undefined;
@@ -482,16 +491,20 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
           });
         }
       })();
-      return {
+      const worker: Worker = {
         async stop() {
           stopped = true;
           if (timer) clearTimeout(timer);
           wake?.();
           await loop;
+          running.delete(worker);
         },
       };
+      running.add(worker);
+      return worker;
     },
   };
+  workers.set(jobs, running);
 
   async function run(record: JobRecord, now: Date): Promise<keyof RunResult> {
     const def = byName.get(record.name);

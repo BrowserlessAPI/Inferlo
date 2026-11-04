@@ -55,6 +55,27 @@ livenessProbe: { httpGet: { path: /health, port: 3000 } }
 readinessProbe: { httpGet: { path: /ready, port: 3000 }, periodSeconds: 10 }
 ```
 
+## Graceful shutdown
+
+When an instance is stopped (a deploy, scaling down, a node drain), the orchestrator sends SIGTERM and waits a grace period before it kills the process. `app.close()` uses that time so no request or job is cut off:
+
+```ts
+// src/server.ts (new projects do this)
+const server = await app.listen(settings.PORT);
+app.jobs.start();
+process.on("SIGTERM", () => void app.close({ delayMs: 5000 }));
+```
+
+In order:
+
+1. `app.closing` becomes `true` and `GET /ready` answers `503` with `{ "status": "not_ready", "checks": { "shutdown": { "status": "error", "durationMs": 0, "error": "The app is shutting down." } } }`, so load balancers stop sending traffic. `GET /health` keeps answering `200`, so the instance is not restarted.
+2. For `delayMs` (default 0) requests are still served. Set it a little longer than the readiness probe period plus the time your load balancer needs to remove the instance (5 to 10 seconds is common on Kubernetes).
+3. New requests then get `503` with code IL2006 and `Connection: close`, so clients and proxies retry on another instance.
+4. In-flight requests, `ctx.waitUntil` tasks and the job workers started with `app.jobs.start()` (with their running job) finish, for at most `timeoutMs` (default 10000). If they take longer, `app.close()` logs what was still running and goes on.
+5. Servers started with `app.listen()` close (open connections are closed when the time is up), then the database.
+
+Calling `app.close()` again returns the same promise. Keep `delayMs + timeoutMs` below the orchestrator's grace period (30 seconds on Kubernetes by default). A request counts as in flight until its handler returns; a streamed response that is still sending when the time is up is cut off when the server closes. Invalid options raise IL6015. `inferlo worker` shuts down the same way for jobs: it stops taking jobs on SIGTERM and waits for the running one.
+
 ## Bun
 
 ```bash

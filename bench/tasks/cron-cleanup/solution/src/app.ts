@@ -2,7 +2,6 @@ import { anthropic, bearer, createApp, env, hashToken, memory, openai } from "@b
 import { postgres } from "@browserlessapi/inferlo/postgres";
 import * as jobs from "./jobs.ts";
 import { models } from "./models.ts";
-import * as health from "./routes/health.ts";
 import * as notes from "./routes/notes.ts";
 
 const databaseUrl = env("DATABASE_URL", { optional: true });
@@ -12,7 +11,9 @@ export const app = createApp({
   version: "0.1.0",
   models,
   // inferlo:routes
-  routes: [health, notes],
+  routes: [notes],
+  // GET /health (liveness) and GET /ready (readiness: database and AI configuration).
+  health: true,
   jobs: [jobs],
   db: databaseUrl ? postgres({ url: databaseUrl }) : memory(),
 

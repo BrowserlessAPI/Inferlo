@@ -1,7 +1,6 @@
 import { anthropic, bearer, createApp, env, hashToken, memory, openai } from "@browserlessapi/inferlo";
 import { postgres } from "@browserlessapi/inferlo/postgres";
 import { models } from "./models.ts";
-import * as health from "./routes/health.ts";
 import * as notes from "./routes/notes.ts";
 import * as admin from "./routes/admin.ts";
 
@@ -12,7 +11,9 @@ export const app = createApp({
   version: "0.1.0",
   models,
   // inferlo:routes
-  routes: [health, notes, admin],
+  routes: [notes, admin],
+  // GET /health (liveness) and GET /ready (readiness: database and AI configuration).
+  health: true,
   db: databaseUrl ? postgres({ url: databaseUrl }) : memory(),
 
   // Requests send "Authorization: Bearer <api key>". Keys are stored as SHA-256 hashes.
