@@ -4,6 +4,7 @@ All notable changes are listed here. Inferlo follows [semantic versioning](https
 
 ## Unreleased
 
+- New entry point `@browserlessapi/inferlo/ai`: the AI module on its own, for use in any framework or script without `createApp`. `import { createAI, anthropic, t } from "@browserlessapi/inferlo/ai"` gives aliases with fallback, structured output, streaming, embeddings, image input and usage tracking, and never loads the router, database or jobs code. It exports `createAI`, `cosineSimilarity`, `extractJson`, every provider, `mockProvider`, `ProviderError`, `t`, `Schema`, `ObjectSchema`, `ArraySchema`, `ValidationError`, `toJSONSchema`, `InferloError`, `env` and the AI types. See docs/ai.md, "Use it without createApp".
 - Fix: `--json` CLI errors now always include `fix` and the real `message` in `error`, also for errors with a 500 status such as IL8007 and IL8008 from `inferlo worker`. Before, they went through `InferloError.toJSON()`, which hides both from API clients for server errors.
 
 ## 0.4.0 - 2026-11-04

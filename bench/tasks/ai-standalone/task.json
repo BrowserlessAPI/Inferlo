@@ -1,0 +1,4 @@
+{
+  "title": "AI module without createApp",
+  "prompt": "Create src/lib/classify.ts for use outside the Inferlo app (for example from another framework). Without createApp, use Inferlo's standalone AI module to create an AI client with an Anthropic provider (API key from the ANTHROPIC_API_KEY environment variable) and a \"fast\" alias for anthropic:claude-haiku-4-5, and export it as `ai`. Also export `async function classify(text: string, userId: string)` that asks the \"fast\" model to label the text as \"bug\", \"feature\" or \"question\" with structured output (tracking usage for userId) and returns the label."
+}

@@ -12,7 +12,8 @@ Priority order: AI model support is Inferlo's core promise, so the "Now" section
 
 Inferlo's AI features should work inside every popular TypeScript backend framework, so teams can adopt Inferlo without rewriting their app. Each integration gets a docs page and a tested example in `examples/with-<framework>`, tested in CI against the oldest supported and latest version of that framework (the version policy applies).
 
-- [ ] `@browserlessapi/inferlo/ai`: the AI module as a standalone entry point (providers, aliases with fallback, structured output, streaming, embeddings, image input, tool calling with plain functions, usage tracking) with no dependency on `createApp`, usable in any framework
+- [x] `@browserlessapi/inferlo/ai` part 1: the AI module as a standalone entry point (providers, aliases with fallback, structured output, streaming, embeddings, image input, usage tracking) with no dependency on `createApp`, usable in any framework
+- [ ] `@browserlessapi/inferlo/ai` part 2: tool calling with plain functions, `tool("getWeather", { description, input }).handle(fn)`, usable with `createAI` anywhere and with `ctx.ai` next to route tools
 - [ ] `toNodeHandler(app)` and `fromNodeRequest(req)`: mount a whole Inferlo app (routes, MCP server, OpenAPI) inside Node frameworks under a path prefix
 - [ ] Hono: `app.mount("/ai", inferlo.fetch)` docs and example, plus `inferloAI()` middleware that puts `c.var.ai` on the context
 - [ ] ElysiaJS: `.mount("/ai", inferlo.fetch)` docs and example, plus a plugin that decorates the context with `ai`

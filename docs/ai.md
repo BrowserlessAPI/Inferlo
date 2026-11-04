@@ -30,6 +30,32 @@ createApp({
 });
 ```
 
+## Use it without createApp
+
+The AI module also works on its own, in any framework (Express, Hono, Fastify, NestJS, Next.js route handlers), a script or a queue worker. Import it from `@browserlessapi/inferlo/ai`, which never loads the router, database or jobs code:
+
+```ts
+import { createAI, anthropic, openai, env, t } from "@browserlessapi/inferlo/ai";
+
+export const ai = createAI({
+  providers: {
+    anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }),
+    openai: openai({ apiKey: env("OPENAI_API_KEY") }),
+  },
+  models: { fast: ["anthropic:claude-haiku-4-5", "openai:gpt-5-mini"], embed: "openai:text-embedding-3-small" },
+  onUsage: (usage) => console.log(usage),
+});
+
+const { object } = await ai.generate({
+  model: "fast",
+  prompt: "Classify: the export button does nothing",
+  output: t.object({ label: t.enum(["bug", "feature", "question"]) }),
+  for: userId,
+});
+```
+
+`createAI` takes the same options as `createApp({ ai })`, and `ai` has the same `generate`, `stream`, `embed` and `aliases` as `ctx.ai` in a route handler. The entry point also exports the providers, `mockProvider` for tests, `t` and `toJSONSchema` for structured output, `env`, `InferloError` and the types (`AI`, `AIConfig`, `Usage`, `Message`, `Provider`, ...). Tools made from routes need a route handler (IL5009).
+
 `openaiCompatible()` works with any Chat Completions server: OpenAI, DeepSeek, Qwen (DashScope), Groq, Together, OpenRouter, vLLM, LM Studio and others.
 
 ## Generate text

@@ -35,6 +35,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./ai": {
+      "types": "./dist/ai/public.d.ts",
+      "default": "./dist/ai/public.js"
+    },
     "./postgres": {
       "types": "./dist/db/postgres.d.ts",
       "default": "./dist/db/postgres.js"
