@@ -1,6 +1,6 @@
 {
   "name": "@browserlessapi/inferlo",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The TypeScript backend framework with built-in AI model support: Anthropic, OpenAI, Gemini, Ollama and OpenAI-compatible models, plus routing, database, validation, auth and MCP in one package.",
   "type": "module",
   "license": "MIT",
