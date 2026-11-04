@@ -1,0 +1,7 @@
+{
+  "title": "Use Inferlo's AI and tools inside a tRPC router",
+  "prompt": "Create src/trpc.ts for an existing tRPC 11 app. Export `notes`, an in-memory string array, and `appRouter`, a tRPC router made with initTRPC.create() (no context type) whose procedures get the AI client as ctx.ai from Inferlo's tRPC middleware. The AI client uses an Anthropic provider (API key from the ANTHROPIC_API_KEY environment variable) with a \"fast\" alias for anthropic:claude-haiku-4-5. appRouter has `notes.add`, a mutation with input { text: string, at least 1 character } that appends the text to `notes` and returns { count: <number of notes> }, and `assistant`, a mutation with input { message: string } that sends the message to the \"fast\" model, lets the model call `notes.add` as a tool (turn the tRPC procedure into a tool with Inferlo's helper, running it through a caller with the procedure's context) with at most 5 steps, and returns { reply: <the model's final text> }. Use Inferlo schemas for the inputs.",
+  "packages": [
+    "@trpc/server"
+  ]
+}

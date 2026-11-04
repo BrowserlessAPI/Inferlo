@@ -16,7 +16,7 @@ Key rules: routes are private unless `auth: "public"`; validate input with `t.*`
 - [MCP, OpenAPI and describe](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/mcp.md)
 - [CLI](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/cli.md)
 - [Testing](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/testing.md)
-- [Use with other frameworks](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/integrations.md): the AI module in any framework, toNodeHandler and fromNodeRequest to mount an app in Express, Fastify, NestJS or node:http, inferloAI() middleware for Hono (c.var.ai) and Express (req.ai), inferloPlugin for Fastify (request.ai, app under a prefix)
+- [Use with other frameworks](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/integrations.md): the AI module in any framework, toNodeHandler and fromNodeRequest to mount an app in Express, Fastify, NestJS or node:http, inferloAI() middleware for Hono (c.var.ai), Express (req.ai), Elysia (ai) and tRPC (ctx.ai), inferloPlugin for Fastify (request.ai, app under a prefix), InferloModule for NestJS, trpcTools() for tRPC procedures as AI tools
 - [Security](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/security.md): secure defaults and security headers (createApp({ secureHeaders }))
 - [Deployment](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/deploy.md): Node, Bun, Deno, edge, health and readiness endpoints, graceful shutdown with app.close()
 - [Error codes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/errors.md): every ILxxxx code with its fix

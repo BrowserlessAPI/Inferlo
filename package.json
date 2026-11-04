@@ -59,6 +59,10 @@
       "types": "./dist/nestjs.d.ts",
       "default": "./dist/nestjs.js"
     },
+    "./trpc": {
+      "types": "./dist/trpc.d.ts",
+      "default": "./dist/trpc.js"
+    },
     "./postgres": {
       "types": "./dist/db/postgres.d.ts",
       "default": "./dist/db/postgres.js"
@@ -81,7 +85,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc",
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\" \"examples/*/test/*.test.ts\"",
     "test:bun": "bun test test/",
     "llms": "node scripts/build-llms.ts",
@@ -100,6 +104,7 @@
     "@nestjs/common": "^12.3.3",
     "@nestjs/core": "^12.3.3",
     "@nestjs/platform-express": "^12.3.3",
+    "@trpc/server": "^11.24.0",
     "@types/express": "^5.0.6",
     "@types/node": "^22.18.0",
     "@types/pg": "^8.15.0",

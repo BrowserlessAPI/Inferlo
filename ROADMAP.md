@@ -44,7 +44,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] NestJS: `InferloModule.forRoot({ ai })` providing an injectable AI service, and mounting an Inferlo app with `toNodeHandler`
 - [ ] AdonisJS: provider that binds `ai` in the container and an example route
 - [ ] Ts.ED: service wrapper and Express middleware mount
-- [ ] tRPC: helpers to expose `ai.generate` and `ai.stream` as typed procedures, and tRPC procedures as AI tools
+- [x] tRPC: helpers to expose `ai.generate` and `ai.stream` as typed procedures, and tRPC procedures as AI tools
 - [ ] Encore.ts: mount an Inferlo app as a raw endpoint, and use `@browserlessapi/inferlo/ai` inside Encore services
 - [x] Express: middleware mount and `req.ai`
 - [ ] Migration guides: from Express, NestJS and Hono to Inferlo, step by step

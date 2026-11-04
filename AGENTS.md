@@ -57,6 +57,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Fastify (`@browserlessapi/inferlo/fastify`, examples/with-fastify) | 5.0.0 (Fastify 4 reached end of life 2025-06-30) | `latest` |
 | ElysiaJS (`@browserlessapi/inferlo/elysia`, examples/with-elysia), on Node.js and Bun | 1.0.0 | `latest` |
 | NestJS (`@browserlessapi/inferlo/nestjs`, examples/with-nestjs) | 11.0.0 (oldest major with security support; 10 ended 2025-01-20) | `latest` (12) |
+| tRPC (`@browserlessapi/inferlo/trpc`, examples/with-trpc) | 11.0.0 (tRPC 10 is no longer maintained) | `latest` |
 
 Rules:
 

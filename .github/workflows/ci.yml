@@ -208,6 +208,26 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/nestjs.test.ts "examples/with-nestjs/test/*.test.ts"
 
+  trpc:
+    name: tRPC ${{ matrix.trpc }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 11.0.0 = oldest supported (tRPC 10 is no longer maintained), latest = newest release.
+        trpc: ["11.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save @trpc/server@${{ matrix.trpc }}
+      - run: node -p "'tRPC ' + require('./node_modules/@trpc/server/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/trpc.test.ts "examples/with-trpc/test/*.test.ts"
+
   bun:
     name: Bun ${{ matrix.bun }}
     runs-on: ubuntu-latest
