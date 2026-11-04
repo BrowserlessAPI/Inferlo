@@ -1,6 +1,6 @@
 # Inferlo
 
-> Inferlo is a batteries-included TypeScript backend framework with built-in AI model support (Anthropic, OpenAI, Gemini, Ollama and OpenAI-compatible providers with fallback, structured output, streaming, embeddings and usage tracking), plus routes, schemas, database (PostgreSQL and in-memory), auth, an MCP server and OpenAPI, with zero runtime dependencies. Runs on Node.js 22.18+, Bun, Deno and edge runtimes. Package: @browserlessapi/inferlo.
+> Inferlo is an enterprise-ready, batteries-included TypeScript backend framework (routes, schemas, database with PostgreSQL and migrations, auth, rate limiting, background jobs, cron, OpenAPI) with AI models built in (Anthropic, OpenAI, Gemini, Ollama and OpenAI-compatible providers with fallback, structured output, streaming, tool calling, embeddings and usage tracking) and an MCP server, with zero runtime dependencies. Runs on Node.js 22.18+, Bun, Deno and edge runtimes. Package: @browserlessapi/inferlo.
 
 Key rules: routes are private unless `auth: "public"`; validate input with `t.*` schemas; use `db.<table>` methods (never string-built SQL); every model has id, createdAt, updatedAt automatically; relative imports end in `.ts`; run `inferlo describe --json` to see an app and `inferlo check --json` after changes.
 

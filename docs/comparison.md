@@ -10,9 +10,11 @@
 | Ts.ED | Structured Express/Koa apps | Teams that like classes and decorators | Decorators on Express or Koa |
 | tRPC | End-to-end type safety | Full-stack TypeScript monorepos | Schema-driven RPC |
 | Encore.ts | Infrastructure from code | Microservices on AWS and GCP | Declarative SDK |
-| **Inferlo** | **AI models built into the backend** | **AI-powered APIs and SaaS: chat, agents, tool calling, AI features billed per user** | **Batteries-included, plain functions (no decorators)** |
+| **Inferlo** | **Enterprise backends with AI models built in** | **Production APIs, SaaS and enterprise services, especially ones with AI features (chat, agents, tool calling, AI billed per user)** | **Batteries-included and modular, plain functions (no decorators)** |
 
-## What Inferlo adds
+## What Inferlo offers
+
+- **A complete backend framework:** routes, validation, typed database layer with PostgreSQL and migrations, auth, rate limiting, background jobs and cron, OpenAPI, secure defaults (routes private unless marked public, parameterised queries, validated input), stable error codes, tested on the oldest supported and latest Node.js, Bun, PostgreSQL and TypeScript versions.
 
 - **AI models in the core:** Anthropic, OpenAI, Gemini, Ollama and any OpenAI-compatible server behind one API, with fallback between models, typed structured output, streaming, embeddings, image input and per-user usage and cost tracking.
 - **Tool calling with your own routes:** a model can call your routes as tools, with the same permissions as the signed-in user.
@@ -23,6 +25,7 @@
 
 ## Choose Inferlo when
 
+- you want one batteries-included framework for production APIs and services, with secure defaults and no decorators;
 - your API calls AI models (chat, summarising, extraction, agents) and you want providers, fallback, streaming and cost tracking handled for you;
 - you want AI agents to use your API through MCP or tool calling, with your existing permissions;
 - you want everything (database, auth, jobs, AI) set up out of the box, without decorators.

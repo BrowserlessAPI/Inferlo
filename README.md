@@ -1,8 +1,10 @@
 # Inferlo
 
-**The TypeScript backend framework with built-in AI model support.**
+**The enterprise-ready TypeScript backend framework, with AI models built in.**
 
-Inferlo is a batteries-included TypeScript backend framework with AI models built into its core. Connect Anthropic, OpenAI, Gemini, DeepSeek, Qwen, local models through Ollama or any OpenAI-compatible server, and call them from any route with one API: automatic fallback between models, typed structured output, streaming, embeddings, and per-user usage and cost tracking. Routing, validation, database, auth, OpenAPI and an MCP server come in the same package, with zero runtime dependencies.
+Inferlo is a batteries-included TypeScript backend framework for production APIs, SaaS products and enterprise services, in the same class as NestJS, Fastify and AdonisJS. It gives you routing, validation, a typed database layer with PostgreSQL and migrations, auth, rate limiting, background jobs, cron, OpenAPI and secure defaults in one package with zero runtime dependencies, running on Node.js, Bun and edge runtimes.
+
+What sets it apart is that AI models are part of the core, not a plugin: Anthropic, OpenAI, Gemini, local models through Ollama and any OpenAI-compatible server behind one API, with fallback between models, typed structured output, streaming, tool calling, image input and per-user usage and cost tracking, plus an MCP server built from your routes.
 
 ```ts
 import { model, route, t } from "@browserlessapi/inferlo";

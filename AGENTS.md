@@ -4,7 +4,7 @@ This file is for AI agents and contributors changing the framework in this repos
 
 ## Goal
 
-Inferlo is the TypeScript backend framework with built-in AI model support. Its core promise is first-class support for AI models (providers, fallback, structured output, streaming, embeddings, usage tracking, MCP). It is also designed so AI coding tools write correct Inferlo code easily. Every change must keep AI model support strong and simple, and must not make Inferlo harder to use for people or for AI coding tools. When in doubt, choose the option a model would guess correctly without reading docs.
+Inferlo is the enterprise-ready TypeScript backend framework, with AI models built in. It must be a complete, production-grade, general-purpose backend framework at the level of NestJS and Fastify (structure for large codebases, security, observability, performance, scalability, stability and long-term support), not only an AI tool. Built-in AI model support (providers, fallback, structured output, streaming, tool calling, embeddings, usage tracking, MCP) is its distinguishing strength. It is also designed so AI coding tools write correct Inferlo code easily. Every change must keep Inferlo simple and must not make it harder to use for people or for AI coding tools. When in doubt, choose the option a model would guess correctly without reading docs.
 
 ## Design rules (do not break these)
 

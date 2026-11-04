@@ -6,9 +6,11 @@ Generated from README.md and docs/. Source: https://github.com/BrowserlessAPI/In
 
 # Inferlo
 
-**The TypeScript backend framework with built-in AI model support.**
+**The enterprise-ready TypeScript backend framework, with AI models built in.**
 
-Inferlo is a batteries-included TypeScript backend framework with AI models built into its core. Connect Anthropic, OpenAI, Gemini, DeepSeek, Qwen, local models through Ollama or any OpenAI-compatible server, and call them from any route with one API: automatic fallback between models, typed structured output, streaming, embeddings, and per-user usage and cost tracking. Routing, validation, database, auth, OpenAPI and an MCP server come in the same package, with zero runtime dependencies.
+Inferlo is a batteries-included TypeScript backend framework for production APIs, SaaS products and enterprise services, in the same class as NestJS, Fastify and AdonisJS. It gives you routing, validation, a typed database layer with PostgreSQL and migrations, auth, rate limiting, background jobs, cron, OpenAPI and secure defaults in one package with zero runtime dependencies, running on Node.js, Bun and edge runtimes.
+
+What sets it apart is that AI models are part of the core, not a plugin: Anthropic, OpenAI, Gemini, local models through Ollama and any OpenAI-compatible server behind one API, with fallback between models, typed structured output, streaming, tool calling, image input and per-user usage and cost tracking, plus an MCP server built from your routes.
 
 ```ts
 import { model, route, t } from "@browserlessapi/inferlo";
@@ -245,9 +247,11 @@ export const app = createApp({
 | Ts.ED | Structured Express/Koa apps | Teams that like classes and decorators | Decorators on Express or Koa |
 | tRPC | End-to-end type safety | Full-stack TypeScript monorepos | Schema-driven RPC |
 | Encore.ts | Infrastructure from code | Microservices on AWS and GCP | Declarative SDK |
-| **Inferlo** | **AI models built into the backend** | **AI-powered APIs and SaaS: chat, agents, tool calling, AI features billed per user** | **Batteries-included, plain functions (no decorators)** |
+| **Inferlo** | **Enterprise backends with AI models built in** | **Production APIs, SaaS and enterprise services, especially ones with AI features (chat, agents, tool calling, AI billed per user)** | **Batteries-included and modular, plain functions (no decorators)** |
 
-## What Inferlo adds
+## What Inferlo offers
+
+- **A complete backend framework:** routes, validation, typed database layer with PostgreSQL and migrations, auth, rate limiting, background jobs and cron, OpenAPI, secure defaults (routes private unless marked public, parameterised queries, validated input), stable error codes, tested on the oldest supported and latest Node.js, Bun, PostgreSQL and TypeScript versions.
 
 - **AI models in the core:** Anthropic, OpenAI, Gemini, Ollama and any OpenAI-compatible server behind one API, with fallback between models, typed structured output, streaming, embeddings, image input and per-user usage and cost tracking.
 - **Tool calling with your own routes:** a model can call your routes as tools, with the same permissions as the signed-in user.
@@ -258,6 +262,7 @@ export const app = createApp({
 
 ## Choose Inferlo when
 
+- you want one batteries-included framework for production APIs and services, with secure defaults and no decorators;
 - your API calls AI models (chat, summarising, extraction, agents) and you want providers, fallback, streaming and cost tracking handled for you;
 - you want AI agents to use your API through MCP or tool calling, with your existing permissions;
 - you want everything (database, auth, jobs, AI) set up out of the box, without decorators.

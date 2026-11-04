@@ -1,5 +1,5 @@
 /**
- * Inferlo: the TypeScript backend framework with built-in AI model support.
+ * Inferlo: the enterprise-ready TypeScript backend framework, with AI models built in.
  * https://github.com/BrowserlessAPI/Inferlo
  */
 export { createApp } from "./app.ts";
