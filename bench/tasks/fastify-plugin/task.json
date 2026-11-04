@@ -1,0 +1,5 @@
+{
+  "title": "Use Inferlo's AI inside a Fastify app",
+  "prompt": "Create src/fastify.ts for an existing Fastify app. Export `async function buildServer()` that returns a Fastify instance (without calling listen) whose route handlers get the AI client as request.ai, from Inferlo's Fastify plugin. The AI client uses an Anthropic provider (API key from the ANTHROPIC_API_KEY environment variable) with a \"fast\" alias for anthropic:claude-haiku-4-5. Add POST /translate: it reads { \"text\": string, \"to\": string } from the JSON body, asks the \"fast\" model to translate the text into that language, and returns { \"translation\": <the model's text> }. Also serve the existing Inferlo app from src/app.ts under /api with the same plugin, so GET /api/health reaches its health endpoint.",
+  "packages": ["fastify"]
+}

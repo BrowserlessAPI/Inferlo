@@ -43,6 +43,10 @@
       "types": "./dist/express.d.ts",
       "default": "./dist/express.js"
     },
+    "./fastify": {
+      "types": "./dist/fastify.d.ts",
+      "default": "./dist/fastify.js"
+    },
     "./hono": {
       "types": "./dist/hono.d.ts",
       "default": "./dist/hono.js"
@@ -69,7 +73,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify",
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\" \"examples/*/test/*.test.ts\"",
     "test:bun": "bun test test/",
     "llms": "node scripts/build-llms.ts",
@@ -89,6 +93,7 @@
     "@types/node": "^22.18.0",
     "@types/pg": "^8.15.0",
     "express": "^5.3.0",
+    "fastify": "^5.12.8",
     "hono": "^4.13.16",
     "pg": "^8.16.0",
     "typescript": "^5.9.3"

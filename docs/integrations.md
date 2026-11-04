@@ -42,22 +42,11 @@ server.use("/ai", toNodeHandler(inferlo)); // Express strips "/ai" from req.url
 server.listen(3000);
 ```
 
-For `req.ai` in your own Express routes, see [Express](#express) below.
+For `req.ai` in your own Express routes, see [Express](#express-1) below.
 
 ### Fastify
 
-```ts
-import Fastify from "fastify";
-const handler = toNodeHandler(inferlo, { prefix: "/ai" });
-const fastify = Fastify();
-const mount = (request, reply) => {
-  reply.hijack(); // Inferlo writes the response
-  // Fastify has already parsed the body, so pass it on in req.body.
-  return handler(Object.assign(request.raw, { body: request.body }), reply.raw);
-};
-fastify.all("/ai", mount);
-fastify.all("/ai/*", mount);
-```
+Use `inferloPlugin` from `@browserlessapi/inferlo/fastify` (see [Fastify](#fastify-1) below): `await fastify.register(inferloPlugin, { app: inferlo, prefix: "/ai" })`.
 
 ### NestJS
 
@@ -140,8 +129,38 @@ server.listen(3000);
 
 The [with-express example](../examples/with-express) uses all three, and CI tests it with Express 4 (the newest 4.x release, still maintained upstream) and the latest Express.
 
+## Fastify
+
+Fastify 5. `@browserlessapi/inferlo/fastify` has no runtime dependency on Fastify and never loads Inferlo's router, database or jobs code.
+
+```ts
+import Fastify from "fastify";
+import { anthropic, createAI, t } from "@browserlessapi/inferlo/ai";
+import { inferloPlugin } from "@browserlessapi/inferlo/fastify";
+
+const ai = createAI({ providers: { anthropic: anthropic() }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+const fastify = Fastify();
+await fastify.register(inferloPlugin, { ai });                                // fastify.ai and request.ai
+await fastify.register(inferloPlugin, { app: inferloApp, prefix: "/api" });   // a whole Inferlo app under /api
+
+fastify.post("/classify", async (request) => {
+  const { object } = await request.ai.generate({ model: "fast", prompt: request.body.text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+  return object;
+});
+fastify.get("/chat", (request, reply) => reply.send(request.ai.stream({ model: "fast", prompt: request.query.q }).toResponse())); // server-sent events
+
+await fastify.listen({ port: 3000 });
+```
+
+- `{ ai }` decorates `fastify.ai` and `request.ai` for the whole Fastify app (like plugins wrapped in `fastify-plugin`). Importing `@browserlessapi/inferlo/fastify` adds `ai` to Fastify's `FastifyInstance` and `FastifyRequest` types. Pass `createAI(...)` or an Inferlo app's `app.ai`; anything else raises IL5014. Fastify sends the Web `Response` from `ai.stream(...).toResponse()` as it is.
+- `{ app, prefix }` serves a whole Inferlo app under `prefix`: routes, auth, validation, rate limits, `/api/openapi.json` and `/api/mcp`, with Inferlo's own error format and 404s for paths under the prefix. Inferlo reads the request body itself, so forms (`application/x-www-form-urlencoded`) work and `createApp({ maxBodySize })` applies; Fastify's body parsers stay as they are for your other routes. Without `ai`, `fastify.ai` is the app's `app.ai` (unless `fastify.ai` is already set).
+- A missing or invalid `prefix` (it must start with `/` and not end with `/`), an `app` that is not an Inferlo app, or neither `ai` nor `app` raise IL5015.
+
+The [with-fastify example](../examples/with-fastify) uses both, and CI tests it with Fastify 5.0.0 (Fastify 4 reached end of life in June 2025) and the latest Fastify.
+
 ## Other web-standard frameworks
 
 ElysiaJS (`mount`), Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
 
-Framework-specific helpers for ElysiaJS, Fastify, NestJS, AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+Framework-specific helpers for ElysiaJS, NestJS, AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

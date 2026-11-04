@@ -54,6 +54,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | TypeScript | 5.9 | `latest` |
 | Hono (`@browserlessapi/inferlo/hono`, examples/with-hono) | 4.0.0 | `latest` |
 | Express (`@browserlessapi/inferlo/express`, examples/with-express) | 4 (newest 4.x, maintained upstream) | `latest` (5) |
+| Fastify (`@browserlessapi/inferlo/fastify`, examples/with-fastify) | 5.0.0 (Fastify 4 reached end of life 2025-06-30) | `latest` |
 
 Rules:
 
