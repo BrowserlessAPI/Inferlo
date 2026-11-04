@@ -5,3 +5,4 @@ dist
 bench/results/*.json
 !bench/results/.gitkeep
 examples/with-nestjs/.compiled
+examples/with-tsed/.compiled

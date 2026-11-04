@@ -1,0 +1,9 @@
+{
+  "title": "Provide Inferlo's AI to a Ts.ED app",
+  "prompt": "Our Ts.ED app should use Inferlo's AI module. Create src/tsed.ts and export `aiProviders`: the list to put in our Ts.ED `@Configuration({ imports })` so that services can inject the AI client through Inferlo's Ts.ED integration. The AI client uses an Anthropic provider (API key from the ANTHROPIC_API_KEY environment variable) with a \"fast\" alias for anthropic:claude-haiku-4-5. Also export the injection token our services use for the client, as `AI_TOKEN`. Do not use decorators in this file.",
+  "packages": [
+    "@tsed/core",
+    "@tsed/di",
+    "reflect-metadata"
+  ]
+}

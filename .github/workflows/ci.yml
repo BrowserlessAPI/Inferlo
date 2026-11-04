@@ -228,6 +228,32 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/trpc.test.ts "examples/with-trpc/test/*.test.ts"
 
+  tsed:
+    name: Ts.ED ${{ matrix.tsed }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.0.1 = oldest supported (8.0.0 cannot be imported as native ES modules on Node.js), latest = newest release.
+        tsed: ["8.0.1", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: >-
+          npm install --no-save
+          @tsed/core@${{ matrix.tsed }} @tsed/di@${{ matrix.tsed }} @tsed/schema@${{ matrix.tsed }}
+          @tsed/json-mapper@${{ matrix.tsed }} @tsed/openspec@${{ matrix.tsed }} @tsed/exceptions@${{ matrix.tsed }}
+          @tsed/platform-http@${{ matrix.tsed }} @tsed/platform-express@${{ matrix.tsed }} @tsed/platform-params@${{ matrix.tsed }}
+          @tsed/platform-views@${{ matrix.tsed }} @tsed/platform-middlewares@${{ matrix.tsed }} @tsed/platform-router@${{ matrix.tsed }}
+          @tsed/platform-exceptions@${{ matrix.tsed }} @tsed/platform-response-filter@${{ matrix.tsed }}
+      - run: node -p "'Ts.ED ' + require('./node_modules/@tsed/platform-express/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/tsed.test.ts "examples/with-tsed/test/*.test.ts"
+
   adonisjs:
     name: AdonisJS ${{ matrix.adonisjs }}
     runs-on: ubuntu-latest

@@ -317,8 +317,57 @@ router.post("/classify", async ({ ai, request }) => {
 
 The [with-adonisjs example](../examples/with-adonisjs) boots an AdonisJS app with the provider, and CI tests it with AdonisJS 6.2.0 (the first stable 6.x; AdonisJS 6 is still maintained) and the latest AdonisJS (7, on Node.js 24).
 
+## Ts.ED
+
+Ts.ED 8. `@browserlessapi/inferlo/tsed` has no runtime dependency on Ts.ED and never loads Inferlo's router, database or jobs code. `inferloAI(ai)` returns a plain Ts.ED provider, and `InferloAI` is both the injection token and the type of the client.
+
+```ts
+import { Configuration, Injectable } from "@tsed/di";
+import { anthropic, createAI, t } from "@browserlessapi/inferlo/ai";
+import { InferloAI, inferloAI } from "@browserlessapi/inferlo/tsed";
+
+const ai = createAI({ providers: { anthropic: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+@Injectable()
+export class ClassifyService {
+  constructor(private readonly ai: InferloAI) {}
+
+  async classify(text: string) {
+    const { object } = await this.ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+    return object;
+  }
+}
+
+@Configuration({ imports: [inferloAI(ai)] })
+export class Server {}
+```
+
+- `inferloAI(ai)` registers an AI client (`createAI(...)` or an Inferlo app's `app.ai`) as `InferloAI`. Put it in `@Configuration({ imports })` or in the settings of `PlatformExpress.bootstrap(Server, { imports: [inferloAI(ai)] })`. Anything that is not an AI client raises IL5014.
+- Inject it with the type alone (`constructor(private readonly ai: InferloAI)`, with `emitDecoratorMetadata`), with `@Inject(InferloAI)`, or with `inject(InferloAI)`.
+- To create the client when Ts.ED starts, for example from configuration, use a Ts.ED factory with the same token: `imports: [{ token: InferloAI, useFactory: () => createAI({ ... }) }]`.
+- In tests, pass a client with a mock provider the same way: `PlatformTest.create({ imports: [inferloAI(createAI({ providers: { anthropic: mockProvider({ respond: () => "..." }) }, models }))] })`, or `PlatformTest.invoke(ClassifyService, [inferloAI(mockAI)])`.
+
+A whole Inferlo app mounts on the Express platform with `toNodeHandler` in the `$beforeRoutesInit` hook, before Ts.ED's own routes:
+
+```ts
+import { PlatformApplication } from "@tsed/platform-http";
+import { toNodeHandler } from "@browserlessapi/inferlo";
+import { app as inferlo } from "./inferlo/app.ts";
+
+@Configuration({ imports: [inferloAI(inferlo.ai)], middlewares: ["json-parser"] })
+export class Server {
+  constructor(private readonly app: PlatformApplication) {}
+
+  $beforeRoutesInit() {
+    this.app.getApp().use("/api", toNodeHandler(inferlo)); // Express strips "/api"
+  }
+}
+```
+
+The [with-tsed example](../examples/with-tsed) does both, and CI tests it with Ts.ED 8.0.1 (the oldest 8.x release that loads as native ES modules on Node.js) and the latest Ts.ED.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
 
-Framework-specific helpers for Ts.ED and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+Framework-specific helpers for Encore.ts, tested in CI against the framework's oldest supported and latest version, is on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

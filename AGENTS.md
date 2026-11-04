@@ -59,6 +59,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | NestJS (`@browserlessapi/inferlo/nestjs`, examples/with-nestjs) | 11.0.0 (oldest major with security support; 10 ended 2025-01-20) | `latest` (12) |
 | tRPC (`@browserlessapi/inferlo/trpc`, examples/with-trpc) | 11.0.0 (tRPC 10 is no longer maintained) | `latest` |
 | AdonisJS (`@browserlessapi/inferlo/adonisjs`, examples/with-adonisjs) | 6.2.0 (first stable 6.x; AdonisJS 6 is still maintained) | `latest` (7, on Node.js 24) |
+| Ts.ED (`@browserlessapi/inferlo/tsed`, examples/with-tsed) | 8.0.1 (8.0.0 cannot be imported as native ES modules; Ts.ED 7 has had no release since December 2025) | `latest` |
 
 Rules:
 
