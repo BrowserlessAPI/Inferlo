@@ -159,6 +159,35 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/fastify.test.ts "examples/with-fastify/test/*.test.ts"
 
+  elysia:
+    name: Elysia ${{ matrix.elysia }} on ${{ matrix.runtime }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.0.0 = oldest supported (@browserlessapi/inferlo/elysia), latest = newest release.
+        # Elysia runs on Bun first, so both runtimes are tested.
+        elysia: ["1.0.0", "latest"]
+        runtime: ["node", "bun"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.runtime == 'bun'
+        with:
+          bun-version: latest
+      - run: npm ci
+      - run: npm install --no-save elysia@${{ matrix.elysia }}
+      - run: node -p "'Elysia ' + require('./node_modules/elysia/package.json').version"
+      - run: npm run typecheck
+      - if: matrix.runtime == 'node'
+        run: node --test --test-reporter=spec test/elysia.test.ts "examples/with-elysia/test/*.test.ts"
+      - if: matrix.runtime == 'bun'
+        run: bun test test/elysia.test.ts examples/with-elysia/test/
+
   bun:
     name: Bun ${{ matrix.bun }}
     runs-on: ubuntu-latest

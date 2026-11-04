@@ -159,8 +159,38 @@ await fastify.listen({ port: 3000 });
 
 The [with-fastify example](../examples/with-fastify) uses both, and CI tests it with Fastify 5.0.0 (Fastify 4 reached end of life in June 2025) and the latest Fastify.
 
+## ElysiaJS
+
+ElysiaJS 1.0 and later, on Bun and Node.js. `@browserlessapi/inferlo/elysia` has no runtime dependency on Elysia and never loads Inferlo's router, database or jobs code.
+
+```ts
+import { Elysia } from "elysia";
+import { anthropic, createAI, env, t } from "@browserlessapi/inferlo/ai";
+import { inferloAI } from "@browserlessapi/inferlo/elysia";
+
+const ai = createAI({ providers: { anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+const server = new Elysia()
+  .use(inferloAI(ai))
+  .post("/classify", async ({ ai, body }) => {
+    const { object } = await ai.generate({ model: "fast", prompt: (body as { text: string }).text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+    return object;
+  })
+  .get("/chat", ({ ai, query }) => ai.stream({ model: "fast", prompt: query.q ?? "" }).toResponse()); // server-sent events
+```
+
+`inferloAI(ai)` is an Elysia plugin that decorates the context with `ai`, typed in every handler after `.use(...)`. Pass `createAI(...)` or an Inferlo app's `app.ai`; anything else raises IL5014. Function tools (`tool(...)`) work in `ai.generate({ tools })`; routes as tools need an Inferlo route handler (IL5009).
+
+To mount a whole Inferlo app, use Elysia's `mount`, which removes the path before calling the app:
+
+```ts
+server.mount("/api", inferlo.fetch); // /api/tickets, /api/openapi.json, /api/mcp
+```
+
+The [with-elysia example](../examples/with-elysia) uses both, and CI tests it with Elysia 1.0.0 and the latest Elysia on Node.js and Bun.
+
 ## Other web-standard frameworks
 
-ElysiaJS (`mount`), Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
+Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
 
-Framework-specific helpers for ElysiaJS, NestJS, AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+Framework-specific helpers for NestJS, AdonisJS, Ts.ED, tRPC and Encore.ts, each tested in CI against the framework's oldest supported and latest version, are on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

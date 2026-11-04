@@ -1,0 +1,7 @@
+{
+  "title": "Use Inferlo's AI inside an Elysia app",
+  "prompt": "Create src/elysia.ts for an existing ElysiaJS app. Export `elysia`, an Elysia app whose handlers get the AI client from the context as `ai`, put there by Inferlo's Elysia plugin. The AI client uses an Anthropic provider (API key from the ANTHROPIC_API_KEY environment variable) with a \"fast\" alias for anthropic:claude-haiku-4-5. Add POST /translate to the Elysia app: it reads { \"text\": string, \"to\": string } from the JSON body, asks the \"fast\" model to translate the text into that language, and returns { \"translation\": <the model's text> }. Also mount the existing Inferlo app from src/app.ts under /api, so GET /api/health reaches its health endpoint.",
+  "packages": [
+    "elysia"
+  ]
+}
