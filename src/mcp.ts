@@ -4,6 +4,7 @@
  * roles and validation apply exactly as they do for HTTP clients: the caller's Authorization
  * header is forwarded.
  */
+import { describeDeprecation, resolveDeprecation } from "./deprecation.ts";
 import type { App } from "./app.ts";
 import { clientIps } from "./client-ip.ts";
 import { InferloError } from "./errors.ts";
@@ -57,9 +58,12 @@ export function toolDefinition(route: RouteDef): ToolDefinition {
     }
   }
   const toolOpt = typeof o.tool === "object" ? o.tool : {};
+  const description = toolOpt.description ?? o.description ?? o.summary ?? `${route.method} ${route.path}`;
+  // Models should prefer other tools over deprecated ones.
+  const sunset = typeof o.deprecated === "object" && o.deprecated.sunset !== undefined ? describeDeprecation(resolveDeprecation(o.deprecated, `${route.method} ${route.path}`)!).sunset : undefined;
   return {
     name: toolName(route),
-    description: toolOpt.description ?? o.description ?? o.summary ?? `${route.method} ${route.path}`,
+    description: o.deprecated ? `${description} (Deprecated${sunset ? `, stops working on ${sunset}` : ""}.)` : description,
     inputSchema: { type: "object", properties, ...(required.size ? { required: [...required] } : {}) },
     route,
   };

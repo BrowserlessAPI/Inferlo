@@ -8,6 +8,7 @@
  *
  * Secure by default: routes require a signed-in user unless you set auth: "public".
  */
+import type { Deprecation } from "./deprecation.ts";
 import type { AI } from "./ai/index.ts";
 import type { Db } from "./db/table.ts";
 import type { Jobs } from "./jobs.ts";
@@ -66,6 +67,11 @@ export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectS
    * answers 503 IL2007 and ctx.signal is aborted. Overrides createApp({ requestTimeoutMs }); false turns it off.
    */
   timeoutMs?: number | false;
+  /**
+   * Mark the route deprecated: true, or { since, sunset, link } to also send the Deprecation, Sunset and
+   * Link rel="deprecation" headers on every response. Shown in OpenAPI, describe and MCP tool descriptions.
+   */
+  deprecated?: boolean | Deprecation;
 }
 
 type PathParams<P extends string> = P extends `${string}:${infer Param}/${infer Rest}`

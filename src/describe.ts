@@ -2,6 +2,7 @@
  * describe() returns a machine-readable map of the whole app. AI coding agents read it
  * (inferlo describe --json) instead of searching the codebase.
  */
+import { describeDeprecation, resolveDeprecation } from "./deprecation.ts";
 import type { App } from "./app.ts";
 import { toolName } from "./mcp.ts";
 import { columnName } from "./model.ts";
@@ -45,6 +46,8 @@ export interface AppDescription {
     rateLimit?: { max: number; per: string; by: string };
     /** The route's own timeoutMs, when it sets one (otherwise requestTimeoutMs applies). */
     timeoutMs?: number | false;
+    /** true, or when the route was deprecated, when it stops working and where the migration is explained. */
+    deprecated?: true | { since?: string; sunset?: string; link?: string };
     params?: JSONSchema;
     query?: JSONSchema;
     body?: JSONSchema;
@@ -105,6 +108,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       if (o.tool) out.tool = toolName(r);
       if (o.rateLimit) out.rateLimit = { max: o.rateLimit.max, per: o.rateLimit.per, by: o.rateLimit.by ?? "user" };
       if (o.timeoutMs !== undefined) out.timeoutMs = o.timeoutMs;
+      if (o.deprecated) out.deprecated = typeof o.deprecated === "object" ? describeDeprecation(resolveDeprecation(o.deprecated, `${r.method} ${r.path}`)!) : true;
       if (o.params) out.params = o.params.toJSONSchema();
       if (o.query) out.query = o.query.toJSONSchema();
       if (o.body) out.body = o.body.toJSONSchema();

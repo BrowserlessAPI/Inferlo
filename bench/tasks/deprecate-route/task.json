@@ -1,0 +1,4 @@
+{
+  "title": "Deprecate a route with a sunset date",
+  "prompt": "We are retiring the AI summary endpoint POST /notes/:id/summary. It counts as deprecated from 2026-11-15 and stops working on 2027-03-31; the migration guide is https://docs.example.com/notes/summaries. Keep the route working, but tell API clients and AI agents about it in the standard way on every response."
+}

@@ -212,6 +212,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6020
 **Invalid `metrics`.** `createApp({ metrics })` takes `true` or `{ path, token, buckets }`: `path` starts with `/` and is not the OpenAPI, MCP or health path or a `GET` route; `token` is a string of at least 16 characters, not `undefined` (a random secret from configuration, sent by the scraper as `Authorization: Bearer <token>`); `buckets` are increasing positive numbers of seconds. See [metrics](observability.md#metrics).
 
+### IL6021
+**Invalid `deprecated` option.** A route's `deprecated` takes `true` or `{ since, sunset, link }`: `since` and `sunset` are dates (`"2026-11-01"`), ISO timestamps or valid `Date` values, `sunset` is after `since`, and `link` is an http or https URL. The message names the route. See [deprecating routes](routes.md#deprecating-routes).
+
 ## Environment (7xxx)
 
 ### IL7001

@@ -19,6 +19,7 @@ import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
+import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
 import { INFERLO_VERSION } from "./describe.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
@@ -373,6 +374,11 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   for (const r of routes) if (r.options.rateLimit !== undefined) checkRateLimit(r.options.rateLimit, `${r.method} ${r.path}`);
   const requestTimeoutMs = config.requestTimeoutMs === undefined ? 60_000 : checkTimeout(config.requestTimeoutMs, "createApp({ requestTimeoutMs })");
   for (const r of routes) if (r.options.timeoutMs !== undefined) checkTimeout(r.options.timeoutMs, `${r.method} ${r.path} { timeoutMs }`);
+  const deprecations = new Map<RouteDef, ResolvedDeprecation>();
+  for (const r of routes) {
+    const resolved = resolveDeprecation(r.options.deprecated, `${r.method} ${r.path}`);
+    if (resolved) deprecations.set(r, resolved);
+  }
   const storeName = config.rateLimit?.store ?? "memory";
   if (storeName !== "memory" && storeName !== "database") {
     throw new InferloError("IL6007", `Invalid rateLimit store "${String(storeName)}".`, { fix: 'Use createApp({ rateLimit: { store: "memory" } }) or { store: "database" }.' });
@@ -566,6 +572,8 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
       }
       const { def, keys } = match.route;
       seen.route = def.path;
+      // Deprecation headers go on every answer of the route, errors included.
+      for (const [name, value] of deprecations.get(def)?.headers ?? []) headers.set(name, value);
       const opts = def.options;
       const limit = opts.timeoutMs === undefined ? requestTimeoutMs : opts.timeoutMs;
       // timeout aborts when the route takes too long; signal (ctx.signal) also when the client disconnects.

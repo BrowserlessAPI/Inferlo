@@ -30,6 +30,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `summary`, `description`, `tags` | Documentation for OpenAPI, describe and MCP |
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
 | `rateLimit` | `{ max, per, by }` to limit requests per user or IP (see below) |
+| `deprecated` | `true`, or `{ since, sunset, link }` to send deprecation headers (see below) |
 | `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
@@ -54,6 +55,25 @@ export const summarize = route
 - Counts are kept in memory by default (one process, tests). With several instances, keep them in Postgres: `createApp({ rateLimit: { store: "database" } })` uses the `inferlo_rate_limits` table, created on first use (IL6008 without Postgres).
 - The client IP comes from the server (`app.listen()`, Bun and Deno). Behind a load balancer or proxy, set `createApp({ trustProxy: true })` to use the first `X-Forwarded-For` address; leave it off otherwise, because clients can send that header themselves.
 - Invalid options raise IL6007 when the app starts.
+
+## Deprecating routes
+
+When a route is replaced (for example `/v1/tickets` by `/v2/tickets`), mark the old one deprecated instead of removing it at once, so clients have time to move:
+
+```ts
+export const listTicketsV1 = route
+  .get("/v1/tickets", {
+    deprecated: { since: "2026-11-01", sunset: "2027-06-30", link: "https://example.com/docs/tickets-v2" },
+  })
+  .handle(...);
+```
+
+- Every response of the route, errors included, gets the standard headers that HTTP clients, API gateways and SDK generators read: `Deprecation: @1793491200` ([RFC 9745](https://www.rfc-editor.org/rfc/rfc9745), the `since` date as Unix seconds), `Sunset: Wed, 30 Jun 2027 00:00:00 GMT` ([RFC 8594](https://www.rfc-editor.org/rfc/rfc8594)) and `Link: <https://example.com/docs/tickets-v2>; rel="deprecation"; type="text/html"`. Each header is sent only when its option is set.
+- `since` and `sunset` are dates (`"2026-11-01"`), ISO timestamps or `Date` values, and `sunset` must be after `since`. `link` is an http or https URL of a page that explains what to use instead.
+- `deprecated: true` marks the route deprecated in OpenAPI, describe and MCP without sending headers.
+- OpenAPI marks the operation `deprecated: true` (with the dates and link in `x-inferlo-deprecation`), `describe()` and `inferlo describe` show it, and MCP tool descriptions end with "(Deprecated, stops working on 2027-06-30.)" so AI agents prefer other tools.
+- The route keeps working after the sunset date; remove it when you are ready.
+- Invalid options raise IL6021 when the app starts, naming the route.
 
 ## The handler context
 
