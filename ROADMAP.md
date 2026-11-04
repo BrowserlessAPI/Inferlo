@@ -2,7 +2,7 @@
 
 **Goal: Inferlo 1.0 by 15 December 2026.** 1.0 means: every item in "Now", "AI depth" and "Production essentials" is done, the API is frozen (no breaking changes after 1.0 without a major version), the docs website is live, and at least one real BrowserlessAPI service runs on Inferlo in production. Releases go out daily when there are changes, so npm always shows current progress.
 
-The scheduled maintainer works through this list top to bottom, shipping up to three items per run. Each item lands as its own tested, documented commit. Tick items when they are merged. Add new items in the right section when you discover them, and split items that are too large into numbered parts.
+The scheduled maintainer works through this list top to bottom, shipping up to four items per run, seven runs a day. Each item lands as its own tested, documented commit. Tick items when they are merged. Add new items in the right section when you discover them, and split items that are too large into numbered parts.
 
 Priority order: AI model support is Inferlo's core promise, so the "Now" section mixes AI features with the production essentials apps need most.
 
