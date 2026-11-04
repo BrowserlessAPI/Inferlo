@@ -98,7 +98,7 @@ To mount a whole Inferlo app, use Hono's `mount`, which removes the path before 
 hono.mount("/api", inferlo.fetch); // /api/tickets, /api/openapi.json, /api/mcp
 ```
 
-The [with-hono example](../examples/with-hono) uses both, and CI tests it with Hono 4.0.0 and the latest Hono.
+To move a Hono app to Inferlo route by route at the same URLs, see [Migrate from Hono](migrate-from-hono.md). The [with-hono example](../examples/with-hono) uses both, and CI tests it with Hono 4.0.0 and the latest Hono.
 
 ## Express
 
