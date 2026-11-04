@@ -20,6 +20,7 @@ Key rules: routes are private unless `auth: "public"`; validate input with `t.*`
 - [Security](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/security.md): secure defaults and security headers (createApp({ secureHeaders }))
 - [Observability](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/observability.md): request ids (X-Request-Id, ctx.requestId), request logs and JSON logs with createApp({ logging: { format: "json", requests: true } }), your own logger
 - [Deployment](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/deploy.md): Node, Bun, Deno, edge, health and readiness endpoints, graceful shutdown with app.close()
+- [Support policy](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/support.md): semantic versioning, which versions get fixes, LTS after 1.0, deprecation rules and supported runtime, database and framework versions
 - [Error codes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/errors.md): every ILxxxx code with its fix
 
 ## Full text

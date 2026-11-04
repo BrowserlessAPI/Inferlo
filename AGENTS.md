@@ -62,10 +62,11 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 Rules:
 
 1. When a new major version is released (Node, Bun, PostgreSQL, TypeScript, or any database or runtime added later, such as MySQL or Deno), add it to the matrix before or together with the next change.
-2. When a version reaches end of life upstream, move "oldest tested" forward, update `engines`, README and docs/getting-started.md, and note it in CHANGELOG.md under "Breaking".
+2. When a version reaches end of life upstream, move "oldest tested" forward, update `engines`, README, docs/getting-started.md and docs/support.md, and note it in CHANGELOG.md under "Breaking".
 3. Never drop or skip a version just to make CI pass. If a version fails, fix Inferlo for it.
 4. Anything new Inferlo starts supporting (a database adapter, a runtime) gets its oldest supported and latest versions in the matrix in the same change.
 5. Local runs cover one version; CI covers the full matrix. A change is only done when every CI job is green.
+6. Keep the table in docs/support.md (the user-facing support policy) in step with this table.
 
 ## Checks (all must pass before every commit)
 

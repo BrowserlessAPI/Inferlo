@@ -31,7 +31,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [ ] Performance: published, reproducible throughput and latency benchmarks against Fastify, Hono, Express and NestJS, and a performance regression check in CI
 - [ ] Microservices: service-to-service calls with typed clients, and message transports (NATS, RabbitMQ, Kafka) for events between services
 - [ ] GraphQL support generated from models and routes (optional module)
-- [ ] Support policy: `docs/support.md` with semantic versioning, LTS releases after 1.0, deprecation rules and supported runtime versions
+- [x] Support policy: `docs/support.md` with semantic versioning, LTS releases after 1.0, deprecation rules and supported runtime versions
 
 ### Works with other frameworks (top priority)
 
