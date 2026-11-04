@@ -474,6 +474,18 @@ export const delete${Model} = route
 
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * --json error output. Unlike InferloError.toJSON() (which hides server error details from
+ * API clients), the CLI always shows the real message, the fix and the details to the developer.
+ */
+function cliErrorJSON(error: InferloError) {
+  const out: Record<string, unknown> = { code: error.code, message: error.message };
+  if (error.fix) out.fix = error.fix;
+  if (error.details !== undefined) out.details = error.details;
+  out.docs = error.docs;
+  return { ok: false, error: out, message: error.message };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0];
@@ -510,7 +522,7 @@ async function main() {
   } catch (error) {
     const json = Boolean(args.flags.json);
     if (error instanceof InferloError) {
-      if (json) console.log(JSON.stringify({ ok: false, ...error.toJSON(), message: error.message }, null, 2));
+      if (json) console.log(JSON.stringify(cliErrorJSON(error), null, 2));
       else console.error(error.format());
     } else {
       if (json) console.log(JSON.stringify({ ok: false, error: { code: "IL9000", message: String((error as Error)?.message ?? error) } }, null, 2));

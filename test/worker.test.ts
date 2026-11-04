@@ -34,7 +34,13 @@ describe("inferlo worker", () => {
     dirs.push(dir);
     const r = cli(dir);
     assert.equal(r.status, 1);
-    assert.equal(JSON.parse(r.stdout).error.code, "IL8007");
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.error.code, "IL8007");
+    // CLI errors always include the real message and the fix, even for 500 errors.
+    assert.match(out.error.message, /no jobs|jobs/i);
+    assert.notEqual(out.error.message, "Internal server error");
+    assert.match(out.error.fix, /createApp\(\{ jobs: \[jobs\] \}\)/);
+    assert.match(out.error.docs, /il8007$/);
   });
 
   test("the in-memory queue raises IL8008, because another process cannot see it", () => {
@@ -47,6 +53,8 @@ describe("inferlo worker", () => {
     const out = JSON.parse(r.stdout);
     assert.equal(out.error.code, "IL8008");
     assert.match(out.message, /database job queue/);
+    assert.match(out.error.message, /database job queue/);
+    assert.match(out.error.fix, /store: "database"/);
   });
 
   if (PG_URL) {

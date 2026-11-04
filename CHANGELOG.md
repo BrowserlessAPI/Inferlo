@@ -4,6 +4,8 @@ All notable changes are listed here. Inferlo follows [semantic versioning](https
 
 ## Unreleased
 
+- Fix: `--json` CLI errors now always include `fix` and the real `message` in `error`, also for errors with a 500 status such as IL8007 and IL8008 from `inferlo worker`. Before, they went through `InferloError.toJSON()`, which hides both from API clients for server errors.
+
 ## 0.4.0 - 2026-11-04
 
 - Cron: `export const nightly = cron("0 3 * * *", cleanupJob)` next to the job in a jobs module queues the job on a schedule while `app.jobs.start()` or `inferlo worker` runs. Five fields in UTC (numbers, `*`, ranges, lists, steps, month and weekday names). Each tick is queued once with a fixed job id, so with the database queue every instance can run the schedule; after a pause only the latest missed tick is queued. Registering a cron registers its job. The job runs with input `{}`. New code IL6013 (invalid schedule or job); new exports `cron`, `isCron` and type `CronDef`; `app.jobs.crons` and `describe().crons` list the schedules, and `inferlo describe` shows them.

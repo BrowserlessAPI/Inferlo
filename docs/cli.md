@@ -14,7 +14,13 @@ inferlo add resource <name>    Generate a model and CRUD routes
 inferlo version
 ```
 
-Every command accepts `--json` and exits non-zero on failure.
+Every command accepts `--json` and exits non-zero on failure. With `--json`, errors are printed to stdout as:
+
+```json
+{ "ok": false, "error": { "code": "IL8007", "message": "...", "fix": "...", "docs": "https://..." }, "message": "..." }
+```
+
+The CLI always includes the real `message` and the `fix` (and `details` when there are any), also for errors with a 500 status that an HTTP response would hide.
 
 The app entry is `src/app.ts` by default. Change it with `"inferlo": { "entry": "...", "server": "..." }` in package.json or `--entry <file>`.
 
