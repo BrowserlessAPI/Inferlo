@@ -227,6 +227,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6024
 **A module's model references a module it does not import.** A `t.ref("users")` field in a model of the `billing` module points at a model owned by the `users` module, but `billing` does not list `users` in its `imports`. Add it: `module("billing", { imports: [users], ... })`. Models may reference models of their own module, of imported modules, and of `createApp({ models })`. See [Modules](modules.md#what-createapp-checks).
 
+### IL6025
+**Invalid API version.** `apiVersion(version, routes, options)` takes a version of `"v"` and a number (`"v1"`, `"v2"`), a non-empty array of routes or route files, and options with only `deprecated`. A route returned by `apiVersion()` cannot be put in another version: pass the original route to each version instead. `app.openapi({ version })` needs a version the app has, and no `GET` route may use a version's OpenAPI document path (`/v1/openapi.json`). See [API versions](routes.md#api-versions).
+
 ## Environment (7xxx)
 
 ### IL7001

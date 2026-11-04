@@ -26,7 +26,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [ ] Security hardening part 4: CSRF protection for cookie sessions (together with the cookie sessions item)
 - [ ] Security hardening part 5: `SECURITY.md` with the supported versions and a vulnerability reporting process (needs the owner: enable private vulnerability reporting on GitHub or choose a contact address)
 - [x] API versioning part 1: `deprecated: { since, sunset, link }` on routes sends the Deprecation (RFC 9745), Sunset (RFC 8594) and `Link rel="deprecation"` headers, and marks the route in OpenAPI, describe and MCP
-- [ ] API versioning part 2: `/v1` and `/v2` route groups, and an OpenAPI document per version
+- [x] API versioning part 2: `/v1` and `/v2` route groups, and an OpenAPI document per version
 - [ ] Caching: `cache` with memory and Redis stores, per-route response caching and cache invalidation
 - [ ] Redis support for rate limits, job queues and cache, tested on the oldest supported and latest Redis versions
 - [ ] Performance: published, reproducible throughput and latency benchmarks against Fastify, Hono, Express and NestJS, and a performance regression check in CI

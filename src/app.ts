@@ -11,7 +11,7 @@ import { InferloError, didYouMean, suggest } from "./errors.ts";
 import { callTool, handleMcp, toolDefinition } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
-import { isRoute, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
+import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps } from "./client-ip.ts";
 import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
@@ -23,6 +23,7 @@ import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
 import { INFERLO_VERSION } from "./describe.ts";
 import { registerRequestMatcher } from "./request-matcher.ts";
+import { versionDocPath, versionsOf } from "./api-version.ts";
 import { resolveModules, type AnyModule, type ModuleInfo, type ModuleModels } from "./module.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
@@ -221,7 +222,8 @@ export interface App<Models extends readonly AnyModel[]> {
   close(options?: CloseOptions): Promise<void>;
   /** Machine-readable map of the whole app: routes, models, auth and AI. */
   describe(): AppDescription;
-  openapi(): Record<string, unknown>;
+  /** The OpenAPI 3.1 document: every route, or with { version: "v1" } the routes of apiVersion("v1", ...) and the routes outside every version. */
+  openapi(options?: { version?: string }): Record<string, unknown>;
 }
 
 const testUsers = new WeakMap<Request, AppUser | null>();
@@ -251,25 +253,6 @@ function compile(def: RouteDef): CompiledRoute {
   return { def, regex: new RegExp(`^${pattern || ""}/?$`), keys, score: score * 10 + parts.length };
 }
 
-function collectRoutes(sources: RouteSource[] | undefined): RouteDef[] {
-  const out: RouteDef[] = [];
-  const seen = new Set<unknown>();
-  const visit = (source: unknown, name?: string) => {
-    if (!source || typeof source !== "object" || seen.has(source)) return;
-    seen.add(source);
-    if (isRoute(source)) {
-      out.push(name && !source.name ? { ...source, name } : source);
-      return;
-    }
-    if (Array.isArray(source)) {
-      for (const item of source) visit(item);
-      return;
-    }
-    for (const [key, value] of Object.entries(source)) if (isRoute(value) || Array.isArray(value)) visit(value, key === "default" ? undefined : key);
-  };
-  visit(sources);
-  return out;
-}
 
 function corsHeaders(config: CorsConfig, origin: string | null): Record<string, string> {
   const allowed = config.origin === "*" ? "*" : origin && (Array.isArray(config.origin) ? config.origin : [config.origin]).includes(origin) ? origin : null;
@@ -409,7 +392,15 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const hasTools = routes.some((r) => r.options.tool);
   const mcpPath = config.mcp === undefined ? (hasTools ? "/mcp" : false) : config.mcp;
   const health = resolveHealth(config.health, routes, [openapiPath, mcpPath]);
+  // apiVersion("v1", ...) routes get their own OpenAPI document at /v1/openapi.json.
+  const versions = versionsOf(routes);
+  const versionDocs = new Map<string, string>(openapiPath ? versions.map((v) => [versionDocPath(v, openapiPath), v]) : []);
+  for (const docPath of versionDocs.keys()) {
+    const clash = routes.find((r) => r.method === "GET" && r.path.replace(/\/+$/, "") === docPath);
+    if (clash) throw new InferloError("IL6025", `The route GET ${clash.path} has the path of the OpenAPI document of API version ${versionDocs.get(docPath)}.`, { fix: "Rename the route; Inferlo serves each version's OpenAPI document there." });
+  }
   const metricsConfig = resolveMetrics(config.metrics, [
+    ...[...versionDocs.keys()].map((path) => ({ path, what: "an OpenAPI document path" })),
     { path: openapiPath, what: "the OpenAPI path" },
     { path: mcpPath, what: "the MCP path" },
     { path: health?.path ?? false, what: "the health path" },
@@ -565,6 +556,10 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       if (refusing) {
         headers.set("connection", "close");
         throw new InferloError("IL2006", "The server is shutting down.", { status: 503, fix: "Retry the request; another instance will answer it." });
+      }
+      if (method === "GET" && versionDocs.has(url.pathname)) {
+        seen.route = url.pathname;
+        return json(app.openapi({ version: versionDocs.get(url.pathname)! }), 200, headers);
       }
       if (openapiPath && url.pathname === openapiPath && method === "GET") {
         seen.route = openapiPath;
@@ -904,11 +899,17 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         logging: { format: config.logger ? "custom" : logging.format, requests: logging.requests },
         description: config.description,
         modules: moduleInfo,
+        versions: versions.map((v) => ({ name: v, openapi: openapiPath ? versionDocPath(v, openapiPath) : false })),
       });
     },
 
-    openapi() {
-      return buildOpenAPI(app, { description: config.description, auth: Boolean(config.auth), modules: moduleInfo });
+    openapi(options = {}) {
+      if (options.version !== undefined && !versions.includes(options.version)) {
+        throw new InferloError("IL6025", `The app has no API version ${JSON.stringify(options.version)}.${versions.length ? ` Its versions: ${versions.join(", ")}.` : " It has no apiVersion() routes."}`, {
+          fix: 'Pass a version used in apiVersion("v1", routes), or call app.openapi() for every route.',
+        });
+      }
+      return buildOpenAPI(app, { description: config.description, auth: Boolean(config.auth), modules: moduleInfo, version: options.version });
     },
   };
   // Built-in endpoints with the methods dispatch answers them for (MCP takes every method).
@@ -916,7 +917,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   registerRequestMatcher(app, (rawMethod, pathname) => {
     const method = rawMethod.toUpperCase();
     if (mcpPath && pathname === mcpPath) return true;
-    if (openapiPath && pathname === openapiPath && method === "GET") return true;
+    if (method === "GET" && ((openapiPath && pathname === openapiPath) || versionDocs.has(pathname))) return true;
     if ((method === "GET" || method === "HEAD") && readEndpoints.includes(pathname)) return true;
     const lookup = method === "HEAD" ? "GET" : method;
     // A CORS preflight belongs to the app when any of its routes has this path.

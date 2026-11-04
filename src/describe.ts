@@ -40,7 +40,11 @@ export interface AppDescription {
   modules: { name: string; description?: string; imports: string[]; models: string[]; routes: string[]; jobs: string[]; provides: string[] }[];
   /** module: the feature module that owns the model, when it is in one. */
   models: { name: string; module?: string; fields: Record<string, FieldDescription> }[];
+  /** API versions from apiVersion("v1", routes), oldest first, with the path of each version's OpenAPI document. */
+  versions: { name: string; openapi: string | false }[];
   routes: {
+    /** The API version of the route ("v1"), when it comes from apiVersion(). */
+    version?: string;
     /** The feature module the route belongs to, when it is in one. */
     module?: string;
     name?: string;
@@ -85,7 +89,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string; modules: ModuleInfo }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string; modules: ModuleInfo; versions: AppDescription["versions"] }): AppDescription {
   const info = options.modules;
   return {
     inferlo: INFERLO_VERSION,
@@ -98,6 +102,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     secureHeaders: options.secureHeaders,
     requestTimeoutMs: options.requestTimeoutMs,
     logging: options.logging,
+    versions: options.versions,
     modules: info.modules.map((m) => ({
       name: m.name,
       ...(m.description ? { description: m.description } : {}),
@@ -121,6 +126,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       const o = r.options;
       const out: AppDescription["routes"][number] = { method: r.method, path: r.path, auth: o.auth ?? "user" };
       if (r.name) out.name = r.name;
+      if (r.version) out.version = r.version;
       const owner = info.routeModule.get(r);
       if (owner) out.module = owner;
       if (o.summary) out.summary = o.summary;

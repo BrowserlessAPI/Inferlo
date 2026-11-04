@@ -23,9 +23,11 @@ const errorSchema: JSONSchema = {
   required: ["error"],
 };
 
-export function buildOpenAPI(app: App<any>, options: { description?: string; auth: boolean; modules?: ModuleInfo }): Record<string, unknown> {
+export function buildOpenAPI(app: App<any>, options: { description?: string; auth: boolean; modules?: ModuleInfo; version?: string }): Record<string, unknown> {
   const paths: Record<string, Record<string, unknown>> = {};
-  for (const route of app.routes) {
+  // A version's document has its routes and the routes outside every version.
+  const routes = options.version === undefined ? app.routes : app.routes.filter((r) => r.version === undefined || r.version === options.version);
+  for (const route of routes) {
     const o = route.options;
     const openPath = route.path.replace(/:([^/]+)/g, "{$1}").replace(/\/\*$/, "/{wildcard}");
     const parameters: Record<string, unknown>[] = [];
@@ -70,7 +72,7 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
   for (const m of app.models) schemas[m.name] = m.row.toJSONSchema();
   return {
     openapi: "3.1.0",
-    info: { title: app.name, version: app.version, description: options.description },
+    info: { title: app.name, version: app.version, description: options.description, ...(options.version ? { "x-inferlo-api-version": options.version } : {}) },
     ...(options.modules?.modules.length
       ? { tags: options.modules.modules.map((m) => (m.description ? { name: m.name, description: m.description } : { name: m.name })) }
       : {}),

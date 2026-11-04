@@ -1,0 +1,4 @@
+{
+  "title": "Publish the notes API as version v1",
+  "prompt": "We are about to make breaking changes to the notes API, so the current notes endpoints must become API version v1: serve every notes route under /v1 (GET /v1/notes, POST /v1/notes, GET /v1/notes/:id, ...) instead of at the root, and give version v1 its own OpenAPI document at /v1/openapi.json. Do not change the route handlers' behaviour."
+}

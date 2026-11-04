@@ -123,6 +123,8 @@ export interface RouteDef {
   readonly handler: Handler<AnyContext, unknown>;
   /** Export name, filled in by createApp when routes are passed as modules. */
   name?: string;
+  /** API version ("v1") when the route comes from apiVersion("v1", routes). */
+  readonly version?: string;
 }
 
 export class RouteBuilder<Path extends string, B extends AnySchema | undefined, Q extends ObjectSchema<any> | undefined, P extends ObjectSchema<any> | undefined, A> {
@@ -177,4 +179,25 @@ export const route = {
 
 export function isRoute(value: unknown): value is RouteDef {
   return typeof value === "object" && value !== null && (value as RouteDef).kind === "inferlo.route";
+}
+
+/** The routes in route sources: routes, arrays and modules (import * as tickets), named after their exports. */
+export function collectRoutes(sources: unknown): RouteDef[] {
+  const out: RouteDef[] = [];
+  const seen = new Set<unknown>();
+  const visit = (source: unknown, name?: string) => {
+    if (!source || typeof source !== "object" || seen.has(source)) return;
+    seen.add(source);
+    if (isRoute(source)) {
+      out.push(name && !source.name ? { ...source, name } : source);
+      return;
+    }
+    if (Array.isArray(source)) {
+      for (const item of source) visit(item);
+      return;
+    }
+    for (const [key, value] of Object.entries(source)) if (isRoute(value) || Array.isArray(value)) visit(value, key === "default" ? undefined : key);
+  };
+  visit(sources);
+  return out;
 }

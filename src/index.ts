@@ -12,6 +12,9 @@ export type { SecureHeadersConfig } from "./secure-headers.ts";
 export { module, isModule } from "./module.ts";
 export type { Module, ModuleOptions, AnyModule, ModuleModels } from "./module.ts";
 
+export { apiVersion } from "./api-version.ts";
+export type { ApiVersionOptions } from "./api-version.ts";
+
 export { route, isRoute } from "./route.ts";
 export type { Register, Context, RouteDef, RouteOptions, Auth, Method, ToolOptions, AppUser, AppDb } from "./route.ts";
 
