@@ -61,6 +61,7 @@ export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, Jo
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
 export { env, setEnv } from "./env.ts";
 export { InferloError, httpError, notFound, forbidden, badRequest, docsUrl } from "./errors.ts";
-export { serve } from "./serve.ts";
+export { serve, toNodeHandler, fromNodeRequest } from "./serve.ts";
+export type { ServeOptions, Server, NodeRequest, NodeResponse, NodeHandler, NodeHandlerOptions, FromNodeRequestOptions } from "./serve.ts";
 export { INFERLO_VERSION } from "./describe.ts";
 export type { AppDescription } from "./describe.ts";

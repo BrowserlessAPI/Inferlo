@@ -1,0 +1,4 @@
+{
+  "title": "Mount the app inside an existing Node server",
+  "prompt": "We are moving an existing node:http service to Inferlo step by step. Create src/legacy.ts exporting `function createLegacyServer(): http.Server` (from node:http, not listening yet). Requests whose path starts with /api must be handled by the Inferlo app from src/app.ts mounted under /api (so GET /api/health reaches the app's GET /health route, and /api/openapi.json serves its OpenAPI document). Every other request is answered by the old service: status 200 with the plain text body \"legacy\"."
+}

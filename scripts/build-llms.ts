@@ -3,7 +3,7 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 
-const order = ["getting-started", "comparison", "schema", "database", "routes", "auth", "ai", "jobs", "mcp", "cli", "testing", "deploy", "errors"];
+const order = ["getting-started", "comparison", "schema", "database", "routes", "auth", "ai", "jobs", "mcp", "cli", "testing", "integrations", "deploy", "errors"];
 const root = new URL("..", import.meta.url);
 
 const parts = [`# Inferlo: full documentation\n\nGenerated from README.md and docs/. Source: https://github.com/BrowserlessAPI/Inferlo\n`];

@@ -46,3 +46,7 @@ export default app;   // app.fetch is the Worker handler
 ```
 
 Use a Postgres driver that supports your edge runtime, or `memory()` for stateless services.
+
+## Inside another framework
+
+To run an Inferlo app under a path of an existing Express, Fastify, NestJS or Hono app, see [Use with other frameworks](integrations.md) (`toNodeHandler(app, { prefix })`).
