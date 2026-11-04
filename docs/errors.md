@@ -182,6 +182,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6015
 **Invalid `app.close()` options.** `delayMs` and `timeoutMs` are numbers of milliseconds, 0 or more: `app.close({ delayMs: 5000, timeoutMs: 10000 })`.
 
+### IL6016
+**Invalid `secureHeaders`.** `createApp({ secureHeaders })` takes `true` (the default), `false` (no security headers), or an object of header names to a string value or `false` (leave that header out): `{ "X-Frame-Options": "SAMEORIGIN", "Content-Security-Policy": false }`. Values cannot contain line breaks. See [security](security.md#security-headers).
+
 ## Environment (7xxx)
 
 ### IL7001

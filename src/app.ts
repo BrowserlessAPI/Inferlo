@@ -17,6 +17,7 @@ import { clientIp, clientIps } from "./client-ip.ts";
 import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
 import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
+import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
 export interface AuthConfig {
   /** Return the signed-in user for this request, or null. */
@@ -119,6 +120,13 @@ export interface AppConfig<Models extends readonly AnyModel[]> {
    * the database, the AI configuration and your checks). Public, never cached. Off by default.
    */
   health?: boolean | HealthConfig;
+  /**
+   * Security headers sent on every response that does not set them itself: Content-Security-Policy,
+   * Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy, Referrer-Policy, X-Content-Type-Options,
+   * X-Frame-Options, and Strict-Transport-Security over HTTPS. Change one by name, false leaves it out:
+   * { "X-Frame-Options": "SAMEORIGIN", "Content-Security-Policy": false }. false sends none. Default true.
+   */
+  secureHeaders?: boolean | SecureHeadersConfig;
   /** Include error messages of unexpected (500) errors in responses. Default false. */
   exposeErrors?: boolean;
   logger?: Logger;
@@ -326,6 +334,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
   const ai = createAI(config.ai);
   const jobs = createJobs(collectJobs(config.jobs), { db: db as never, ai, store: jobStoreFor(config.jobQueue, adapter), queue: config.jobQueue?.store ?? "memory", logger }, collectCrons(config.jobs));
   const maxBody = config.maxBodySize ?? 1024 * 1024;
+  const secureHeaders = resolveSecureHeaders(config.secureHeaders);
   const cors: CorsConfig | undefined = config.cors === true ? { origin: "*" } : config.cors || undefined;
   const openapiPath = config.openapi === undefined ? "/openapi.json" : config.openapi;
   const hasTools = routes.some((r) => r.options.tool);
@@ -590,6 +599,10 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     } catch (error) {
       response = errorResponse(error, new Headers(), req);
     }
+    if (secureHeaders.length) {
+      const https = url.protocol === "https:" || (Boolean(config.trustProxy) && req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https");
+      response = applySecureHeaders(response, secureHeaders, https);
+    }
     if (pending.length) {
       const all = Promise.all(pending);
       const execution = rest[1] as { waitUntil?(p: Promise<unknown>): void } | undefined;
@@ -705,6 +718,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         mcp: mcpPath,
         health: health?.path ?? false,
         ready: health?.readyPath ?? false,
+        secureHeaders: secureHeaders.map(([name]) => name),
         description: config.description,
       });
     },

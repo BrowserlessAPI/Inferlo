@@ -1,0 +1,4 @@
+{
+  "title": "Allow framing by one partner site",
+  "prompt": "Our partner site https://partner.example.com must be able to show this app's pages in an iframe. Change the app's security headers so that only that origin (and this app itself) may frame the app, using the Content-Security-Policy frame-ancestors directive. Drop the X-Frame-Options header, which cannot express this. Every other security header Inferlo sends by default must stay as it is, and the rest of the default Content-Security-Policy must keep its directives."
+}

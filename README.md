@@ -122,6 +122,7 @@ npm install @browserlessapi/inferlo
 - [CLI](docs/cli.md)
 - [Testing](docs/testing.md)
 - [Use with other frameworks](docs/integrations.md)
+- [Security](docs/security.md)
 - [Deployment](docs/deploy.md)
 - [Error codes](docs/errors.md)
 - [Example: helpdesk with AI triage](examples/helpdesk)

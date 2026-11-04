@@ -28,6 +28,8 @@ export interface AppDescription {
   database: string;
   auth: boolean;
   endpoints: { openapi: string | false; mcp: string | false; health: string | false; ready: string | false };
+  /** Security headers sent on responses (lowercase names; strict-transport-security only over HTTPS). */
+  secureHeaders: string[];
   models: { name: string; fields: Record<string, FieldDescription> }[];
   routes: {
     name?: string;
@@ -68,7 +70,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; description?: string }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; secureHeaders: string[]; description?: string }): AppDescription {
   return {
     inferlo: INFERLO_VERSION,
     name: app.name,
@@ -77,6 +79,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     database: app.db.$adapter.dialect,
     auth: options.auth,
     endpoints: { openapi: options.openapi, mcp: options.mcp, health: options.health, ready: options.ready },
+    secureHeaders: options.secureHeaders,
     models: app.models.map((m: { name: string; fields: Record<string, AnySchema> }) => ({
       name: m.name,
       fields: Object.fromEntries([

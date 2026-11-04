@@ -18,7 +18,11 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Health and readiness part 2: graceful shutdown, `app.close()` that makes `/ready` answer 503, stops taking new requests, waits for in-flight requests and the running job, then closes the database; the app template uses it and the built-in health endpoints
 - [ ] Observability: structured JSON logging with request ids, Prometheus metrics endpoint, and OpenTelemetry tracing for requests, database queries, jobs and AI calls
 - [ ] Permissions: role- and policy-based access control (`can("ticket.update", { user, ticket })`) usable in routes, tools and jobs, plus an audit log of who changed what
-- [ ] Security hardening: secure headers, request size and timeout limits, CSRF for cookie sessions, secret redaction in logs and errors, and `SECURITY.md` with a vulnerability reporting process
+- [x] Security hardening part 1: secure response headers by default (`createApp({ secureHeaders })`, CSP, HSTS over HTTPS, nosniff, frame and referrer policies), and docs/security.md listing the secure defaults
+- [ ] Security hardening part 2: request timeouts (`createApp({ requestTimeoutMs })` and per-route `timeoutMs`, with an abort `signal` in the handler context passed on to AI and database calls)
+- [ ] Security hardening part 3: secret redaction in logs and errors (authorization headers, cookies, `config` secrets and provider API keys never appear in logged errors)
+- [ ] Security hardening part 4: CSRF protection for cookie sessions (together with the cookie sessions item)
+- [ ] Security hardening part 5: `SECURITY.md` with the supported versions and a vulnerability reporting process (needs the owner: enable private vulnerability reporting on GitHub or choose a contact address)
 - [ ] API versioning: `/v1` and `/v2` route groups with deprecation headers, and OpenAPI per version
 - [ ] Caching: `cache` with memory and Redis stores, per-route response caching and cache invalidation
 - [ ] Redis support for rate limits, job queues and cache, tested on the oldest supported and latest Redis versions
