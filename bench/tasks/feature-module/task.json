@@ -1,0 +1,4 @@
+{
+  "title": "Move a feature into a module",
+  "prompt": "The app is growing, so group the notes feature into a feature module named \"notes\": it owns the notes model and the notes routes, with the description \"Personal notes with AI summaries.\". The users and api_keys models stay in the app itself. Register the module with the app so describe and OpenAPI show it, and keep every notes endpoint working as before."
+}

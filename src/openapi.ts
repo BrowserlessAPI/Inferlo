@@ -1,6 +1,7 @@
 /** OpenAPI 3.1 document generated from routes. Served at /openapi.json by default. */
 import { describeDeprecation, resolveDeprecation } from "./deprecation.ts";
 import type { App } from "./app.ts";
+import type { ModuleInfo } from "./module.ts";
 import { toolName } from "./mcp.ts";
 import type { JSONSchema } from "./schema.ts";
 
@@ -22,7 +23,7 @@ const errorSchema: JSONSchema = {
   required: ["error"],
 };
 
-export function buildOpenAPI(app: App<any>, options: { description?: string; auth: boolean }): Record<string, unknown> {
+export function buildOpenAPI(app: App<any>, options: { description?: string; auth: boolean; modules?: ModuleInfo }): Record<string, unknown> {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const route of app.routes) {
     const o = route.options;
@@ -44,7 +45,8 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
       operationId: route.name ?? toolName(route),
       summary: o.summary,
       description: o.description,
-      tags: o.tags,
+      // Routes of a feature module are tagged with its name unless they set their own tags.
+      tags: o.tags ?? (options.modules?.routeModule.has(route) ? [options.modules.routeModule.get(route)!] : undefined),
       parameters: parameters.length ? parameters : undefined,
       requestBody: o.body ? { required: !o.body.def.optional, content: { "application/json": { schema: o.body.toJSONSchema() } } } : undefined,
       responses: {
@@ -69,6 +71,9 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
   return {
     openapi: "3.1.0",
     info: { title: app.name, version: app.version, description: options.description },
+    ...(options.modules?.modules.length
+      ? { tags: options.modules.modules.map((m) => (m.description ? { name: m.name, description: m.description } : { name: m.name })) }
+      : {}),
     paths,
     components: {
       schemas: { ...schemas, Error: errorSchema },

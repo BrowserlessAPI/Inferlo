@@ -12,7 +12,7 @@ Priority order: AI model support is Inferlo's core promise, so the "Now" section
 
 Inferlo must be a production-grade, general-purpose framework at the level of NestJS and Fastify, not only an AI tool. These items come first together with the framework integrations below.
 
-- [ ] Modules: `module("billing", { models, routes, jobs, provides })` to split large apps into feature modules with explicit dependencies (no decorators, no hidden injection), shown in `inferlo describe`
+- [x] Modules: `module("billing", { models, routes, jobs, provides })` to split large apps into feature modules with explicit dependencies (no decorators, no hidden injection), shown in `inferlo describe`
 - [x] Typed configuration: `config({ schema })` validated at startup from environment and `.env` files, with per-environment overrides and secrets never logged
 - [x] Health and readiness part 1: `createApp({ health })` with `/health` and `/ready` endpoints checking the database (and with it the database queue and rate limits), the AI configuration and custom checks, with timeouts and no leaked error details
 - [x] Health and readiness part 2: graceful shutdown, `app.close()` that makes `/ready` answer 503, stops taking new requests, waits for in-flight requests and the running job, then closes the database; the app template uses it and the built-in health endpoints

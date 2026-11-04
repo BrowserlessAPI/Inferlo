@@ -108,16 +108,30 @@ async function cmdDescribe(args: Args) {
   const app = await loadApp(args);
   const d = app.describe();
   print(d, Boolean(args.flags.json), () => {
-    const lines = [`${d.name} ${d.version}  (inferlo ${d.inferlo}, db: ${d.database}, auth: ${d.auth ? "on" : "off"})`, "", "Models"];
+    const lines = [`${d.name} ${d.version}  (inferlo ${d.inferlo}, db: ${d.database}, auth: ${d.auth ? "on" : "off"})`];
+    if (d.modules?.length) {
+      lines.push("", "Modules");
+      for (const m of d.modules) {
+        lines.push(`  ${m.name}${m.imports.length ? `  imports: ${m.imports.join(", ")}` : ""}${m.description ? `  ${m.description}` : ""}`);
+        const parts = [
+          m.models.length ? `models: ${m.models.join(", ")}` : "",
+          m.routes.length ? `routes: ${m.routes.length}` : "",
+          m.jobs.length ? `jobs: ${m.jobs.join(", ")}` : "",
+          m.provides.length ? `provides: ${m.provides.join(", ")}` : "",
+        ].filter(Boolean);
+        if (parts.length) lines.push(`    ${parts.join("; ")}`);
+      }
+    }
+    lines.push("", "Models");
     for (const m of d.models) {
-      lines.push(`  ${m.name}`);
+      lines.push(`  ${m.name}${m.module ? `  [${m.module}]` : ""}`);
       for (const [k, f] of Object.entries<any>(m.fields)) {
         const extra = [f.required ? "required" : "", f.unique ? "unique" : "", f.references ? `-> ${f.references}` : "", f.values ? f.values.join("|") : ""].filter(Boolean).join(", ");
         lines.push(`    ${k.padEnd(16)} ${f.type}${extra ? `  (${extra})` : ""}`);
       }
     }
     lines.push("", "Routes");
-    for (const r of d.routes) lines.push(`  ${r.method.padEnd(6)} ${r.path.padEnd(28)} auth=${r.auth}${r.tool ? `  tool=${r.tool}` : ""}${r.deprecated ? `  deprecated${r.deprecated !== true && r.deprecated.sunset ? ` (sunset ${r.deprecated.sunset})` : ""}` : ""}${r.name ? `  (${r.name})` : ""}`);
+    for (const r of d.routes) lines.push(`  ${r.method.padEnd(6)} ${r.path.padEnd(28)} auth=${r.auth}${r.tool ? `  tool=${r.tool}` : ""}${r.deprecated ? `  deprecated${r.deprecated !== true && r.deprecated.sunset ? ` (sunset ${r.deprecated.sunset})` : ""}` : ""}${r.name ? `  (${r.name})` : ""}${r.module ? `  [${r.module}]` : ""}`);
     if (d.jobs?.length) {
       lines.push("", `Jobs (queue: ${d.jobQueue})`);
       for (const j of d.jobs) lines.push(`  ${j.name.padEnd(28)} retries=${j.retries}${j.summary ? `  ${j.summary}` : ""}`);

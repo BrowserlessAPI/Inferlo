@@ -118,6 +118,7 @@ npm install @browserlessapi/inferlo
 - [Routes](docs/routes.md)
 - [Auth](docs/auth.md)
 - [AI](docs/ai.md)
+- [Modules](docs/modules.md)
 - [MCP, OpenAPI and describe](docs/mcp.md)
 - [CLI](docs/cli.md)
 - [Testing](docs/testing.md)

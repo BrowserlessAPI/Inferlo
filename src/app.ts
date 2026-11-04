@@ -22,6 +22,7 @@ import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type Logging
 import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
 import { INFERLO_VERSION } from "./describe.ts";
+import { resolveModules, type AnyModule, type ModuleInfo, type ModuleModels } from "./module.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
 export interface AuthConfig {
@@ -96,12 +97,17 @@ export interface ReadinessReport {
 /** Anything that contains routes: a route, an array, or a module (import * as tickets from "./routes/tickets.ts"). */
 export type RouteSource = RouteDef | readonly RouteSource[] | { readonly [name: string]: unknown };
 
-export interface AppConfig<Models extends readonly AnyModel[]> {
+export interface AppConfig<Models extends readonly AnyModel[], Modules extends readonly AnyModule[] = readonly AnyModule[]> {
   /** Shown in OpenAPI, MCP and describe. */
   name?: string;
   version?: string;
   description?: string;
   models?: Models;
+  /**
+   * Feature modules from module("billing", { imports, models, routes, jobs, provides }). Their models, routes
+   * and jobs join the app's own; every module a module imports must be listed here too.
+   */
+  modules?: Modules;
   routes?: RouteSource[];
   /** Background jobs and crons: jobs, cron(schedule, job) values, arrays or modules (import * as jobs from "./jobs.ts"). */
   jobs?: JobSource[];
@@ -188,7 +194,10 @@ export interface App<Models extends readonly AnyModel[]> {
   readonly name: string;
   readonly version: string;
   readonly routes: readonly RouteDef[];
+  /** Every model: createApp({ models }) and then the models of each module. */
   readonly models: Models;
+  /** The feature modules from createApp({ modules }). */
+  readonly modules: readonly AnyModule[];
   readonly db: Db<Models>;
   readonly ai: AI;
   /** Background jobs: app.jobs.enqueue(job, input), app.jobs.start() to run them, app.jobs.runDue() in tests. */
@@ -324,12 +333,15 @@ function json(data: unknown, status: number, headers: Headers): Response {
   return new Response(JSON.stringify(data), { status, headers });
 }
 
-export function createApp<const Models extends readonly AnyModel[] = []>(config: AppConfig<Models> = {}): App<Models> {
+export function createApp<const Models extends readonly AnyModel[] = [], const Modules extends readonly AnyModule[] = []>(
+  config: AppConfig<Models, Modules> = {},
+): App<[...Models, ...ModuleModels<Modules>]> {
   // Everything the app logs goes through the redactor: credentials and secrets never reach the logs.
   const redactor = createRedactor([...redactValues(config.redact), ...Object.values(config.ai?.providers ?? {}).flatMap((p) => secretsOf(p))]);
   const logging = loggingOptions(config.logging, config.logger !== undefined);
   const logger: Logger = redactingLogger(config.logger ?? defaultLogger(logging.format, config.name ?? "inferlo-app"), redactor);
-  const models = (config.models ?? []) as unknown as Models;
+  const { modules, modelOwner } = resolveModules(config.modules, config.models ?? []);
+  const models = [...(config.models ?? []), ...modules.flatMap((m) => m.models)] as unknown as [...Models, ...ModuleModels<Modules>];
   const modelNames = new Set<string>();
   for (const m of models) {
     if (modelNames.has(m.name)) throw new InferloError("IL6004", `Two models are named "${m.name}".`, { fix: "Model names must be unique." });
@@ -346,7 +358,15 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     }
   }
 
+  // Routes of the app itself, then each module's; routeModule remembers which module a route came from.
+  const routeModule = new Map<RouteDef, string>();
   const routes = collectRoutes(config.routes);
+  for (const m of modules) {
+    for (const r of collectRoutes(m.routes as RouteSource[])) {
+      routeModule.set(r, m.name);
+      routes.push(r);
+    }
+  }
   const compiled = routes.map(compile).sort((a, b) => b.score - a.score);
   const signatures = new Map<string, RouteDef>();
   for (const r of routes) {
@@ -406,8 +426,12 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     ? { ...config.ai, onUsage: (usage) => (metrics.ai(usage), config.ai!.onUsage?.(usage)) }
     : config.ai;
   const ai = createAI(aiConfig);
+  const jobModule = new Map<string, string>();
+  for (const m of modules) for (const j of collectJobs(m.jobs)) jobModule.set(j.name, m.name);
+  const moduleInfo: ModuleInfo = { modules, routeModule, modelOwner, jobModule };
+  const jobSources: JobSource[] = [...(config.jobs ?? []), ...modules.flatMap((m) => m.jobs)];
   const jobs = createJobs(
-    collectJobs(config.jobs),
+    collectJobs(jobSources),
     {
       db: db as never,
       ai,
@@ -416,7 +440,7 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
       logger,
       onRun: metrics ? (name, outcome, ms) => metrics.job(name, outcome, ms / 1000) : undefined,
     },
-    collectCrons(config.jobs),
+    collectCrons(jobSources),
   );
   const maxBody = config.maxBodySize ?? 1024 * 1024;
   const secureHeaders = resolveSecureHeaders(config.secureHeaders);
@@ -771,11 +795,12 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
     return response;
   }
 
-  const app: App<Models> = {
+  const app: App<[...Models, ...ModuleModels<Modules>]> = {
     name: config.name ?? "inferlo-app",
     version: config.version ?? "0.0.0",
     routes,
     models,
+    modules,
     db,
     ai,
     jobs,
@@ -877,11 +902,12 @@ export function createApp<const Models extends readonly AnyModel[] = []>(config:
         requestTimeoutMs,
         logging: { format: config.logger ? "custom" : logging.format, requests: logging.requests },
         description: config.description,
+        modules: moduleInfo,
       });
     },
 
     openapi() {
-      return buildOpenAPI(app, { description: config.description, auth: Boolean(config.auth) });
+      return buildOpenAPI(app, { description: config.description, auth: Boolean(config.auth), modules: moduleInfo });
     },
   };
   return app;

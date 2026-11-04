@@ -215,6 +215,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6021
 **Invalid `deprecated` option.** A route's `deprecated` takes `true` or `{ since, sunset, link }`: `since` and `sunset` are dates (`"2026-11-01"`), ISO timestamps or valid `Date` values, `sunset` is after `since`, and `link` is an http or https URL. The message names the route. See [deprecating routes](routes.md#deprecating-routes).
 
+### IL6022
+**Invalid module.** `module(name, options)` takes a name of lowercase letters, digits and dashes starting with a letter (`"billing"`, `"user-profiles"`) and an object with `description` (a string), `imports` (modules created with `module()`, each once, not the module itself), `models` (models), `routes` and `jobs` (arrays, like in `createApp`) and `provides` (an object of functions and values). The message names the option; an unknown option gets a "Did you mean" hint. See [Modules](modules.md).
+
+### IL6023
+**Modules do not fit together.** `createApp({ modules })` takes an array of modules with unique names, each listed once. Every module a module `imports` must be in that array too (the same value, not another module with the same name), and a model belongs to one place: one module or `createApp({ models })`. The message names the modules; add the missing module to `createApp({ modules })` or move the model. See [Modules](modules.md#what-createapp-checks).
+
+### IL6024
+**A module's model references a module it does not import.** A `t.ref("users")` field in a model of the `billing` module points at a model owned by the `users` module, but `billing` does not list `users` in its `imports`. Add it: `module("billing", { imports: [users], ... })`. Models may reference models of their own module, of imported modules, and of `createApp({ models })`. See [Modules](modules.md#what-createapp-checks).
+
 ## Environment (7xxx)
 
 ### IL7001

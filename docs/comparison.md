@@ -21,6 +21,7 @@
 - **MCP server:** mark a route `tool: true` and AI agents such as Claude Code or Cursor can call your API.
 - **One schema** for the database table, validation, TypeScript types, OpenAPI and AI output.
 - **Batteries included:** routes, PostgreSQL, migrations, auth, rate limiting, background jobs and cron.
+- **Structure for large codebases:** feature modules (`module("billing", { imports, models, routes, jobs, provides })`) with explicit, checked dependencies and no dependency injection container.
 - **Runs on Node.js, Bun and edge runtimes,** with zero runtime dependencies.
 
 ## Choose Inferlo when

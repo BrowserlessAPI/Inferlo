@@ -4,6 +4,7 @@
  */
 import { describeDeprecation, resolveDeprecation } from "./deprecation.ts";
 import type { App } from "./app.ts";
+import type { ModuleInfo } from "./module.ts";
 import { toolName } from "./mcp.ts";
 import { columnName } from "./model.ts";
 import type { AnySchema, JSONSchema } from "./schema.ts";
@@ -35,8 +36,13 @@ export interface AppDescription {
   requestTimeoutMs: number | false;
   /** The built-in logger's format and whether each request is logged (createApp({ logging })). "custom" when the app has its own logger. */
   logging: { format: "text" | "json" | "custom"; requests: boolean };
-  models: { name: string; fields: Record<string, FieldDescription> }[];
+  /** Feature modules (createApp({ modules })): what each contains, depends on and offers other modules. */
+  modules: { name: string; description?: string; imports: string[]; models: string[]; routes: string[]; jobs: string[]; provides: string[] }[];
+  /** module: the feature module that owns the model, when it is in one. */
+  models: { name: string; module?: string; fields: Record<string, FieldDescription> }[];
   routes: {
+    /** The feature module the route belongs to, when it is in one. */
+    module?: string;
     name?: string;
     method: string;
     path: string;
@@ -53,7 +59,7 @@ export interface AppDescription {
     body?: JSONSchema;
   }[];
   ai: { configured: boolean; aliases: Record<string, string[]> };
-  jobs: { name: string; summary?: string; retries: number; input: JSONSchema }[];
+  jobs: { name: string; module?: string; summary?: string; retries: number; input: JSONSchema }[];
   /** Schedules from cron(schedule, job), in UTC. */
   crons: { schedule: string; job: string }[];
   /** Where queued jobs are kept. */
@@ -79,7 +85,8 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string; modules: ModuleInfo }): AppDescription {
+  const info = options.modules;
   return {
     inferlo: INFERLO_VERSION,
     name: app.name,
@@ -91,8 +98,18 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     secureHeaders: options.secureHeaders,
     requestTimeoutMs: options.requestTimeoutMs,
     logging: options.logging,
+    modules: info.modules.map((m) => ({
+      name: m.name,
+      ...(m.description ? { description: m.description } : {}),
+      imports: m.imports.map((d) => d.name),
+      models: m.models.map((model) => model.name),
+      routes: app.routes.filter((r) => info.routeModule.get(r) === m.name).map((r) => `${r.method} ${r.path}`),
+      jobs: app.jobs.list.filter((j) => info.jobModule.get(j.name) === m.name).map((j) => j.name),
+      provides: Object.keys(m.provides),
+    })),
     models: app.models.map((m: { name: string; fields: Record<string, AnySchema> }) => ({
       name: m.name,
+      ...(info.modelOwner.has(m.name) ? { module: info.modelOwner.get(m.name) } : {}),
       fields: Object.fromEntries([
         ["id", { type: "uuid", required: false, nullable: false, column: "id", description: "Set automatically" }],
         ...Object.entries(m.fields).map(([k, s]) => [k, field(k, s)]),
@@ -104,6 +121,8 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       const o = r.options;
       const out: AppDescription["routes"][number] = { method: r.method, path: r.path, auth: o.auth ?? "user" };
       if (r.name) out.name = r.name;
+      const owner = info.routeModule.get(r);
+      if (owner) out.module = owner;
       if (o.summary) out.summary = o.summary;
       if (o.tool) out.tool = toolName(r);
       if (o.rateLimit) out.rateLimit = { max: o.rateLimit.max, per: o.rateLimit.per, by: o.rateLimit.by ?? "user" };
@@ -117,6 +136,6 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     ai: { configured: app.ai.configured, aliases: app.ai.aliases },
     jobQueue: app.jobs.queue,
     crons: app.jobs.crons.map((c) => ({ schedule: c.schedule, job: c.job.name })),
-    jobs: app.jobs.list.map((j) => ({ name: j.name, ...(j.options.summary ? { summary: j.options.summary } : {}), retries: j.options.retries ?? 3, input: j.options.input.toJSONSchema() })),
+    jobs: app.jobs.list.map((j) => ({ name: j.name, ...(info.jobModule.has(j.name) ? { module: info.jobModule.get(j.name) } : {}), ...(j.options.summary ? { summary: j.options.summary } : {}), retries: j.options.retries ?? 3, input: j.options.input.toJSONSchema() })),
   };
 }
