@@ -152,6 +152,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5018
 **No config/ai.ts for the AdonisJS provider.** The provider from `@browserlessapi/inferlo/adonisjs` (in `adonisrc.ts`) reads the AI client from `config/ai.ts` when the app boots, and that file is missing or has no default export. Create it with `export default createAI({ providers, models })` from `@browserlessapi/inferlo/ai`; see [Use with other frameworks](integrations.md#adonisjs).
 
+### IL5019
+**Invalid `toNodeHandler` options.** `fallthrough` is `true` or `false`, and `toNodeHandler(app, { fallthrough: true })` needs an app returned by `createApp`, because it checks the app's routes to decide which requests to pass to the host framework's `next()`. A plain `{ fetch }` handler cannot be used with it. See [toNodeHandler](integrations.md#nodejs-frameworks-tonodehandler).
+
 ## App configuration (6xxx)
 
 ### IL6001

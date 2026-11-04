@@ -1,0 +1,4 @@
+{
+  "title": "Move routes from an old Node server at the same URLs",
+  "prompt": "We are moving an old node:http service to Inferlo one route at a time, keeping every URL. Create src/legacy.ts exporting `function createLegacyServer(): http.Server` (from node:http, not listening yet). Every request the Inferlo app from src/app.ts has a route or built-in endpoint for (for example POST /notes, GET /notes/:id or GET /health) must be handled by that app at its normal path. Every other request, including other methods on the same paths (for example PUT /notes), is answered by the old service: status 200 with the plain text body \"legacy\"."
+}

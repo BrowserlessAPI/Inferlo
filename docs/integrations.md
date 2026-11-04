@@ -22,6 +22,7 @@ const handler = toNodeHandler(inferlo, { prefix: "/ai" });
 - `prefix` is removed from the path before routing, so `GET /ai/tickets` matches `route.get("/tickets")`, `/ai/openapi.json` serves the OpenAPI document and `/ai/mcp` the MCP server. `/ai` itself is routed as `/`. Leave `prefix` out when the framework already strips the mount path (Express `app.use("/ai", ...)`).
 - Requests outside the prefix (including look-alikes such as `/aix`) go to `next()` when there is one. Without `next`, they are routed with their full path, so they usually answer 404 with IL2001.
 - Inferlo answers every request it routes, including its own 404 and 405 errors, with the same auth, validation, rate limits and error format as `app.fetch`.
+- With `fallthrough: true`, Inferlo only answers requests it has a route for (the method and the path) and its own endpoints (OpenAPI, MCP, health, metrics, and CORS preflights of its paths); everything else goes to `next()`. Mount the app **before** the host's routes this way to move routes to Inferlo one at a time at the same URLs, even when the host keeps other methods on the same path: `nest.use(toNodeHandler(inferlo, { fallthrough: true }))`. It needs an app from `createApp` (IL5019) and a host that passes `next` (Express, NestJS on the Express platform, Connect).
 - Request bodies are streamed. If a body parser already read the body (`express.json()`, `express.text()`, body-parser), Inferlo uses `req.body` instead: strings and bytes as they are, anything else as JSON (with `Content-Type: application/json`). Body size limits still apply.
 - The client address (`req.socket.remoteAddress`) is used for `rateLimit: { by: "ip" }`. Behind a proxy, set `createApp({ trustProxy: true })`.
 - Responses stream (AI streaming works), several `Set-Cookie` headers are kept, and a client that disconnects aborts the request's `signal`.
@@ -56,7 +57,7 @@ nest.use("/ai", toNodeHandler(inferlo)); // the Express adapter strips "/ai"
 await nest.listen(3000);
 ```
 
-To inject the AI client into Nest services, see [NestJS](#nestjs-1) below.
+To inject the AI client into Nest services, see [NestJS](#nestjs-1) below. To move a Nest app to Inferlo route by route at the same URLs, see [Migrate from NestJS](migrate-from-nestjs.md).
 
 ## fromNodeRequest
 

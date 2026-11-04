@@ -189,3 +189,54 @@ describe("fromNodeRequest", () => {
     assert.equal(fromNodeRequest(req).url, "https://secure.test/");
   });
 });
+
+describe("toNodeHandler({ fallthrough: true })", () => {
+  let base: { url: string; close(): Promise<void> };
+  const corsApp = createApp({
+    routes: [{ ping, echo, me }],
+    auth: bearer((token) => users[token] ?? null),
+    cors: { origin: "*" },
+    health: true,
+    logger: { info() {}, error() {} },
+  });
+  const handler = toNodeHandler(corsApp, { fallthrough: true });
+  before(async () => {
+    base = await start((req, res) =>
+      handler(req, res, () => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end(`host ${req.method} ${req.url}`);
+      }),
+    );
+  });
+  after(() => base.close());
+
+  test("answers the methods and paths the app has routes for", async () => {
+    assert.deepEqual(await (await fetch(`${base.url}/ping?x=1`)).json(), { pong: true, query: { x: "1" } });
+    assert.equal((await fetch(`${base.url}/ping/`)).status, 200);
+    const echoed = await fetch(`${base.url}/echo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hi" }) });
+    assert.equal(echoed.status, 201);
+    assert.equal((await fetch(`${base.url}/me`)).status, 401, "auth still applies to routes the app answers");
+    assert.equal((await fetch(`${base.url}/ping`, { method: "HEAD" })).status, 200);
+  });
+
+  test("passes other paths and other methods on the same path to next()", async () => {
+    assert.equal(await (await fetch(`${base.url}/users/7`)).text(), "host GET /users/7");
+    assert.equal(await (await fetch(`${base.url}/ping`, { method: "DELETE" })).text(), "host DELETE /ping");
+    assert.equal(await (await fetch(`${base.url}/echo`)).text(), "host GET /echo");
+  });
+
+  test("keeps the built-in endpoints and CORS preflights of its routes", async () => {
+    assert.equal((await fetch(`${base.url}/health`)).status, 200);
+    assert.ok((await (await fetch(`${base.url}/openapi.json`)).json()).paths["/ping"]);
+    assert.equal((await fetch(`${base.url}/echo`, { method: "OPTIONS" })).status, 204);
+    assert.equal(await (await fetch(`${base.url}/other`, { method: "OPTIONS" })).text(), "host OPTIONS /other");
+    assert.equal(await (await fetch(`${base.url}/health`, { method: "DELETE" })).text(), "host DELETE /health", "endpoints only for the methods the app answers");
+    assert.equal(await (await fetch(`${base.url}/openapi.json`, { method: "POST" })).text(), "host POST /openapi.json");
+  });
+
+  test("needs an app from createApp and a boolean (IL5019)", () => {
+    assert.throws(() => toNodeHandler({ fetch: async () => new Response() }, { fallthrough: true }), /IL5019|needs an app from createApp/);
+    assert.throws(() => toNodeHandler(corsApp, { fallthrough: "yes" as never }), (e: unknown) => (e as { code?: string }).code === "IL5019");
+    assert.doesNotThrow(() => toNodeHandler({ fetch: async () => new Response() }));
+  });
+});

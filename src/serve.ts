@@ -7,6 +7,8 @@
  */
 import { createRedactor } from "./redact.ts";
 import type { App } from "./app.ts";
+import { appAnswers } from "./request-matcher.ts";
+import { InferloError } from "./errors.ts";
 import { clientIps } from "./client-ip.ts";
 
 export interface ServeOptions {
@@ -51,6 +53,13 @@ export interface NodeHandlerOptions {
    * Leave it out when the host framework already strips the mount path (Express app.use("/ai", ...)).
    */
   prefix?: string;
+  /**
+   * Pass requests the app has no route for (by method and path, outside its OpenAPI, MCP, health and metrics
+   * endpoints) to the host framework's next() instead of answering 404 or 405. Mount the app before the host's
+   * routes with it, to move routes to Inferlo one at a time at the same URLs. Needs an app from createApp and
+   * a host that calls the handler with next (Express, NestJS, Connect). Default false.
+   */
+  fallthrough?: boolean;
 }
 
 export interface FromNodeRequestOptions extends NodeHandlerOptions {
@@ -164,9 +173,26 @@ export async function writeResponse(res: NodeResponse, response: Response, metho
  */
 export function toNodeHandler(app: Pick<App<any>, "fetch">, options: NodeHandlerOptions = {}): NodeHandler {
   const prefix = normalizePrefix(options.prefix);
+  if (options.fallthrough !== undefined && typeof options.fallthrough !== "boolean") {
+    throw new InferloError("IL5019", "toNodeHandler fallthrough must be true or false.", { fix: "Use toNodeHandler(app, { fallthrough: true })." });
+  }
+  if (options.fallthrough && appAnswers(app, "GET", "/") === undefined) {
+    throw new InferloError("IL5019", "toNodeHandler(app, { fallthrough: true }) needs an app from createApp.", {
+      fix: "Pass the app returned by createApp, which knows its routes; a plain fetch handler cannot tell which requests to pass on.",
+    });
+  }
   return async (req, res, next) => {
     const path = stripPrefix(req.url ?? "/", prefix);
     if (path === null && next) return next();
+    if (options.fallthrough && next && path !== null) {
+      let pathname = path.split("?")[0]!;
+      try {
+        pathname = new URL(pathname, "http://localhost").pathname;
+      } catch {
+        // Leave a path the URL parser rejects to the app, which answers it.
+      }
+      if (!appAnswers(app, req.method ?? "GET", pathname)) return next();
+    }
     try {
       const controller = new AbortController();
       res.on("close", () => {

@@ -51,7 +51,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [ ] Encore.ts: mount an Inferlo app as a raw endpoint, and use `@browserlessapi/inferlo/ai` inside Encore services
 - [x] Express: middleware mount and `req.ai`
 - [x] Migration guides part 1: from Express to Inferlo, route by route at the same URLs (docs/migrate-from-express.md, with a test of the setup it recommends)
-- [ ] Migration guides part 2: from NestJS to Inferlo (modules, providers, guards, pipes and DTOs)
+- [x] Migration guides part 2: from NestJS to Inferlo (modules, providers, guards, pipes and DTOs)
 - [ ] Migration guides part 3: from Hono to Inferlo
 
 ### Core

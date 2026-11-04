@@ -206,7 +206,7 @@ jobs:
       - run: npm install --no-save @nestjs/common@${{ matrix.nestjs }} @nestjs/core@${{ matrix.nestjs }} @nestjs/platform-express@${{ matrix.nestjs }}
       - run: node -p "'NestJS ' + require('./node_modules/@nestjs/core/package.json').version"
       - run: npm run typecheck
-      - run: node --test --test-reporter=spec test/nestjs.test.ts "examples/with-nestjs/test/*.test.ts"
+      - run: node --test --test-reporter=spec test/nestjs.test.ts test/migrate-from-nestjs.test.ts "examples/with-nestjs/test/*.test.ts"
 
   trpc:
     name: tRPC ${{ matrix.trpc }}

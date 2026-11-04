@@ -150,5 +150,6 @@ test("@browserlessapi/inferlo/express is exported and loads no router, database 
   assert.equal(pkg.dependencies, undefined, "no runtime dependencies");
   const imports = (file: string) => [...readFileSync(path.join(repo, "src", file), "utf8").matchAll(/^import\s+(?!type\s)[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]);
   assert.deepEqual(imports("express.ts"), ["./ai-client.ts", "./serve.ts"]);
-  assert.deepEqual(imports("serve.ts"), ["./redact.ts", "./client-ip.ts"]);
+  assert.deepEqual(imports("serve.ts"), ["./redact.ts", "./request-matcher.ts", "./errors.ts", "./client-ip.ts"]);
+  assert.deepEqual(imports("request-matcher.ts"), []);
 });

@@ -124,6 +124,7 @@ npm install @browserlessapi/inferlo
 - [Testing](docs/testing.md)
 - [Use with other frameworks](docs/integrations.md)
 - [Migrate from Express](docs/migrate-from-express.md)
+- [Migrate from NestJS](docs/migrate-from-nestjs.md)
 - [Security](docs/security.md)
 - [Observability](docs/observability.md)
 - [Deployment](docs/deploy.md)

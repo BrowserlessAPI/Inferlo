@@ -22,6 +22,7 @@ import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type Logging
 import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
 import { INFERLO_VERSION } from "./describe.ts";
+import { registerRequestMatcher } from "./request-matcher.ts";
 import { resolveModules, type AnyModule, type ModuleInfo, type ModuleModels } from "./module.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
@@ -910,6 +911,17 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       return buildOpenAPI(app, { description: config.description, auth: Boolean(config.auth), modules: moduleInfo });
     },
   };
+  // Built-in endpoints with the methods dispatch answers them for (MCP takes every method).
+  const readEndpoints = [health?.path, health?.readyPath, metricsConfig?.path].filter((p): p is string => typeof p === "string");
+  registerRequestMatcher(app, (rawMethod, pathname) => {
+    const method = rawMethod.toUpperCase();
+    if (mcpPath && pathname === mcpPath) return true;
+    if (openapiPath && pathname === openapiPath && method === "GET") return true;
+    if ((method === "GET" || method === "HEAD") && readEndpoints.includes(pathname)) return true;
+    const lookup = method === "HEAD" ? "GET" : method;
+    // A CORS preflight belongs to the app when any of its routes has this path.
+    return compiled.some((c) => (method === "OPTIONS" || c.def.method === lookup) && c.regex.test(pathname));
+  });
   return app;
 }
 
