@@ -14,7 +14,7 @@ import { callTool, handleMcp, toolDefinition } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
 import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
-import { checkRedisClient, pingRedis, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
+import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps } from "./client-ip.ts";
 import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
@@ -120,7 +120,10 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   jobs?: JobSource[];
   /** Where queued jobs are kept: { store: "memory" } (default) or { store: "database" } (Postgres table inferlo_jobs, shared by every instance). */
   jobQueue?: JobQueueConfig;
-  /** Where ctx.cache and app.cache keep entries: { store: "memory" } (default) or { store: "database" } (Postgres table inferlo_cache, shared by every instance). */
+  /**
+   * Where ctx.cache and app.cache keep entries: { store: "memory" } (default), { store: "database" } (Postgres
+   * table inferlo_cache) or { store: "redis" } (createApp({ redis })), both shared by every instance.
+   */
   cache?: CacheConfig;
   /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/inferlo/postgres" in production. */
   db?: Adapter;
@@ -138,7 +141,7 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   maxBodySize?: number;
   /**
    * A connected Redis client (createClient() from the redis package, after await client.connect()), for
-   * rateLimit: { store: "redis" }. /ready checks that it answers. Inferlo never closes it: call client.close()
+   * rateLimit: { store: "redis" } and cache: { store: "redis" }. /ready checks that it answers. Inferlo never closes it: call client.close()
    * after app.close().
    */
   redis?: RedisClient;
@@ -464,7 +467,10 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const rateLimits: RateLimitStore =
     storeName === "redis" ? redisRateLimitStore(redis!, redisPrefix(config.name)) : storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
   const cacheConfig = resolveCacheConfig(config.cache);
-  const cache = createCache(cacheConfig.store === "database" ? databaseCacheStore(adapter) : memoryCacheStore(cacheConfig.maxEntries), cacheConfig.store);
+  if (cacheConfig.store === "redis" && !redis) throw redisMissing("cache");
+  const cacheStore =
+    cacheConfig.store === "redis" ? redisCacheStore(redis!, redisPrefix(config.name)) : cacheConfig.store === "database" ? databaseCacheStore(adapter) : memoryCacheStore(cacheConfig.maxEntries);
+  const cache = createCache(cacheStore, cacheConfig.store);
   const metrics: AppMetrics | undefined = metricsConfig
     ? createMetrics({ app: config.name ?? "inferlo-app", version: config.version ?? "0.0.0", inferlo: INFERLO_VERSION }, metricsConfig.buckets)
     : undefined;

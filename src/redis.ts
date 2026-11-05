@@ -1,9 +1,10 @@
 /**
- * Redis for state shared by every instance: createApp({ redis: client, rateLimit: { store: "redis" } }).
+ * Redis for state shared by every instance: createApp({ redis: client, rateLimit: { store: "redis" }, cache: { store: "redis" } }).
  * Inferlo does not depend on a Redis package. It talks to the client you create and connect (the official
  * `redis` package, node-redis 5 or newer) through its sendCommand method, and never closes it.
  */
 import { InferloError } from "./errors.ts";
+import type { CacheStore } from "./cache.ts";
 import type { RateLimitStore } from "./rate-limit.ts";
 
 /**
@@ -57,4 +58,65 @@ export function redisRateLimitStore(client: RedisClient, prefix: string): RateLi
       return { count: Number(reply[0]), resetMs: Math.max(0, Number(reply[1])) };
     },
   };
+}
+
+// Stores an entry with its time to live and adds it to each tag's set. A tag set lives as long as its
+// longest-lived entry, so sets of expired entries are removed by Redis too.
+const SET_ENTRY = `redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2])
+local ttl = tonumber(ARGV[2])
+for i = 2, #KEYS do
+  redis.call("SADD", KEYS[i], KEYS[1])
+  if redis.call("PTTL", KEYS[i]) < ttl then redis.call("PEXPIRE", KEYS[i], ttl) end
+end
+return 1`;
+
+// Removes every entry in the given tag sets, then the sets.
+const INVALIDATE = `for i = 1, #KEYS do
+  local members = redis.call("SMEMBERS", KEYS[i])
+  for j = 1, #members, 500 do
+    redis.call("DEL", unpack(members, j, math.min(j + 499, #members)))
+  end
+  redis.call("DEL", KEYS[i])
+end
+return 1`;
+
+/**
+ * Cache entries in Redis, shared by every instance: one key per entry, expired by Redis, and one set per tag
+ * with the keys stored under it, so cache.invalidate(tag) reaches every instance.
+ */
+export function redisCacheStore(client: RedisClient, prefix: string): CacheStore {
+  const entry = (key: string) => `${prefix}cache:entry:${key}`;
+  const tag = (name: string) => `${prefix}cache:tag:${name}`;
+  return {
+    async get(key) {
+      const value = await client.sendCommand(["GET", entry(key)]);
+      return value === null || value === undefined ? undefined : String(value);
+    },
+    async set(key, json, ttlMs, tags) {
+      const keys = [entry(key), ...tags.map(tag)];
+      await client.sendCommand(["EVAL", SET_ENTRY, String(keys.length), ...keys, json, String(ttlMs)]);
+    },
+    async delete(key) {
+      await client.sendCommand(["DEL", entry(key)]);
+    },
+    async invalidate(tags) {
+      if (!tags.length) return;
+      await client.sendCommand(["EVAL", INVALIDATE, String(tags.length), ...tags.map(tag)]);
+    },
+    async clear() {
+      // SCAN walks the keys without blocking Redis; only this app's cache keys match the pattern.
+      const pattern = `${escapeGlob(prefix)}cache:*`;
+      let cursor = "0";
+      do {
+        const [next, keys] = (await client.sendCommand(["SCAN", cursor, "MATCH", pattern, "COUNT", "500"])) as [string | Uint8Array, (string | Uint8Array)[]];
+        cursor = String(next);
+        if (keys.length) await client.sendCommand(["DEL", ...keys.map(String)]);
+      } while (cursor !== "0");
+    },
+  };
+}
+
+/** Escapes the characters SCAN MATCH treats as a pattern, so an app name like "a*b" matches only itself. */
+function escapeGlob(text: string): string {
+  return text.replace(/[*?[\]\\]/g, "\\$&");
 }

@@ -1,0 +1,5 @@
+{
+  "title": "App cache shared through Redis",
+  "prompt": "The app will run on several servers that share a Redis. When the REDIS_URL environment variable is set, connect to it with the redis package (add REDIS_URL to the app's config as an optional secret) and keep the app cache (ctx.cache, app.cache and cached route responses) in Redis so every instance shares it. Without REDIS_URL, keep the default in-memory cache. Use Inferlo's built-in Redis cache store; do not write your own.",
+  "packages": ["redis"]
+}

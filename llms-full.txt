@@ -1412,14 +1412,15 @@ Prefer `getOrSet`: it is one call, and it cannot forget to store the result.
 ```ts
 createApp({ cache: { store: "memory" } });   // default
 createApp({ cache: { store: "database" }, db: postgres({ url: settings.DATABASE_URL }) });
+createApp({ cache: { store: "redis" }, redis });   // redis = await createClient({ url }).connect()
 ```
 
 - `"memory"` (default): entries live in the process. Fast and fine for one instance and for tests, but each instance has its own entries, and `invalidate` only reaches the instance that calls it. It keeps at most `maxEntries` entries (default 10000; `{ store: "memory", maxEntries: 50_000 }`) and removes the least recently used first.
 - `"database"`: entries live in the `inferlo_cache` table of the app's Postgres database (created on first use), so every instance shares them and `invalidate` and `delete` reach all of them. Expired entries are never returned and are removed from time to time. Apps that share one database share this table, so give their keys and tags a prefix. It needs `postgres()` as the database; with another adapter `createApp` raises IL6028.
 
-`inferlo describe` and `app.describe().cache` show which store an app uses.
+- `"redis"`: entries live in the Redis of `createApp({ redis })` (see [Redis](redis.md)), so every instance shares them and `invalidate`, `delete` and `clear` reach all of them. Redis expires entries itself. Keys start with `inferlo:<app name>:cache:`, so apps that share one Redis keep their entries apart, and `clear()` removes only the app's own. Without `createApp({ redis })` it raises IL6031.
 
-A Redis store is next (see the roadmap and [Redis](redis.md)). Until then, apps with several instances that need a shared cache use `"database"`.
+`inferlo describe` and `app.describe().cache` show which store an app uses.
 
 ## Caching route responses
 
@@ -1485,15 +1486,26 @@ export const app = createApp({
 
 `createApp({ redis, rateLimit: { store: "redis" } })` keeps the counts of every route's `rateLimit` (see [Rate limiting](routes.md#rate-limiting)) in Redis, one key per route, client and window. Each hit is one atomic Lua script (`INCR`, then `PEXPIRE` on the first hit of a window), so concurrent requests on different instances never over- or under-count, and Redis removes a window's key when it ends. `store: "redis"` without `createApp({ redis })` raises IL6031.
 
+## Cache
+
+`createApp({ redis, cache: { store: "redis" } })` keeps `ctx.cache`, `app.cache` and cached route responses (see [Caching](caching.md)) in Redis:
+
+- Each entry is one key (`inferlo:<app name>:cache:entry:<key>`) with the entry's `ttlMs` as its Redis expiry, so Redis removes expired entries itself.
+- Each tag is a Redis set of the entries stored with it. `cache.invalidate(tag)` deletes those entries and the set in one atomic script, on every instance at once. A tag set expires with its longest-lived entry.
+- `cache.clear()` walks the app's cache keys with `SCAN` (it does not block Redis like `KEYS`) and deletes them, leaving other apps' keys alone.
+- `getOrSet` shares one `compute()` per key within a process, as with the other stores. Instances that miss at the same moment each compute once.
+
+`cache: { store: "redis" }` without `createApp({ redis })` raises IL6031, and `maxEntries` (memory only) raises IL6028.
+
 ## Readiness
 
 With `createApp({ redis, health: true })`, `GET /ready` has a built-in `redis` check that sends `PING`, next to `database` and `ai` (see [Health and readiness](deploy.md#health-and-readiness)). A down or slow Redis makes the instance not ready instead of failing requests. Your own check cannot also be called `redis` (IL6014).
 
 ## Supported versions
 
-CI runs the Redis tests against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
+CI runs the Redis tests (rate limits, cache and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
 
-The Redis cache store (`cache: { store: "redis" }`) and job queue (`jobQueue: { store: "redis" }`) are next on the [roadmap](../ROADMAP.md).
+The Redis job queue (`jobQueue: { store: "redis" }`) is next on the [roadmap](../ROADMAP.md).
 
 ---
 
@@ -4462,7 +4474,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Audit log not available or used wrongly.** `ctx.audit(action, entry)` in a route or job needs the built-in `AuditLog` model in `createApp({ models: [...models, AuditLog] })` (run `inferlo db migrate` to create the `audit_log` table), an action name such as `"tickets.update"`, and an object as `entry`. See [Audit log](auth.md#audit-log).
 
 ### IL6028
-**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1) or `{ store: "database" }`, which needs `postgres()` as the database. Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. The route option `cache` only works on GET routes and takes `{ ttlMs, by: "user" | "public", tags }`: `route.get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })`. See [Caching](caching.md).
+**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1), `{ store: "database" }`, which needs `postgres()` as the database, or `{ store: "redis" }`, which needs `createApp({ redis })` (IL6031). Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. The route option `cache` only works on GET routes and takes `{ ttlMs, by: "user" | "public", tags }`: `route.get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })`. See [Caching](caching.md).
 
 ### IL6029
 **Invalid sessions() options or call.** `sessions({ secret, user })` needs a `secret` of at least 32 characters (or a list of them for rotation, newest first; generate one with `openssl rand -base64 32` and keep it in `config({ secrets })`) and a `user({ userId, issuedAt }, { db })` function that loads the signed-in user. `maxAgeMs` is a whole number of milliseconds from 1 minute to 400 days, `cookie.name` a valid cookie name, `cookie.sameSite` `"lax"` or `"strict"`, and `cookie.domain` and `cookie.path` strings without spaces, commas or semicolons. `session.signIn(ctx, userId)` and `session.signOut(ctx)` need the route's context and a non-empty user id. See [Cookie sessions](auth.md#cookie-sessions).
@@ -4471,7 +4483,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid tracing options.** `createApp({ tracing })` and `createAI({ tracing })` take `{ api }` with the OpenTelemetry API (`import * as otel from "@opentelemetry/api"`, then `tracing: { api: otel }`) and an optional non-empty `tracerName`. Install `@opentelemetry/api` 1.3 or newer, and start an OpenTelemetry SDK so the spans are exported. See [Tracing](observability.md#tracing-opentelemetry).
 
 ### IL6031
-**Redis client missing or invalid.** `createApp({ redis })` takes a connected Redis client with a `sendCommand` method: `const redis = await createClient({ url: process.env.REDIS_URL }).connect()` from the `redis` package (node-redis 5 or newer), or an ioredis client wrapped as `{ sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }`. `rateLimit: { store: "redis" }` needs `createApp({ redis })`. See [Redis](redis.md).
+**Redis client missing or invalid.** `createApp({ redis })` takes a connected Redis client with a `sendCommand` method: `const redis = await createClient({ url: process.env.REDIS_URL }).connect()` from the `redis` package (node-redis 5 or newer), or an ioredis client wrapped as `{ sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }`. `rateLimit: { store: "redis" }` and `cache: { store: "redis" }` need `createApp({ redis })`. See [Redis](redis.md).
 
 ## Environment (7xxx)
 

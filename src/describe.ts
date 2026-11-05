@@ -75,7 +75,7 @@ export interface AppDescription {
   /** Where queued jobs are kept. */
   jobQueue: "memory" | "database";
   /** Where ctx.cache and app.cache keep entries. */
-  cache: "memory" | "database";
+  cache: "memory" | "database" | "redis";
 }
 
 export const INFERLO_VERSION = "0.6.0";

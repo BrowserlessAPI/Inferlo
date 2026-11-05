@@ -3,6 +3,8 @@ import { after, describe, test } from "node:test";
 import { bearer, createApp, InferloError, job, memory, route, t, type Adapter, type Cache, type CacheConfig } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
 import { createCache, memoryCacheStore } from "../src/cache.ts";
+import type { RedisClient } from "../src/redis.ts";
+import { createClient } from "redis";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 const quiet = { info: () => {}, error: () => {} };
@@ -145,7 +147,7 @@ describe("cache in apps", () => {
   });
 
   test("invalid createApp({ cache }) options raise IL6028", () => {
-    const cases: unknown[] = [null, "memory", { store: "redis" }, { maxEntries: 0 }, { maxEntries: 1.5 }, { ttl: 1 }, { store: "database" }];
+    const cases: unknown[] = [null, "memory", { store: "mongodb" }, { maxEntries: 0 }, { maxEntries: 1.5 }, { ttl: 1 }, { store: "database" }];
     for (const cache of cases) {
       assert.throws(() => createApp({ cache: cache as CacheConfig, logger: quiet }), isCode("IL6028"), JSON.stringify(cache));
     }
@@ -299,6 +301,67 @@ if (PG_URL) {
       assert.deepEqual(await second.json(), { call: 1 });
       await make().cache.invalidate(`route-${suffix}`);
       assert.deepEqual(await (await make().request(`/shared-${suffix}`)).json(), { call: 2 });
+    });
+  });
+}
+
+const REDIS_URL = process.env.INFERLO_TEST_REDIS_URL;
+if (REDIS_URL) {
+  const connected = createClient({ url: REDIS_URL }).connect();
+  const redis: RedisClient = { sendCommand: async (args) => (await connected).sendCommand(args) };
+  after(async () => {
+    await (await connected).close();
+  });
+  cacheContract("redis", () => createApp({ name: `cache-${suffix}`, redis, cache: { store: "redis" }, logger: quiet }).cache);
+
+  describe("redis cache store", () => {
+    test("entries and invalidation are shared by every instance of the app", async () => {
+      const make = () => createApp({ name: `shared-${suffix}`, redis, cache: { store: "redis" }, logger: quiet });
+      const [first, second] = [make(), make()];
+      assert.equal(first.cache.store, "redis");
+      assert.equal(first.describe().cache, "redis");
+      await first.cache.set("report", { from: "first" }, { ttlMs: 60_000, tags: ["reports"] });
+      assert.deepEqual(await second.cache.get("report"), { from: "first" });
+      await second.cache.invalidate("reports");
+      assert.equal(await first.cache.get("report"), undefined);
+    });
+
+    test("cached route responses are shared by every instance", async () => {
+      let calls = 0;
+      const shared = route.get("/shared", { auth: "public", cache: { ttlMs: 60_000, by: "public", tags: ["routes"] } }).handle(() => ({ call: ++calls }));
+      const make = () => createApp({ name: `routes-${suffix}`, routes: [{ shared }], redis, cache: { store: "redis" }, logger: quiet });
+      assert.equal((await make().request("/shared")).headers.get("x-inferlo-cache"), "MISS");
+      const second = await make().request("/shared");
+      assert.equal(second.headers.get("x-inferlo-cache"), "HIT");
+      assert.deepEqual(await second.json(), { call: 1 });
+      await make().cache.invalidate("routes");
+      assert.deepEqual(await (await make().request("/shared")).json(), { call: 2 });
+    });
+
+    test("apps sharing one Redis keep their entries apart, and clear() removes only the app's own", async () => {
+      const a = createApp({ name: `a*[${suffix}]`, redis, cache: { store: "redis" }, logger: quiet }).cache;
+      const b = createApp({ name: `b-${suffix}`, redis, cache: { store: "redis" }, logger: quiet }).cache;
+      for (let i = 0; i < 1200; i++) await a.set(`k${i}`, i, { ttlMs: 60_000, tags: ["many"] });
+      await b.set("k1", "b", { ttlMs: 60_000 });
+      assert.equal(await a.get("k1"), 1);
+      assert.equal(await b.get("k1"), "b");
+      await a.clear();
+      assert.equal(await a.get("k1"), undefined);
+      assert.equal(await a.get("k1199"), undefined);
+      assert.equal(await b.get("k1"), "b");
+      const left = (await (await connected).keys(`inferlo:a\\*\\[${suffix}\\]:*`)).length;
+      assert.equal(left, 0, "no entries or tag sets are left");
+    });
+
+    test("tag sets expire with their longest-lived entry", async () => {
+      const cache = createApp({ name: `ttl-${suffix}`, redis, cache: { store: "redis" }, logger: quiet }).cache;
+      await cache.set("short", 1, { ttlMs: 50, tags: ["t"] });
+      await cache.set("long", 2, { ttlMs: 60_000, tags: ["t"] });
+      const ttl = await (await connected).pTTL(`inferlo:ttl-${suffix}:cache:tag:t`);
+      assert.ok(ttl > 50_000, `tag set ttl ${ttl}`);
+      await new Promise((r) => setTimeout(r, 80));
+      assert.equal(await cache.get("short"), undefined);
+      assert.equal(await cache.get("long"), 2);
     });
   });
 }

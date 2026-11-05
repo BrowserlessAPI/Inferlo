@@ -29,6 +29,13 @@ describe("createApp({ redis })", () => {
     code(() => createApp({ redis: "redis://localhost:6379" as never, rateLimit: { store: "redis" } }));
   });
 
+  test('cache store "redis" needs createApp({ redis }) (IL6031), and maxEntries is only for memory (IL6028)', () => {
+    assert.throws(() => createApp({ cache: { store: "redis" } }), (e: unknown) => e instanceof InferloError && e.code === "IL6031" && /cache store "redis"/.test(e.message));
+    const { client } = fakeRedis();
+    assert.throws(() => createApp({ redis: client, cache: { store: "redis", maxEntries: 5 } }), (e: unknown) => e instanceof InferloError && e.code === "IL6028");
+    assert.equal(createApp({ redis: client, cache: { store: "redis" } }).cache.store, "redis");
+  });
+
   test("rate limit hits are one EVAL per request, on a key with the app name, the route and the client", async () => {
     const { client, calls } = fakeRedis();
     const app = createApp({ name: "billing", routes: [{ limited }], redis: client, rateLimit: { store: "redis" }, trustProxy: true, logger: quiet });

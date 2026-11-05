@@ -33,7 +33,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] API versioning part 2: `/v1` and `/v2` route groups, and an OpenAPI document per version
 - [x] Caching part 1: `ctx.cache` and `app.cache` with `getOrSet`, `get`, `set`, `delete`, tag invalidation and required time to live, in memory or in Postgres (`createApp({ cache: { store } })`)
 - [x] Caching part 2: per-route response caching, `route.get(path, { cache: { ttlMs, by: "user" | "public", tags } })` with ETags, `Cache-Control` and `Vary` headers, invalidated with `ctx.cache.invalidate(tag)`
-- [ ] Caching part 3: Redis cache store, `cache: { store: "redis" }` with tag invalidation (builds on Redis part 1)
+- [x] Caching part 3: Redis cache store, `cache: { store: "redis" }` with tag invalidation (builds on Redis part 1)
 - [x] Redis part 1: `createApp({ redis })` with a connected `redis` client, `rateLimit: { store: "redis" }` (one atomic script per hit) and a built-in `redis` readiness check, tested on Redis 6.2, 7.2 and latest and on the oldest supported and latest `redis` package
 - [ ] Redis part 2: Redis job queue, `jobQueue: { store: "redis" }`, with the same guarantees as the database queue (claimed once, retries, stuck jobs picked up again, cron ticks queued once across instances)
 - [ ] Performance: published, reproducible throughput and latency benchmarks against Fastify, Hono, Express and NestJS, and a performance regression check in CI

@@ -14,8 +14,9 @@ export interface CacheConfig {
   /**
    * Where entries are kept. "memory" (default): in this process, for one instance and tests.
    * "database": in the inferlo_cache table of the app's Postgres database, shared by every instance.
+   * "redis": in the Redis of createApp({ redis }), shared by every instance.
    */
-  store?: "memory" | "database";
+  store?: "memory" | "database" | "redis";
   /** Most entries the memory store keeps; the least recently used go first. Default 10000. */
   maxEntries?: number;
 }
@@ -28,8 +29,8 @@ export interface CacheSetOptions {
 }
 
 export interface Cache {
-  /** Where entries are kept: "memory" or "database". */
-  readonly store: "memory" | "database";
+  /** Where entries are kept: "memory", "database" or "redis". */
+  readonly store: "memory" | "database" | "redis";
   /** The cached value, or undefined when there is none or it expired. */
   get<T = unknown>(key: string): Promise<T | undefined>;
   /** Store a JSON value (not undefined; use null for "nothing") for ttlMs. Dates are stored as ISO strings. */
@@ -60,17 +61,17 @@ const MAX_TTL_MS = 365 * 86_400_000;
 const bad = (message: string, fix: string) => new InferloError("IL6028", message, { fix });
 
 /** Check createApp({ cache }) at startup. Raises IL6028. */
-export function resolveCacheConfig(config: unknown): { store: "memory" | "database"; maxEntries: number } {
+export function resolveCacheConfig(config: unknown): { store: "memory" | "database" | "redis"; maxEntries: number } {
   if (config === undefined) return { store: "memory", maxEntries: 10_000 };
   const c = config as CacheConfig;
-  const fix = 'Use createApp({ cache: { store: "memory" } }) (the default, with an optional maxEntries) or { store: "database" }.';
+  const fix = 'Use createApp({ cache: { store: "memory" } }) (the default, with an optional maxEntries), { store: "database" } or { store: "redis" }.';
   if (typeof c !== "object" || c === null || Array.isArray(c)) throw bad("createApp({ cache }) must be an object.", fix);
   for (const key of Object.keys(c)) if (key !== "store" && key !== "maxEntries") throw bad(`Unknown cache option "${key}".`, fix);
   const store = c.store ?? "memory";
-  if (store !== "memory" && store !== "database") throw bad(`Invalid cache store ${JSON.stringify(store)}.`, fix);
+  if (store !== "memory" && store !== "database" && store !== "redis") throw bad(`Invalid cache store ${JSON.stringify(store)}.`, fix);
   const maxEntries = c.maxEntries ?? 10_000;
   if (!Number.isInteger(maxEntries) || maxEntries < 1) throw bad("cache maxEntries must be a whole number of at least 1.", fix);
-  if (store === "database" && c.maxEntries !== undefined) throw bad("cache maxEntries only applies to the memory store.", 'Remove maxEntries from createApp({ cache: { store: "database" } }).');
+  if (store !== "memory" && c.maxEntries !== undefined) throw bad("cache maxEntries only applies to the memory store.", `Remove maxEntries from createApp({ cache: { store: "${store}" } }).`);
   return { store, maxEntries };
 }
 
@@ -108,7 +109,7 @@ function toJSON(key: string, value: unknown): string {
 }
 
 /** A Cache over a store: checks keys, options and values, stores JSON, shares concurrent getOrSet calls. */
-export function createCache(store: CacheStore, name: "memory" | "database"): Cache {
+export function createCache(store: CacheStore, name: "memory" | "database" | "redis"): Cache {
   const running = new Map<string, Promise<unknown>>();
   const cache: Cache = {
     store: name,
