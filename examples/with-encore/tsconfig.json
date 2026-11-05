@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // encore.dev ships its TypeScript sources as its types, written for Encore's own tsconfig: extensionless
+    // imports, enums and imports that are not marked as type-only. The files in this example still only use
+    // erasable syntax, so Node.js runs them directly.
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": false,
+    "erasableSyntaxOnly": false
+  },
+  "include": ["ai", "test"]
+}

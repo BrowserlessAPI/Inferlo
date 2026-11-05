@@ -184,6 +184,26 @@ describe("fromNodeRequest", () => {
     assert.equal(fromNodeRequest({ ...base, method: "GET", body: {} }).body, null);
   });
 
+  test("reads the stream when req.body is the host's own object, not a parsed body (Encore raw endpoints)", async () => {
+    // Encore's RawRequest keeps its body reader in a `body` field and streams the body itself.
+    class BodyReader {
+      read() {}
+    }
+    const req = {
+      method: "POST",
+      url: "/echo",
+      headers: { host: "h", "content-type": "application/json" },
+      body: new BodyReader(),
+      async *[Symbol.asyncIterator]() {
+        yield new TextEncoder().encode('{"text":"streamed"}');
+      },
+    };
+    assert.deepEqual(await fromNodeRequest(req).json(), { text: "streamed" });
+    const res = await app.fetch(fromNodeRequest(req));
+    assert.equal(res.status, 201);
+    assert.deepEqual(await res.json(), { text: "streamed" });
+  });
+
   test("uses https for encrypted sockets", () => {
     const req = { method: "GET", url: "/", headers: { host: "secure.test" }, socket: { encrypted: true }, async *[Symbol.asyncIterator]() {} };
     assert.equal(fromNodeRequest(req).url, "https://secure.test/");

@@ -1,0 +1,4 @@
+{
+  "title": "Serve the app from an Encore.ts raw endpoint",
+  "prompt": "Our backend runs on Encore.ts and the Inferlo app in src/app.ts should be served by it. Create src/encore.ts and export `inferloHandler`: the handler we pass to Encore's `api.raw({ expose: true, method: \"*\", path: \"/inferlo/*rest\" }, inferloHandler)`. Encore calls it with Node-style request and response objects whose URL is the full path, so GET /inferlo/health must reach the app's GET /health route and /inferlo/openapi.json must serve its OpenAPI document. Do not import encore.dev in this file."
+}

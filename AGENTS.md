@@ -60,6 +60,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | tRPC (`@browserlessapi/inferlo/trpc`, examples/with-trpc) | 11.0.0 (tRPC 10 is no longer maintained) | `latest` |
 | AdonisJS (`@browserlessapi/inferlo/adonisjs`, examples/with-adonisjs) | 6.2.0 (first stable 6.x; AdonisJS 6 is still maintained) | `latest` (7, on Node.js 24) |
 | Ts.ED (`@browserlessapi/inferlo/tsed`, examples/with-tsed) | 8.0.1 (8.0.0 cannot be imported as native ES modules; Ts.ED 7 has had no release since December 2025) | `latest` |
+| Encore.ts (`toNodeHandler` in a raw endpoint and `@browserlessapi/inferlo/ai` in services, examples/with-encore) | encore.dev 1.51.0 (Encore.ts has no long-term support releases and fixes only its newest release; 1.51.0, October 2025, is about a year of releases) | `latest` |
 
 Rules:
 

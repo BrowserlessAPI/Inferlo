@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Koa, plain `node:http`) use `toNodeHandler(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Koa, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -23,7 +23,7 @@ const handler = toNodeHandler(inferlo, { prefix: "/ai" });
 - Requests outside the prefix (including look-alikes such as `/aix`) go to `next()` when there is one. Without `next`, they are routed with their full path, so they usually answer 404 with IL2001.
 - Inferlo answers every request it routes, including its own 404 and 405 errors, with the same auth, validation, rate limits and error format as `app.fetch`.
 - With `fallthrough: true`, Inferlo only answers requests it has a route for (the method and the path) and its own endpoints (OpenAPI, MCP, health, metrics, and CORS preflights of its paths); everything else goes to `next()`. Mount the app **before** the host's routes this way to move routes to Inferlo one at a time at the same URLs, even when the host keeps other methods on the same path: `nest.use(toNodeHandler(inferlo, { fallthrough: true }))`. It needs an app from `createApp` (IL5019) and a host that passes `next` (Express, NestJS on the Express platform, Connect).
-- Request bodies are streamed. If a body parser already read the body (`express.json()`, `express.text()`, body-parser), Inferlo uses `req.body` instead: strings and bytes as they are, anything else as JSON (with `Content-Type: application/json`). Body size limits still apply.
+- Request bodies are streamed. If a body parser already read the body (`express.json()`, `express.text()`, body-parser), Inferlo uses `req.body` instead: strings and bytes as they are, plain objects and arrays as JSON (with `Content-Type: application/json`). Any other object on `req.body` (an instance of a class, such as the body reader of an Encore raw request) is not a parsed body, and the stream is read. Body size limits still apply.
 - The client address (`req.socket.remoteAddress`) is used for `rateLimit: { by: "ip" }`. Behind a proxy, set `createApp({ trustProxy: true })`.
 - Responses stream (AI streaming works), several `Set-Cookie` headers are kept, and a client that disconnects aborts the request's `signal`.
 
@@ -369,8 +369,61 @@ export class Server {
 
 The [with-tsed example](../examples/with-tsed) does both, and CI tests it with Ts.ED 8.0.1 (the oldest 8.x release that loads as native ES modules on Node.js) and the latest Ts.ED.
 
+## Encore.ts
+
+Encore.ts needs no Inferlo entry point: an Encore raw endpoint is called with Node.js-style request and response objects, so `toNodeHandler` serves a whole Inferlo app from it, and `@browserlessapi/inferlo/ai` works in any Encore service. Nothing Encore-specific is loaded by Inferlo.
+
+Use the AI module in a service, with the API key from an Encore secret (`encore secret set --type dev,local,pr,prod AnthropicApiKey`):
+
+```ts
+// ai/ai.ts (in the "ai" service, next to ai/encore.service.ts)
+import { secret } from "encore.dev/config";
+import { anthropic, createAI, type AIConfig } from "@browserlessapi/inferlo/ai";
+
+const anthropicApiKey = secret("AnthropicApiKey");
+
+export const aiConfig: AIConfig = {
+  providers: { anthropic: anthropic({ apiKey: anthropicApiKey() }) },
+  models: { fast: "anthropic:claude-haiku-4-5" },
+};
+export const ai = createAI(aiConfig);
+```
+
+```ts
+// ai/api.ts
+import { api } from "encore.dev/api";
+import { t } from "@browserlessapi/inferlo/ai";
+import { ai } from "./ai.ts";
+
+export const classify = api(
+  { expose: true, method: "POST", path: "/classify" },
+  async ({ text }: { text: string }): Promise<{ label: "bug" | "feature" | "question" }> => {
+    const { object } = await ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature", "question"]) }) });
+    return object;
+  },
+);
+```
+
+Mount a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) with a raw endpoint that takes every method under a path:
+
+```ts
+// ai/api.ts
+import { toNodeHandler } from "@browserlessapi/inferlo";
+import { inferlo } from "./inferlo.ts"; // createApp({ routes, auth, ai: aiConfig })
+
+export const inferloApp = api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(inferlo, { prefix: "/inferlo" }));
+```
+
+- Encore passes the full path, so set `prefix` to the endpoint's path: `POST /inferlo/summaries` runs `route.post("/summaries")`, and `/inferlo/openapi.json` and `/inferlo/mcp` serve the OpenAPI document and the MCP server.
+- Leave Encore's `auth` off on this endpoint: Inferlo checks auth itself with the app's `auth`, and routes stay private unless `auth: "public"`.
+- To serve the Inferlo app for every path Encore has no endpoint for, use Encore's fallback path: `api.raw({ expose: true, method: "*", path: "/!rest" }, toNodeHandler(inferlo))`. Routes then move between Encore and Inferlo at the same URLs.
+- Encore's raw request has no client address, so `rateLimit: { by: "ip" }` needs `createApp({ trustProxy: true })` and the `X-Forwarded-For` header from the proxy in front of your Encore app; `by: "user"` works as it is.
+- Request bodies are streamed from Encore to Inferlo, and Inferlo's responses (AI streaming included) stream back.
+
+The [with-encore example](../examples/with-encore) does both. Its tests run the endpoints with the real `encore.dev` package and Encore's own raw request and response classes (the Encore runtime itself only exists inside the Encore CLI), and CI runs them with encore.dev 1.51.0 and the latest encore.dev.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly; see [Deployment](deploy.md).
 
-Framework-specific helpers for Encore.ts, tested in CI against the framework's oldest supported and latest version, is on the [roadmap](../ROADMAP.md). `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
+`toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

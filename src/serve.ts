@@ -30,7 +30,10 @@ export interface NodeRequest {
   url?: string;
   headers: Record<string, string | string[] | undefined>;
   socket?: { remoteAddress?: string; encrypted?: boolean } | null;
-  /** A body the host framework already read (express.json(), body-parser). Used instead of the stream. */
+  /**
+   * A body the host framework already read (express.json(), body-parser): a string, bytes, or a plain object or
+   * array. Used instead of the stream. Instances of other classes are ignored and the stream is read.
+   */
   body?: unknown;
   [Symbol.asyncIterator](): AsyncIterator<unknown>;
 }
@@ -103,6 +106,18 @@ function bodyStream(req: NodeRequest): ReadableStream<Uint8Array> {
   });
 }
 
+/**
+ * True when req.body holds a body the host framework already read: a string or bytes (body-parser text and
+ * raw), or a plain object or array (express.json(), urlencoded forms). An instance of some other class is the
+ * host's own object, such as the body reader of an Encore raw request, and the stream is read instead.
+ */
+function isParsedBody(body: unknown): boolean {
+  if (body === undefined) return false;
+  if (body === null || typeof body !== "object" || body instanceof Uint8Array || Array.isArray(body)) return true;
+  const proto = Object.getPrototypeOf(body);
+  return proto === Object.prototype || proto === null;
+}
+
 function buildRequest(req: NodeRequest, path: string, signal?: AbortSignal): Request {
   const host = [req.headers.host].flat()[0] ?? "localhost";
   const url = new URL(path, `${req.socket?.encrypted ? "https" : "http"}://${host}`);
@@ -115,7 +130,7 @@ function buildRequest(req: NodeRequest, path: string, signal?: AbortSignal): Req
   const method = (req.method ?? "GET").toUpperCase();
   let body: BodyInit | ReadableStream | undefined;
   if (method !== "GET" && method !== "HEAD") {
-    if (req.body !== undefined) {
+    if (isParsedBody(req.body)) {
       // The host framework already read the stream: use what it parsed.
       headers.delete("content-length");
       if (typeof req.body === "string" || req.body instanceof Uint8Array) body = req.body as BodyInit;
