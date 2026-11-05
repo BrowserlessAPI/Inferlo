@@ -1,0 +1,5 @@
+{
+  "title": "Rate limits shared through Redis",
+  "prompt": "The app will run on several servers that share a Redis. When the REDIS_URL environment variable is set, connect to it with the redis package (add REDIS_URL to the app's config as an optional secret) and keep route rate limit counts in Redis, and make GET /ready check Redis too. Without REDIS_URL, keep the default in-memory rate limits. Use Inferlo's built-in Redis support; do not write your own rate limiter.",
+  "packages": ["redis"]
+}

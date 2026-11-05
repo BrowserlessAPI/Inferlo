@@ -126,6 +126,7 @@ npm install @browserlessapi/inferlo
 - [AI](docs/ai.md)
 - [Modules](docs/modules.md)
 - [Caching](docs/caching.md)
+- [Redis](docs/redis.md)
 - [MCP, OpenAPI and describe](docs/mcp.md)
 - [CLI](docs/cli.md)
 - [Testing](docs/testing.md)
@@ -676,7 +677,7 @@ export const summarize = route
 - The count is checked after auth and before input validation: failed sign-ins on private routes do not use it up, invalid bodies do.
 - Over the limit the route answers **429** with IL2005 and a `Retry-After` header. Every response of a limited route has `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (seconds) headers.
 - Tool calls from `ai.generate({ tools })` and the MCP server count too, as the same user.
-- Counts are kept in memory by default (one process, tests). With several instances, keep them in Postgres: `createApp({ rateLimit: { store: "database" } })` uses the `inferlo_rate_limits` table, created on first use (IL6008 without Postgres).
+- Counts are kept in memory by default (one process, tests). With several instances, keep them in Postgres: `createApp({ rateLimit: { store: "database" } })` uses the `inferlo_rate_limits` table, created on first use (IL6008 without Postgres). Or keep them in Redis: `createApp({ redis, rateLimit: { store: "redis" } })` (see [Redis](redis.md)).
 - The client IP comes from the server (`app.listen()`, Bun and Deno). Behind a load balancer or proxy, set `createApp({ trustProxy: true })` to use the first `X-Forwarded-For` address; leave it off otherwise, because clients can send that header themselves.
 - Invalid options raise IL6007 when the app starts.
 
@@ -1418,7 +1419,7 @@ createApp({ cache: { store: "database" }, db: postgres({ url: settings.DATABASE_
 
 `inferlo describe` and `app.describe().cache` show which store an app uses.
 
-A Redis store is planned (see the roadmap). Until then, apps with several instances that need a shared cache use `"database"`.
+A Redis store is next (see the roadmap and [Redis](redis.md)). Until then, apps with several instances that need a shared cache use `"database"`.
 
 ## Caching route responses
 
@@ -1452,6 +1453,47 @@ export const refreshStats = job("refresh-stats", { input: t.object({}) }).handle
 ```
 
 In tests, `app.cache` is the same cache the routes use: check what a route stored with `await app.cache.get(key)`, or start from a clean cache with `await app.cache.clear()`.
+
+---
+
+# Redis
+
+Apps with more than one instance need state that every instance sees. Postgres covers this with `store: "database"`; Redis is the other choice, for apps that already run it or want counters off the database. Inferlo has no dependency on a Redis package: you create and connect the client, and Inferlo uses it.
+
+```ts
+// src/app.ts
+import { createClient } from "redis";
+import { createApp } from "@browserlessapi/inferlo";
+import { settings } from "./settings.ts";
+
+const redis = await createClient({ url: settings.REDIS_URL }).connect();
+
+export const app = createApp({
+  // ...
+  redis,
+  rateLimit: { store: "redis" },   // route rateLimit counts, shared by every instance
+  health: true,                    // GET /ready also checks that Redis answers
+});
+```
+
+- `redis` is a connected client from the official [`redis`](https://www.npmjs.com/package/redis) package (node-redis 5 or newer). Inferlo talks to it through `client.sendCommand([...])` only, with one key per command. Anything without `sendCommand` raises IL6031. A single Redis server (or a managed endpoint such as Azure Cache, ElastiCache or Upstash with a Redis URL) is supported; Redis Cluster clients (`createCluster`) are not yet.
+- ioredis has no `sendCommand` with this shape; wrap it: `redis: { sendCommand: (args) => ioredis.call(args[0]!, ...args.slice(1)) }`.
+- Inferlo never connects, reconnects or closes the client. Close it after the app: `await app.close(); await redis.close();`.
+- Keys start with `inferlo:<app name>:` (the `name` from `createApp`), so apps that share one Redis keep their keys apart. Give each app its own `name`.
+
+## Rate limits
+
+`createApp({ redis, rateLimit: { store: "redis" } })` keeps the counts of every route's `rateLimit` (see [Rate limiting](routes.md#rate-limiting)) in Redis, one key per route, client and window. Each hit is one atomic Lua script (`INCR`, then `PEXPIRE` on the first hit of a window), so concurrent requests on different instances never over- or under-count, and Redis removes a window's key when it ends. `store: "redis"` without `createApp({ redis })` raises IL6031.
+
+## Readiness
+
+With `createApp({ redis, health: true })`, `GET /ready` has a built-in `redis` check that sends `PING`, next to `database` and `ai` (see [Health and readiness](deploy.md#health-and-readiness)). A down or slow Redis makes the instance not ready instead of failing requests. Your own check cannot also be called `redis` (IL6014).
+
+## Supported versions
+
+CI runs the Redis tests against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
+
+The Redis cache store (`cache: { store: "redis" }`) and job queue (`jobQueue: { store: "redis" }`) are next on the [roadmap](../ROADMAP.md).
 
 ---
 
@@ -3908,7 +3950,7 @@ location / {
 }
 ```
 
-Behind a proxy like this, set `createApp({ trustProxy: true })` so routes with `rateLimit: { by: "ip" }` see the client's address instead of the proxy's. With more than one instance, use `rateLimit: { store: "database" }` so the counts are shared, and `jobQueue: { store: "database" }` so background jobs are too (see [jobs](jobs.md)).
+Behind a proxy like this, set `createApp({ trustProxy: true })` so routes with `rateLimit: { by: "ip" }` see the client's address instead of the proxy's. With more than one instance, use `rateLimit: { store: "database" }` (or `"redis"`, see [Redis](redis.md)) so the counts are shared, and `jobQueue: { store: "database" }` so background jobs are too (see [jobs](jobs.md)).
 
 ## Health and readiness
 
@@ -3918,7 +3960,7 @@ Load balancers, Kubernetes and other orchestrators ask two questions: is the pro
 export const app = createApp({
   // ...
   health: {
-    checks: { redis: () => redis.ping() },   // optional: your own dependencies
+    checks: { search: () => search.ping() },   // optional: your own dependencies
   },
 });
 ```
@@ -3927,10 +3969,10 @@ export const app = createApp({
 - `GET /ready` (readiness) runs every check at the same time and answers `200` when all pass, `503` when any fails:
 
 ```json
-{ "status": "not_ready", "checks": { "database": { "status": "ok", "durationMs": 2 }, "ai": { "status": "ok", "durationMs": 0 }, "redis": { "status": "error", "durationMs": 5000, "error": "Timed out after 5000 ms." } } }
+{ "status": "not_ready", "checks": { "database": { "status": "ok", "durationMs": 2 }, "ai": { "status": "ok", "durationMs": 0 }, "search": { "status": "error", "durationMs": 5000, "error": "Timed out after 5000 ms." } } }
 ```
 
-Built-in checks: `database` runs `select 1` on Postgres (which also covers `rateLimit` and `jobQueue` with `store: "database"`; the memory database is always ready), and `ai` (when AI is configured) checks that every alias points to a configured provider. It does not call the models, so readiness probes cost nothing. A check passes when it returns or resolves, and fails when it throws, rejects or takes longer than `timeoutMs` (default 5000).
+Built-in checks: `database` runs `select 1` on Postgres (which also covers `rateLimit` and `jobQueue` with `store: "database"`; the memory database is always ready), `redis` (with `createApp({ redis })`) sends `PING` to Redis, and `ai` (when AI is configured) checks that every alias points to a configured provider. It does not call the models, so readiness probes cost nothing. A check passes when it returns or resolves, and fails when it throws, rejects or takes longer than `timeoutMs` (default 5000).
 
 Both endpoints are public, send `Cache-Control: no-store` and also answer `HEAD`. Failed checks show `"Check failed."` and the real error is logged, so connection strings and hostnames never reach the response; throw `httpError(503, "Replica lag too high")` to show your own message, or set `exposeErrors: true` in development. Change the paths with `health: { path: "/livez", readyPath: "/readyz" }`. `await app.checkReady()` returns the same report in code (for example in a startup script), and `inferlo describe` lists the endpoints. Invalid options, or a route that uses the same path, raise IL6014.
 
@@ -4087,6 +4129,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Bun | 1.3.0 and newer |
 | Deno, Cloudflare Workers and other runtimes with Web APIs | Work through `app.fetch`; not yet tested in CI (Deno is on the [roadmap](../ROADMAP.md)) |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
+| Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |
 | TypeScript | 5.9 and newer |
 | Hono (`/hono`) | 4.0.0 and newer |
 | Express (`/express`, `toNodeHandler`) | 4 (newest 4.x) and 5 |
@@ -4319,7 +4362,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 
 ### IL6007
-**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"` or `"database"`.
+**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"`, `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
 
 ### IL6008
 **Rate limit store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
@@ -4389,6 +4432,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6030
 **Invalid tracing options.** `createApp({ tracing })` and `createAI({ tracing })` take `{ api }` with the OpenTelemetry API (`import * as otel from "@opentelemetry/api"`, then `tracing: { api: otel }`) and an optional non-empty `tracerName`. Install `@opentelemetry/api` 1.3 or newer, and start an OpenTelemetry SDK so the spans are exported. See [Tracing](observability.md#tracing-opentelemetry).
+
+### IL6031
+**Redis client missing or invalid.** `createApp({ redis })` takes a connected Redis client with a `sendCommand` method: `const redis = await createClient({ url: process.env.REDIS_URL }).connect()` from the `redis` package (node-redis 5 or newer), or an ioredis client wrapped as `{ sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }`. `rateLimit: { store: "redis" }` needs `createApp({ redis })`. See [Redis](redis.md).
 
 ## Environment (7xxx)
 

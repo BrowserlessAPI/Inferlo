@@ -64,6 +64,7 @@ export type {
 } from "./ai/index.ts";
 
 export type { RateLimit, RateLimitConfig } from "./rate-limit.ts";
+export type { RedisClient } from "./redis.ts";
 export { job, isJob, retryDelayMs } from "./jobs.ts";
 export { cron, isCron } from "./cron.ts";
 export type { CronDef } from "./cron.ts";

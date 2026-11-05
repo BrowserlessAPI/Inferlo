@@ -120,6 +120,7 @@ npm install @browserlessapi/inferlo
 - [AI](docs/ai.md)
 - [Modules](docs/modules.md)
 - [Caching](docs/caching.md)
+- [Redis](docs/redis.md)
 - [MCP, OpenAPI and describe](docs/mcp.md)
 - [CLI](docs/cli.md)
 - [Testing](docs/testing.md)

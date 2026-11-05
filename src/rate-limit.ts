@@ -21,8 +21,9 @@ export interface RateLimitConfig {
   /**
    * Where counts are kept. "memory" (default): in this process, for one instance and tests.
    * "database": in the inferlo_rate_limits table of the app's Postgres database, shared by every instance.
+   * "redis": in the Redis of createApp({ redis }), shared by every instance.
    */
-  store?: "memory" | "database";
+  store?: "memory" | "database" | "redis";
 }
 
 /** Counts hits per key in fixed windows. */

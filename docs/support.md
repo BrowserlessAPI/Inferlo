@@ -61,6 +61,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Bun | 1.3.0 and newer |
 | Deno, Cloudflare Workers and other runtimes with Web APIs | Work through `app.fetch`; not yet tested in CI (Deno is on the [roadmap](../ROADMAP.md)) |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
+| Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |
 | TypeScript | 5.9 and newer |
 | Hono (`/hono`) | 4.0.0 and newer |
 | Express (`/express`, `toNodeHandler`) | 4 (newest 4.x) and 5 |

@@ -50,7 +50,7 @@ createApp({ cache: { store: "database" }, db: postgres({ url: settings.DATABASE_
 
 `inferlo describe` and `app.describe().cache` show which store an app uses.
 
-A Redis store is planned (see the roadmap). Until then, apps with several instances that need a shared cache use `"database"`.
+A Redis store is next (see the roadmap and [Redis](redis.md)). Until then, apps with several instances that need a shared cache use `"database"`.
 
 ## Caching route responses
 

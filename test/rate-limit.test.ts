@@ -3,12 +3,17 @@ import { after, describe, test } from "node:test";
 import { bearer, createApp, InferloError, memory, route, t, type Adapter } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
 import { memoryRateLimitStore } from "../src/rate-limit.ts";
+import { createClient } from "redis";
+import type { RedisClient } from "../src/redis.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
+const REDIS_URL = process.env.INFERLO_TEST_REDIS_URL;
 
 const users: Record<string, { id: string; roles: string[] }> = { alice: { id: "alice", roles: [] }, bob: { id: "bob", roles: [] } };
 
-function makeApp(db: Adapter = memory(), store: "memory" | "database" = "memory") {
+type Store = "memory" | "database" | "redis";
+
+function makeApp(db: Adapter = memory(), store: Store = "memory", redis?: RedisClient) {
   const login = route
     .post("/login", { auth: "public", body: t.object({ email: t.string() }), rateLimit: { max: 2, per: "minute", by: "ip" } })
     .handle(() => ({ ok: true }));
@@ -18,6 +23,7 @@ function makeApp(db: Adapter = memory(), store: "memory" | "database" = "memory"
   return createApp({
     routes: [{ login, ask, search, free }],
     db,
+    redis,
     rateLimit: { store },
     trustProxy: true,
     auth: bearer((token) => users[token] ?? null),
@@ -27,16 +33,31 @@ function makeApp(db: Adapter = memory(), store: "memory" | "database" = "memory"
 
 const post = (app: ReturnType<typeof makeApp>, path: string, headers: Record<string, string>, json?: unknown) => app.request(path, { method: "POST", headers, json });
 
-const stores: [string, () => { db: Adapter; store: "memory" | "database" }][] = [["memory", () => ({ db: memory(), store: "memory" })]];
+const stores: [string, () => { db: Adapter; store: Store; redis?: RedisClient; close?: () => Promise<unknown> }][] = [["memory", () => ({ db: memory(), store: "memory" })]];
 if (PG_URL) stores.push(["database", () => ({ db: postgres({ url: PG_URL }), store: "database" })]);
+if (REDIS_URL) {
+  stores.push([
+    "redis",
+    () => {
+      const connected = createClient({ url: REDIS_URL }).connect();
+      return {
+        db: memory(),
+        store: "redis",
+        redis: { sendCommand: async (args) => (await connected).sendCommand(args) },
+        close: async () => (await connected).close(),
+      };
+    },
+  ]);
+}
 
 for (const [name, make] of stores) {
   describe(`rate limiting (${name} store)`, () => {
-    const { db, store } = make();
-    const app = makeApp(db, store);
+    const { db, store, redis, close } = make();
+    const app = makeApp(db, store, redis);
     const run = `${name}-${Date.now()}-${Math.random()}`;
     after(async () => {
       await app.db.$close();
+      await close?.();
     });
 
     test("by ip: allows max requests per window, then 429 with IL2005 and Retry-After", async () => {
@@ -94,7 +115,7 @@ describe("rate limiting configuration", () => {
     for (const value of [{ max: 0, per: "minute" }, { max: 1.5, per: "minute" }, { max: 5, per: "week" }, { max: 5, per: "minute", by: "email" }, "10/min"]) {
       assert.throws(bad(value), (e: unknown) => e instanceof InferloError && e.code === "IL6007", JSON.stringify(value));
     }
-    assert.throws(() => createApp({ rateLimit: { store: "redis" as never } }), (e: unknown) => e instanceof InferloError && e.code === "IL6007");
+    assert.throws(() => createApp({ rateLimit: { store: "mongodb" as never } }), (e: unknown) => e instanceof InferloError && e.code === "IL6007");
   });
 
   test('store "database" needs Postgres (IL6008)', () => {

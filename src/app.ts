@@ -14,6 +14,7 @@ import { callTool, handleMcp, toolDefinition } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
 import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
+import { checkRedisClient, pingRedis, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps } from "./client-ip.ts";
 import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
@@ -72,7 +73,7 @@ export interface HealthConfig {
   path?: string;
   /** Readiness endpoint: 200 when every check passes, 503 otherwise. Default "/ready". */
   readyPath?: string;
-  /** Your own checks, by name ("database" and "ai" are built in): { redis: () => redis.ping() }. */
+  /** Your own checks, by name ("database", "ai" and, with createApp({ redis }), "redis" are built in): { search: () => search.ping() }. */
   checks?: Record<string, HealthCheck>;
   /** Time each check may take before it fails. Default 5000 ms. */
   timeoutMs?: number;
@@ -135,7 +136,16 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   mcp?: string | false;
   /** Maximum request body in bytes. Default 1 MiB. */
   maxBodySize?: number;
-  /** Where route rateLimit counts are kept: { store: "memory" } (default) or { store: "database" } (Postgres, shared by every instance). */
+  /**
+   * A connected Redis client (createClient() from the redis package, after await client.connect()), for
+   * rateLimit: { store: "redis" }. /ready checks that it answers. Inferlo never closes it: call client.close()
+   * after app.close().
+   */
+  redis?: RedisClient;
+  /**
+   * Where route rateLimit counts are kept: { store: "memory" } (default), { store: "database" } (Postgres) or
+   * { store: "redis" } (createApp({ redis })), both shared by every instance.
+   */
   rateLimit?: RateLimitConfig;
   /**
    * Behind a load balancer or proxy that sets X-Forwarded-For: true uses its first address as the client IP
@@ -422,14 +432,16 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     if (resolved) deprecations.set(r, resolved);
   }
   const storeName = config.rateLimit?.store ?? "memory";
-  if (storeName !== "memory" && storeName !== "database") {
-    throw new InferloError("IL6007", `Invalid rateLimit store "${String(storeName)}".`, { fix: 'Use createApp({ rateLimit: { store: "memory" } }) or { store: "database" }.' });
+  if (storeName !== "memory" && storeName !== "database" && storeName !== "redis") {
+    throw new InferloError("IL6007", `Invalid rateLimit store "${String(storeName)}".`, { fix: 'Use createApp({ rateLimit: { store: "memory" } }), { store: "database" } or { store: "redis" }.' });
   }
+  const redis = checkRedisClient(config.redis);
+  if (storeName === "redis" && !redis) throw redisMissing("rateLimit");
 
   const openapiPath = config.openapi === undefined ? "/openapi.json" : config.openapi;
   const hasTools = routes.some((r) => r.options.tool);
   const mcpPath = config.mcp === undefined ? (hasTools ? "/mcp" : false) : config.mcp;
-  const health = resolveHealth(config.health, routes, [openapiPath, mcpPath]);
+  const health = resolveHealth(config.health, routes, [openapiPath, mcpPath], redis ? ["redis"] : []);
   // apiVersion("v1", ...) routes get their own OpenAPI document at /v1/openapi.json.
   const versions = versionsOf(routes);
   const versionDocs = new Map<string, string>(openapiPath ? versions.map((v) => [versionDocPath(v, openapiPath), v]) : []);
@@ -449,7 +461,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const appTracing: TracingConfig | undefined = tracing ? { ...config.tracing!, tracerName: config.tracing!.tracerName ?? config.name ?? "inferlo-app" } : undefined;
   const adapter = appTracing ? traceAdapter(config.db ?? memory(), clientTracing(appTracing, "inferlo-app", config.version ?? "0.0.0")) : (config.db ?? memory());
   const db = createDb(models, adapter);
-  const rateLimits: RateLimitStore = storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
+  const rateLimits: RateLimitStore =
+    storeName === "redis" ? redisRateLimitStore(redis!, redisPrefix(config.name)) : storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
   const cacheConfig = resolveCacheConfig(config.cache);
   const cache = createCache(cacheConfig.store === "database" ? databaseCacheStore(adapter) : memoryCacheStore(cacheConfig.maxEntries), cacheConfig.store);
   const metrics: AppMetrics | undefined = metricsConfig
@@ -507,6 +520,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       }
     };
   }
+  if (redis) readinessChecks.redis = () => pingRedis(redis);
   Object.assign(readinessChecks, health?.checks);
   const runCheck = async (name: string, check: HealthCheck): Promise<CheckResult> => {
     const started = Date.now();
@@ -1060,7 +1074,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   return app;
 }
 
-function resolveHealth(option: AppConfig<any>["health"], routes: RouteDef[], taken: (string | false)[]): (Required<Omit<HealthConfig, "checks">> & { checks: Record<string, HealthCheck> }) | undefined {
+function resolveHealth(option: AppConfig<any>["health"], routes: RouteDef[], taken: (string | false)[], builtIn: string[]): (Required<Omit<HealthConfig, "checks">> & { checks: Record<string, HealthCheck> }) | undefined {
   if (option === undefined || option === false) return undefined;
   const bad = (message: string, fix: string) => new InferloError("IL6014", message, { fix });
   if (option !== true && (typeof option !== "object" || option === null)) throw bad("health must be true or an object.", "Use createApp({ health: true }) or createApp({ health: { checks: { ... } } }).");
@@ -1071,9 +1085,9 @@ function resolveHealth(option: AppConfig<any>["health"], routes: RouteDef[], tak
   }
   if (resolved.path === resolved.readyPath) throw bad(`health.path and health.readyPath are both "${resolved.path}".`, 'Use different paths, for example "/health" and "/ready".');
   if (!Number.isFinite(resolved.timeoutMs) || resolved.timeoutMs <= 0) throw bad(`health.timeoutMs must be a positive number of milliseconds, got ${String(resolved.timeoutMs)}.`, "Use health: { timeoutMs: 5000 }.");
-  if (typeof resolved.checks !== "object" || resolved.checks === null) throw bad("health.checks must be an object of functions.", "Use health: { checks: { redis: () => redis.ping() } }.");
+  if (typeof resolved.checks !== "object" || resolved.checks === null) throw bad("health.checks must be an object of functions.", "Use health: { checks: { search: () => search.ping() } }.");
   for (const [name, check] of Object.entries(resolved.checks)) {
-    if (name === "database" || name === "ai") throw bad(`health.checks.${name} is built in.`, `Give your check another name, for example "${name}Replica".`);
+    if (name === "database" || name === "ai" || builtIn.includes(name)) throw bad(`health.checks.${name} is built in.`, `Give your check another name, for example "${name}Replica".`);
     if (typeof check !== "function") throw bad(`health.checks.${name} must be a function.`, `Use health: { checks: { ${name}: async () => { ... } } }; throw when it is not ready.`);
   }
   for (const path of [resolved.path, resolved.readyPath]) {
