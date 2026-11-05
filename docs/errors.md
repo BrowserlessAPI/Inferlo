@@ -164,6 +164,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5021
 **Invalid toH3Handler() arguments.** `toH3Handler(app, { prefix })` from `@browserlessapi/inferlo/h3` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `server/routes/api/[...path].ts`: `export default toH3Handler(app, { prefix: "/api" })`. The handler it returns must be called by h3 (a Nitro or Nuxt server route, or an h3 app), with an h3 event. See [Nuxt, Nitro and h3](integrations.md#nuxt-nitro-and-h3).
 
+### IL5022
+**Invalid toSvelteKitHandlers() arguments.** `toSvelteKitHandlers(app, { prefix })` from `@browserlessapi/inferlo/sveltekit` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `src/routes/api/[...path]/+server.ts`: `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })`. The handlers it returns must be exported from a `+server.ts` file, so SvelteKit calls them with a request event. See [SvelteKit](integrations.md#sveltekit).
+
 ## App configuration (6xxx)
 
 ### IL6001

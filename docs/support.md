@@ -74,6 +74,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Encore.ts (`toNodeHandler` in a raw endpoint, `/ai` in services) | encore.dev 1.51.0 and newer |
 | Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
+| SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 
 When a version reaches end of life upstream, the next Inferlo release stops supporting it: the minimum moves forward, `engines` and these docs change, and the changelog lists it under "Breaking". When a new major version is released upstream, it is added to CI and supported as soon as it passes.
 

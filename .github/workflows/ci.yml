@@ -338,6 +338,28 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/h3.test.ts "examples/with-nitro/test/*.test.ts"
 
+  sveltekit:
+    name: SvelteKit ${{ matrix.sveltekit }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 2 = oldest supported (SvelteKit 2 is the line before SvelteKit 3, so its newest 2.x is tested),
+        # latest = newest release (3). SvelteKit 3 asks for TypeScript 6 as an optional peer, so it is installed with
+        # --legacy-peer-deps; the tests use SvelteKit's own types and request events.
+        sveltekit: ["2", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --legacy-peer-deps @sveltejs/kit@${{ matrix.sveltekit }}
+      - run: node -p "'SvelteKit ' + require('./node_modules/@sveltejs/kit/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/sveltekit.test.ts "examples/with-sveltekit/test/*.test.ts"
+
   encore:
     name: Encore.ts ${{ matrix.encore }}
     runs-on: ubuntu-latest

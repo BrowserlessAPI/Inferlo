@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, and Nitro, Nuxt and h3 server routes use `toH3Handler(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, and SvelteKit rest routes use `toSvelteKitHandlers(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -489,6 +489,57 @@ export default defineEventHandler(async (event) => {
 `event.context.ai` is typed: importing `@browserlessapi/inferlo/h3` adds `ai` to h3's `H3EventContext`. Return `event.context.ai.stream({ model, prompt }).toResponse()` to stream text to the browser (server-sent events). Anything that is not an AI client raises IL5014. Create the client in server code only, so API keys never reach the browser bundle.
 
 The [with-nitro example](../examples/with-nitro) does both, and CI tests it with h3 1 (newest 1.x, used by Nitro 2 and Nuxt) and the latest h3.
+
+## SvelteKit
+
+SvelteKit 2 and 3. `@browserlessapi/inferlo/sveltekit` has no runtime dependency on SvelteKit and never loads Inferlo's router, database or jobs code by itself.
+
+Serve a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one rest route:
+
+```ts
+// src/routes/api/[...path]/+server.ts
+import { toSvelteKitHandlers } from "@browserlessapi/inferlo/sveltekit";
+import { app } from "$lib/server/inferlo"; // export const app = createApp({ ... })
+
+export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, fallback } = toSvelteKitHandlers(app, { prefix: "/api" });
+```
+
+- `toSvelteKitHandlers(app, { prefix })` returns a request handler for every HTTP method and a `fallback` for any other method. Export all of them so CORS preflights (`OPTIONS`) and `HEAD` reach Inferlo too.
+- `prefix` is the URL path of the route's folder (`"/api"` for `src/routes/api/[...path]/+server.ts`, including `paths.base` if you set one). It is removed before the app routes the request, so the app's `/summaries` answers at `/api/summaries`, and OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. Requests outside the prefix keep their path. Without `prefix`, requests reach the app unchanged.
+- `[...path]` also matches `/api` itself. Keep SvelteKit's own pages and `+server.ts` files in other folders: SvelteKit matches more specific routes first.
+- The client address from your adapter (`event.getClientAddress()`) is used for rate limits by IP. Behind a proxy, set `createApp({ trustProxy: true })` (and the adapter's own setting, such as `ADDRESS_HEADER` for adapter-node) so `X-Forwarded-For` is used.
+- SvelteKit's own CSRF check (`csrf.checkOrigin`, on by default) still runs first and rejects cross-site form posts; JSON requests with a bearer token are not affected.
+- Anything that is not an app, or a `prefix` that does not start with `/`, raises IL5022.
+
+To use the AI module in load functions, form actions and your own `+server.ts` files, add the handle hook that puts the client on every request as `event.locals.ai`:
+
+```ts
+// src/hooks.server.ts
+import { inferloAI } from "@browserlessapi/inferlo/sveltekit";
+import { ai } from "$lib/server/ai"; // export const ai = createAI({ providers, models }) from "@browserlessapi/inferlo/ai", or app.ai
+
+export const handle = inferloAI(ai); // or sequence(inferloAI(ai), yourHandle) from "@sveltejs/kit/hooks"
+```
+
+```ts
+// src/routes/classify/+page.server.ts
+import { fail } from "@sveltejs/kit";
+import { t } from "@browserlessapi/inferlo/ai";
+import type { Actions } from "./$types";
+
+export const actions = {
+  default: async ({ request, locals }) => {
+    const text = String((await request.formData()).get("text") ?? "");
+    if (!text) return fail(400, { error: "Enter a message." });
+    const { object } = await locals.ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature", "question"]) }) });
+    return object;
+  },
+} satisfies Actions;
+```
+
+`event.locals.ai` is typed: importing `@browserlessapi/inferlo/sveltekit` adds `ai` to SvelteKit's `App.Locals`, so you do not need to declare it in `src/app.d.ts`. Return `locals.ai.stream({ model, prompt }).toResponse()` from a `+server.ts` file to stream text to the browser (server-sent events). Anything that is not an AI client raises IL5014. Create the client in `src/lib/server` so SvelteKit never bundles it, or your API keys, for the browser.
+
+The [with-sveltekit example](../examples/with-sveltekit) does both, and CI tests it with SvelteKit 2 (newest 2.x) and the latest SvelteKit, using SvelteKit's own types.
 
 ## Encore.ts
 

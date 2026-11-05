@@ -1,0 +1,5 @@
+{
+  "title": "Serve the app and AI from SvelteKit",
+  "prompt": "We are adding Inferlo to a SvelteKit project. Create the rest route file src/routes/api/[...path]/+server.ts so that every request under /api, for every HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS and any other method through SvelteKit's fallback export), is handled by the Inferlo app exported from src/app.ts with /api removed from the path: GET /api/health reaches the app's health endpoint and /api/openapi.json serves its OpenAPI document. Also create src/hooks.server.ts whose `handle` hook gives every load function, form action and endpoint the app's AI client as event.locals.ai. Use Inferlo's SvelteKit integration.",
+  "packages": ["@sveltejs/kit"]
+}

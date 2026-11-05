@@ -75,6 +75,10 @@
       "types": "./dist/nestjs.d.ts",
       "default": "./dist/nestjs.js"
     },
+    "./sveltekit": {
+      "types": "./dist/sveltekit.d.ts",
+      "default": "./dist/sveltekit.js"
+    },
     "./tsed": {
       "types": "./dist/tsed.d.ts",
       "default": "./dist/tsed.js"
@@ -105,7 +109,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc && tsc --noEmit -p examples/with-adonisjs && tsc --noEmit -p examples/with-tsed && tsc --noEmit -p examples/with-encore && tsc --noEmit -p examples/with-koa && tsc --noEmit -p examples/with-nextjs && tsc --noEmit -p examples/with-nitro",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc && tsc --noEmit -p examples/with-adonisjs && tsc --noEmit -p examples/with-tsed && tsc --noEmit -p examples/with-encore && tsc --noEmit -p examples/with-koa && tsc --noEmit -p examples/with-nextjs && tsc --noEmit -p examples/with-nitro && tsc --noEmit -p examples/with-sveltekit",
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\" \"examples/*/test/*.test.ts\"",
     "test:bun": "bun test test/",
     "llms": "node scripts/build-llms.ts",
@@ -125,6 +129,7 @@
     "@nestjs/common": "^12.3.3",
     "@nestjs/core": "^12.3.3",
     "@nestjs/platform-express": "^12.3.3",
+    "@sveltejs/kit": "^2.70.3",
     "@trpc/server": "^11.24.0",
     "@tsed/core": "^8.45.0",
     "@tsed/di": "^8.45.0",
