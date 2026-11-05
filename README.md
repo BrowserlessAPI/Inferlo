@@ -127,6 +127,7 @@ npm install @browserlessapi/inferlo
 - [Migrate from NestJS](docs/migrate-from-nestjs.md)
 - [Migrate from Hono](docs/migrate-from-hono.md)
 - [Migrate from Koa](docs/migrate-from-koa.md)
+- [Migrate from Fastify](docs/migrate-from-fastify.md)
 - [Security](docs/security.md)
 - [Observability](docs/observability.md)
 - [Deployment](docs/deploy.md)

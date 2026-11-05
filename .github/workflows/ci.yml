@@ -157,7 +157,7 @@ jobs:
       - run: npm install --no-save fastify@${{ matrix.fastify }}
       - run: node -p "'Fastify ' + require('./node_modules/fastify/package.json').version"
       - run: npm run typecheck
-      - run: node --test --test-reporter=spec test/fastify.test.ts "examples/with-fastify/test/*.test.ts"
+      - run: node --test --test-reporter=spec test/fastify.test.ts test/migrate-from-fastify.test.ts "examples/with-fastify/test/*.test.ts"
 
   elysia:
     name: Elysia ${{ matrix.elysia }} on ${{ matrix.runtime }}

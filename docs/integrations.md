@@ -47,7 +47,7 @@ For `req.ai` in your own Express routes, see [Express](#express-1) below.
 
 ### Fastify
 
-Use `inferloPlugin` from `@browserlessapi/inferlo/fastify` (see [Fastify](#fastify-1) below): `await fastify.register(inferloPlugin, { app: inferlo, prefix: "/ai" })`.
+Use `inferloPlugin` from `@browserlessapi/inferlo/fastify` (see [Fastify](#fastify-1) below): `await fastify.register(inferloPlugin, { app: inferlo, prefix: "/ai" })`, or `{ app: inferlo, fallthrough: true }` to answer the app's routes at their own URLs and leave every other request to Fastify. To move a Fastify app to Inferlo route by route at the same URLs, see [Migrate from Fastify](migrate-from-fastify.md).
 
 ### NestJS
 
@@ -148,6 +148,7 @@ const ai = createAI({ providers: { anthropic: anthropic() }, models: { fast: "an
 const fastify = Fastify();
 await fastify.register(inferloPlugin, { ai });                                // fastify.ai and request.ai
 await fastify.register(inferloPlugin, { app: inferloApp, prefix: "/api" });   // a whole Inferlo app under /api
+// or: await fastify.register(inferloPlugin, { app: inferloApp, fallthrough: true }); // only the app's routes, at their own URLs
 
 fastify.post("/classify", async (request) => {
   const { object } = await request.ai.generate({ model: "fast", prompt: request.body.text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
@@ -160,7 +161,8 @@ await fastify.listen({ port: 3000 });
 
 - `{ ai }` decorates `fastify.ai` and `request.ai` for the whole Fastify app (like plugins wrapped in `fastify-plugin`). Importing `@browserlessapi/inferlo/fastify` adds `ai` to Fastify's `FastifyInstance` and `FastifyRequest` types. Pass `createAI(...)` or an Inferlo app's `app.ai`; anything else raises IL5014. Fastify sends the Web `Response` from `ai.stream(...).toResponse()` as it is.
 - `{ app, prefix }` serves a whole Inferlo app under `prefix`: routes, auth, validation, rate limits, `/api/openapi.json` and `/api/mcp`, with Inferlo's own error format and 404s for paths under the prefix. Inferlo reads the request body itself, so forms (`application/x-www-form-urlencoded`) work and `createApp({ maxBodySize })` applies; Fastify's body parsers stay as they are for your other routes. Without `ai`, `fastify.ai` is the app's `app.ai` (unless `fastify.ai` is already set).
-- A missing or invalid `prefix` (it must start with `/` and not end with `/`), an `app` that is not an Inferlo app, or neither `ai` nor `app` raise IL5015.
+- `{ app, fallthrough: true }` answers only the requests the app has a route for (method and path) and its own endpoints (OpenAPI, MCP, health, metrics and CORS preflights of its paths), from an `onRequest` hook before Fastify reads the body. Every other request goes on to Fastify's routes and its 404 handler, also other methods on a path the app has. With a `prefix`, only the app's routes under it are answered. Use it to move routes from Fastify to Inferlo one at a time at the same URLs ([Migrate from Fastify](migrate-from-fastify.md)). `onRequest` hooks added before the plugin on the root instance run for the app's requests; later hooks (`preHandler`, `onSend`) do not. `fallthrough` needs an app from `createApp` (IL5019).
+- A missing or invalid `prefix` (it must start with `/` and not end with `/`; optional with `fallthrough: true`), an invalid `fallthrough`, an `app` that is not an Inferlo app, or neither `ai` nor `app` raise IL5015.
 
 The [with-fastify example](../examples/with-fastify) uses both, and CI tests it with Fastify 5.0.0 (Fastify 4 reached end of life in June 2025) and the latest Fastify.
 

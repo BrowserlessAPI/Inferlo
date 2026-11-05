@@ -1,0 +1,5 @@
+{
+  "title": "Move routes from Fastify to Inferlo at the same URLs",
+  "prompt": "We are moving a Fastify service to Inferlo one route at a time, keeping every URL. Create src/fastify.ts exporting `async function buildServer()` that returns a Fastify instance (without calling listen). Fastify keeps its route GET /legacy, which answers the plain text \"fastify\", and also PUT /notes/:id, which answers { \"from\": \"fastify\", \"id\": <the id> } because it has not been moved yet. The Inferlo app from src/app.ts must answer its own routes and endpoints at their own URLs, without a prefix (for example GET /notes, PATCH /notes/:id, GET /health and GET /openapi.json), using Inferlo's Fastify integration. Every request the Inferlo app has no route for, by method and path, must be left to Fastify, so unknown paths get Fastify's own 404.",
+  "packages": ["fastify"]
+}

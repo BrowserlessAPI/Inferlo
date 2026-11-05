@@ -133,6 +133,7 @@ npm install @browserlessapi/inferlo
 - [Migrate from NestJS](docs/migrate-from-nestjs.md)
 - [Migrate from Hono](docs/migrate-from-hono.md)
 - [Migrate from Koa](docs/migrate-from-koa.md)
+- [Migrate from Fastify](docs/migrate-from-fastify.md)
 - [Security](docs/security.md)
 - [Observability](docs/observability.md)
 - [Deployment](docs/deploy.md)
@@ -1611,7 +1612,7 @@ For `req.ai` in your own Express routes, see [Express](#express-1) below.
 
 ### Fastify
 
-Use `inferloPlugin` from `@browserlessapi/inferlo/fastify` (see [Fastify](#fastify-1) below): `await fastify.register(inferloPlugin, { app: inferlo, prefix: "/ai" })`.
+Use `inferloPlugin` from `@browserlessapi/inferlo/fastify` (see [Fastify](#fastify-1) below): `await fastify.register(inferloPlugin, { app: inferlo, prefix: "/ai" })`, or `{ app: inferlo, fallthrough: true }` to answer the app's routes at their own URLs and leave every other request to Fastify. To move a Fastify app to Inferlo route by route at the same URLs, see [Migrate from Fastify](migrate-from-fastify.md).
 
 ### NestJS
 
@@ -1712,6 +1713,7 @@ const ai = createAI({ providers: { anthropic: anthropic() }, models: { fast: "an
 const fastify = Fastify();
 await fastify.register(inferloPlugin, { ai });                                // fastify.ai and request.ai
 await fastify.register(inferloPlugin, { app: inferloApp, prefix: "/api" });   // a whole Inferlo app under /api
+// or: await fastify.register(inferloPlugin, { app: inferloApp, fallthrough: true }); // only the app's routes, at their own URLs
 
 fastify.post("/classify", async (request) => {
   const { object } = await request.ai.generate({ model: "fast", prompt: request.body.text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
@@ -1724,7 +1726,8 @@ await fastify.listen({ port: 3000 });
 
 - `{ ai }` decorates `fastify.ai` and `request.ai` for the whole Fastify app (like plugins wrapped in `fastify-plugin`). Importing `@browserlessapi/inferlo/fastify` adds `ai` to Fastify's `FastifyInstance` and `FastifyRequest` types. Pass `createAI(...)` or an Inferlo app's `app.ai`; anything else raises IL5014. Fastify sends the Web `Response` from `ai.stream(...).toResponse()` as it is.
 - `{ app, prefix }` serves a whole Inferlo app under `prefix`: routes, auth, validation, rate limits, `/api/openapi.json` and `/api/mcp`, with Inferlo's own error format and 404s for paths under the prefix. Inferlo reads the request body itself, so forms (`application/x-www-form-urlencoded`) work and `createApp({ maxBodySize })` applies; Fastify's body parsers stay as they are for your other routes. Without `ai`, `fastify.ai` is the app's `app.ai` (unless `fastify.ai` is already set).
-- A missing or invalid `prefix` (it must start with `/` and not end with `/`), an `app` that is not an Inferlo app, or neither `ai` nor `app` raise IL5015.
+- `{ app, fallthrough: true }` answers only the requests the app has a route for (method and path) and its own endpoints (OpenAPI, MCP, health, metrics and CORS preflights of its paths), from an `onRequest` hook before Fastify reads the body. Every other request goes on to Fastify's routes and its 404 handler, also other methods on a path the app has. With a `prefix`, only the app's routes under it are answered. Use it to move routes from Fastify to Inferlo one at a time at the same URLs ([Migrate from Fastify](migrate-from-fastify.md)). `onRequest` hooks added before the plugin on the root instance run for the app's requests; later hooks (`preHandler`, `onSend`) do not. `fallthrough` needs an app from `createApp` (IL5019).
+- A missing or invalid `prefix` (it must start with `/` and not end with `/`; optional with `fallthrough: true`), an invalid `fallthrough`, an `app` that is not an Inferlo app, or neither `ai` nor `app` raise IL5015.
 
 The [with-fastify example](../examples/with-fastify) uses both, and CI tests it with Fastify 5.0.0 (Fastify 4 reached end of life in June 2025) and the latest Fastify.
 
@@ -2942,6 +2945,230 @@ If you only want Inferlo's AI features inside Koa and no migration, use `ctx.ai`
 
 ---
 
+# Migrate from Fastify
+
+This guide moves an existing Fastify app (Fastify 5) to Inferlo one route at a time. The app keeps running in the same Node.js process and keeps its URLs during the whole migration: Inferlo answers the routes you have moved, Fastify answers the rest. Nothing has to be rewritten in one go.
+
+What you gain on every route you move: validation and types from one schema instead of JSON schemas plus separate TypeScript types, routes private by default, the same error format everywhere (`ILxxxx` codes), a database layer with migrations, rate limits, background jobs, an OpenAPI document and an MCP server generated from the routes, and AI models through `ctx.ai`. See [comparison](comparison.md) for the bigger picture.
+
+## 1. Add Inferlo next to Fastify
+
+```bash
+npm install @browserlessapi/inferlo
+```
+
+Create an empty Inferlo app beside your Fastify code, for example in `src/inferlo/app.ts`:
+
+```ts
+// src/inferlo/app.ts
+import { createApp } from "@browserlessapi/inferlo";
+import { auth } from "./auth.ts";
+import * as tickets from "./routes/tickets.ts";
+
+export const app = createApp({
+  name: "helpdesk",
+  routes: [tickets],
+  auth,
+  logging: { requests: true },
+});
+```
+
+Register it with `inferloPlugin` from `@browserlessapi/inferlo/fastify` and `fallthrough: true`:
+
+```ts
+// src/server.ts (your existing Fastify entry point)
+import Fastify from "fastify";
+import { inferloPlugin } from "@browserlessapi/inferlo/fastify";
+import { app as inferlo } from "./inferlo/app.ts";
+
+const fastify = Fastify({ logger: true });
+
+await fastify.register(cors, { origin: ["https://app.example.com"] });
+fastify.get("/users/:id", { preHandler: requireUser }, getUser);   // not moved yet: Fastify answers
+
+await fastify.register(inferloPlugin, { app: inferlo, fallthrough: true }); // Inferlo's routes, OpenAPI and MCP
+
+await fastify.listen({ port: 3000 });
+```
+
+With `fallthrough: true`, Inferlo answers only the requests it has a route for (method and path) and its own endpoints (`/openapi.json`, `/mcp`, health, metrics and CORS preflights of its paths), in an `onRequest` hook, before Fastify reads the body. Every other request goes on to Fastify's router as before, including other methods on the same path and Fastify's own 404 handler. As you move routes, more requests stop at Inferlo; nothing else changes.
+
+- Order: where you register the plugin does not change which requests Inferlo answers. `onRequest` hooks added before it on the root instance (request ids, logging) also run for Inferlo's requests; hooks added after it, hooks inside encapsulated plugins and the later hooks (`preParsing`, `preValidation`, `preHandler`, `onSend`) do not, because Inferlo answers the request itself.
+- Body parsing: Inferlo reads the request body itself (JSON, forms, its own `maxBodySize`), so Fastify's content type parsers and `bodyLimit` stay as they are for your Fastify routes.
+- Global plugins that change responses (`@fastify/cors`, `@fastify/helmet`, `@fastify/compress`) work through `onSend` and similar hooks, so they do not apply to Inferlo's responses. Inferlo sends its own CORS and security headers; configure them in `createApp`.
+- To keep the new routes under their own path for a while, add a prefix: `{ app: inferlo, prefix: "/v2", fallthrough: true }` answers the app's routes under `/v2` only. Without `fallthrough`, `{ app, prefix: "/v2" }` gives the whole prefix to Inferlo, including its 404s. To use only Inferlo's AI features in Fastify routes, see [`fastify.ai` and `request.ai`](integrations.md#fastify-1).
+
+## 2. Move one route
+
+Before, in Fastify with a JSON schema, a TypeScript type for the same body and an auth hook:
+
+```ts
+interface CreateTicket { title: string; priority?: "low" | "normal" | "urgent" }
+
+fastify.post<{ Body: CreateTicket }>(
+  "/tickets",
+  {
+    preHandler: requireUser,
+    schema: {
+      body: {
+        type: "object",
+        required: ["title"],
+        properties: {
+          title: { type: "string", minLength: 3, maxLength: 200 },
+          priority: { type: "string", enum: ["low", "normal", "urgent"], default: "normal" },
+        },
+      },
+    },
+  },
+  async (request, reply) => {
+    const ticket = await tickets.insert({ ...request.body, ownerId: request.user.id });
+    return reply.code(201).send(ticket);
+  },
+);
+```
+
+After, in Inferlo:
+
+```ts
+// src/inferlo/routes/tickets.ts
+import { route, t } from "@browserlessapi/inferlo";
+import { tickets } from "../../db.ts"; // your existing data access code
+
+export const createTicket = route
+  .post("/tickets", {
+    body: t.object({
+      title: t.string().min(3).max(200),
+      priority: t.enum(["low", "normal", "urgent"]).default("normal"),
+    }),
+    summary: "Create a ticket",
+  })
+  .handle(async ({ body, user, status }) => {
+    status(201);
+    return tickets.insert({ ...body, ownerId: user.id });
+  });
+```
+
+Then delete the Fastify route. Requests to `POST /tickets` now stop at Inferlo, at the same URL.
+
+- One `t.*` schema replaces the JSON schema and the TypeScript type (or a TypeBox or Zod type provider): invalid input gets `422` with IL1001 and every problem listed, and `body` is typed. `query` and `params` schemas replace `schema.querystring` and `schema.params` and convert strings to numbers and booleans the same way. `response` replaces `schema.response` for the OpenAPI document.
+- The route is private by default: `user` is the signed-in user (no more `request.user` from a decorator), and requests without one get `401` (IL3001). This replaces `preHandler: requireUser`, `@fastify/jwt` with `request.jwtVerify()` and `@fastify/auth`. Add `auth: "public"` to routes anyone may call, or a role name such as `auth: "admin"`.
+- Return the value; call `status(201)` instead of `reply.code(201)` and `header(name, value)` instead of `reply.header(...)`. `undefined` sends `204`. Return a `Response` for anything that is not JSON.
+- Throw `notFound()`, `forbidden()` or `httpError(409, "...")` instead of `reply.code(404).send(...)` or `@fastify/sensible`'s `reply.notFound()` and `fastify.httpErrors`.
+- The error format changes from Fastify's `{ statusCode, error, message }` to Inferlo's `{ "error": { "code", "message", ... } }`. If clients parse error bodies, tell them, or move routes in groups that one client uses.
+
+## 3. Map Fastify concepts to Inferlo
+
+| Fastify | Inferlo |
+|---|---|
+| `fastify.get(path, options, handler)`, route shorthand and `fastify.route({ ... })` | `export const x = route.get(path, options).handle(handler)` in a routes file, registered with `createApp({ routes: [file] })` |
+| `schema: { body, querystring, params }` (Ajv JSON schemas), type providers | `body`, `query` and `params` with `t.*` schemas: validation and types from one definition ([schemas](schema.md)) |
+| `schema.response` and fast-json-stringify | `response: schema` on the route, used for OpenAPI |
+| `request.body`, `request.query`, `request.params` | `body`, `query`, `params` in the handler context |
+| `return value`, `reply.code(201)`, `reply.header()` | `return value`, `status(201)`, `header(name, value)` |
+| Plugins with `fastify.register(plugin, { prefix })` and encapsulation | Route files grouped into [modules](modules.md) with explicit `imports`; `apiVersion("v1", routes)` for `/v1` ([API versions](routes.md#api-versions)) |
+| `fastify-plugin` to share decorators | Not needed: modules export plain functions in `provides`, called directly |
+| `fastify.decorate("db", ...)`, `decorateRequest` | Import the value, or use `ctx.db`, `ctx.ai`, `ctx.jobs` and `state` from middleware |
+| Hooks: `onRequest`, `preHandler` for auth and checks | The route's `auth`, `permission` and `rateLimit` options; `createApp({ middleware })` for cross-cutting code |
+| Hooks: `onSend`, `onResponse`, `onError` | `createApp({ middleware })` (it sees the response), request logs with timing, and logged errors |
+| `fastify.setErrorHandler`, `setNotFoundHandler` | Built in: every error becomes the standard error body; unexpected errors are logged with secrets redacted |
+| `@fastify/jwt`, `@fastify/auth`, `@fastify/basic-auth` | `createApp({ auth })` with `bearer(...)` or `auth: { resolve(req) { ... } }` ([auth](auth.md)) |
+| `@fastify/cors` | `createApp({ cors: { origin: [...] } })` |
+| `@fastify/helmet` | Built in: security headers on every response ([security](security.md)) |
+| `@fastify/rate-limit` | The route's `rateLimit: { max, per, by }`, with memory or Postgres stores ([routes](routes.md)) |
+| `@fastify/formbody`, `bodyLimit` | Built in for JSON and forms, with `createApp({ maxBodySize })` |
+| `@fastify/env`, `env-schema` | `config({ schema })` in `src/config.ts` ([configuration](config.md)) |
+| `@fastify/swagger`, `@fastify/swagger-ui` | Generated: `GET /openapi.json` from the route schemas |
+| `@fastify/under-pressure`, health check plugins | `createApp({ health: true })` with `/health` and `/ready` ([observability](observability.md)) |
+| `fastify-metrics` | `createApp({ metrics })` with `/metrics` in the Prometheus format |
+| Pino logger, `request.log`, `genReqId` | `createApp({ logging: { format: "json", requests: true } })` and `X-Request-Id` ([observability](observability.md)) |
+| `@fastify/schedule`, queue plugins | `job(...)`, `cron(...)` and `inferlo worker` ([jobs](jobs.md)) |
+| `reply.sse(...)`, streaming replies | `return ctx.ai.stream(...).toResponse()` for model output, or a `Response` with a `ReadableStream` |
+| `fastify.inject()` in tests | `app.request(path, { method, json, as: user })` with a signed-in test user ([testing](testing.md)) |
+| `fastify.listen()` and `fastify.close()` | `app.listen(3000)` and `app.close()` on SIGTERM ([deployment](deploy.md)) |
+
+`@fastify/static`, `@fastify/view`, `@fastify/multipart`, `@fastify/websocket` and `@fastify/session` have no Inferlo equivalent yet: keep those routes in Fastify (they keep working next to Inferlo), or serve static files from a CDN or reverse proxy.
+
+## 4. Share auth between both
+
+During the migration, Fastify and Inferlo routes must accept the same credentials. Put the check in one function and use it from both:
+
+```ts
+// src/auth-check.ts
+export async function userFromToken(token: string | undefined) {
+  if (!token) return null;
+  const session = await sessions.findByToken(token); // your existing lookup
+  return session ? { id: session.userId, roles: session.roles } : null;
+}
+```
+
+```ts
+// Fastify preHandler hook, as before
+export async function requireUser(request: FastifyRequest, reply: FastifyReply) {
+  const user = await userFromToken(request.headers.authorization?.replace(/^Bearer /, ""));
+  if (!user) return reply.code(401).send({ message: "Sign in required" });
+  request.user = user;
+}
+```
+
+```ts
+// src/inferlo/auth.ts
+import { bearer } from "@browserlessapi/inferlo";
+import { userFromToken } from "../auth-check.ts";
+
+export const auth = bearer((token) => userFromToken(token));
+```
+
+A user needs an `id`, and `roles` for role-based routes. For cookie sessions or other schemes, write `auth: { resolve(req) { ... } }`; `req` is a standard `Request` with the same headers and cookies Fastify sees.
+
+## 5. Keep your data layer, then adopt models where they fit
+
+Inferlo handlers can call any database code you already have (`@fastify/postgres`'s pool, Knex, Prisma, Drizzle, TypeORM, MikroORM): import it and use it in the handler. Values that only exist as Fastify decorators (`fastify.pg`) need to be created in a module both sides import, for example a shared `pg` pool. You do not have to move data access to switch routes.
+
+For new tables, use Inferlo [models](database.md): validated inserts and updates, typed queries, relations, pagination and generated migrations (`inferlo db migrate`). Inferlo models expect a `uuid` `id`, `created_at` and `updated_at` columns and snake_case column names, so existing tables that differ are best left with your current code.
+
+## 6. Move the tests
+
+```ts
+// Before: fastify.inject with a token
+const res = await fastify.inject({ method: "POST", url: "/tickets", headers: { authorization: `Bearer ${token}` }, payload: { title: "Printer" } });
+
+// After: signed in as a test user, without a server
+import { readJson } from "@browserlessapi/inferlo/testing";
+
+const res = await app.request("/tickets", { method: "POST", json: { title: "Printer" }, as: { id: "u1", roles: [] } });
+const ticket = await readJson(res, 201);
+```
+
+`fastify.inject()` tests keep working during the migration, because moved routes are answered at the same URLs.
+
+## 7. Remove Fastify
+
+When the last Fastify route is gone, start the Inferlo app directly:
+
+```ts
+// src/server.ts
+import { app } from "./inferlo/app.ts";
+
+const server = await app.listen(Number(process.env.PORT ?? 3000));
+console.log(`Listening on http://localhost:${server.port}`);
+process.on("SIGTERM", () => void app.close({ delayMs: 5000 }));
+```
+
+Then remove `fastify` and the plugins Inferlo replaced. Compare your app with a new project from `npx @browserlessapi/inferlo new` for the recommended layout, configuration and AGENTS.md for AI coding tools.
+
+## Checklist
+
+- [ ] `fastify.register(inferloPlugin, { app: inferlo, fallthrough: true })`
+- [ ] One auth check shared by Fastify and Inferlo
+- [ ] Each moved route: schemas for its input, the right `auth`, `status(201)` where clients expect it, the Fastify route deleted, a test with `app.request`
+- [ ] CORS and security headers configured in `createApp` for Inferlo's routes (Fastify's `onSend` plugins do not touch them)
+- [ ] Clients told about the new error format, if they read error bodies
+- [ ] Fastify removed, `app.listen()` and `app.close()` on SIGTERM
+
+If you only want Inferlo's AI features inside Fastify and no migration, use `fastify.ai` and `request.ai` from [`@browserlessapi/inferlo/fastify`](integrations.md#fastify-1) instead.
+
+---
+
 # Security
 
 Inferlo is secure by default: what you do not turn on stays closed. This page lists the defaults and how to change them.
@@ -3519,7 +3746,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **inferloAI() needs an AI client.** The Hono middleware from `@browserlessapi/inferlo/hono`, the Express middleware from `@browserlessapi/inferlo/express`, the Koa middleware from `@browserlessapi/inferlo/koa`, `inferloPlugin` from `@browserlessapi/inferlo/fastify`, the Elysia plugin from `@browserlessapi/inferlo/elysia`, `InferloModule` from `@browserlessapi/inferlo/nestjs`, the tRPC middleware from `@browserlessapi/inferlo/trpc`, the AdonisJS provider from `@browserlessapi/inferlo/adonisjs` (the default export of `config/ai.ts`) or `inferloAI()` from `@browserlessapi/inferlo/tsed` was given something that is not an AI client. Pass `createAI({ providers, models })` from `@browserlessapi/inferlo/ai`, or an Inferlo app's `app.ai`: `hono.use(inferloAI(ai))`, `server.use(inferloAI(ai))`, `koa.use(inferloAI(ai))`, `new Elysia().use(inferloAI(ai))`, `trpc.procedure.use(inferloAI(ai))` or `@Configuration({ imports: [inferloAI(ai)] })`.
 
 ### IL5015
-**Invalid inferloPlugin options.** `fastify.register(inferloPlugin, options)` from `@browserlessapi/inferlo/fastify` needs `ai` (for `fastify.ai` and `request.ai`), `app` (an Inferlo app from `createApp`) with a `prefix` such as `"/api"` (starting with `/`, not ending with `/`), or both: `fastify.register(inferloPlugin, { app, prefix: "/api" })`.
+**Invalid inferloPlugin options.** `fastify.register(inferloPlugin, options)` from `@browserlessapi/inferlo/fastify` needs `ai` (for `fastify.ai` and `request.ai`), `app` (an Inferlo app from `createApp`) with a `prefix` such as `"/api"` (starting with `/`, not ending with `/`), or both: `fastify.register(inferloPlugin, { app, prefix: "/api" })`. With `fallthrough: true` (which must be `true` or `false`), the prefix is optional: `fastify.register(inferloPlugin, { app, fallthrough: true })`.
 
 ### IL5016
 **Invalid InferloModule options.** `InferloModule.forRoot()` from `@browserlessapi/inferlo/nestjs` needs `{ ai }`, and `InferloModule.forRootAsync()` needs a `useFactory` function that returns the AI client: `InferloModule.forRootAsync({ inject: [ConfigService], useFactory: (config) => createAI({ ... }) })`.
@@ -3531,7 +3758,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **No config/ai.ts for the AdonisJS provider.** The provider from `@browserlessapi/inferlo/adonisjs` (in `adonisrc.ts`) reads the AI client from `config/ai.ts` when the app boots, and that file is missing or has no default export. Create it with `export default createAI({ providers, models })` from `@browserlessapi/inferlo/ai`; see [Use with other frameworks](integrations.md#adonisjs).
 
 ### IL5019
-**Invalid `toNodeHandler` or `toKoaMiddleware` options.** `fallthrough` is `true` or `false`, and `toNodeHandler(app, { fallthrough: true })` needs an app returned by `createApp`, because it checks the app's routes to decide which requests to pass to the host framework's `next()`. A plain `{ fetch }` handler cannot be used with it. See [toNodeHandler](integrations.md#nodejs-frameworks-tonodehandler).
+**Invalid `toNodeHandler` or `toKoaMiddleware` options.** `fallthrough` is `true` or `false`, and `toNodeHandler(app, { fallthrough: true })` (also `toKoaMiddleware` and `inferloPlugin` from `@browserlessapi/inferlo/fastify` with `fallthrough: true`) needs an app returned by `createApp`, because it checks the app's routes to decide which requests to pass to the host framework's `next()`. A plain `{ fetch }` handler cannot be used with it. See [toNodeHandler](integrations.md#nodejs-frameworks-tonodehandler).
 
 ### IL5020
 **Invalid `toNextHandlers` arguments.** `toNextHandlers(app, { prefix })` from `@browserlessapi/inferlo/nextjs` takes the app returned by `createApp` (anything with a `fetch` function) and an optional `prefix` that starts with `/`, such as `"/api"` for `app/api/[[...path]]/route.ts`. See [Next.js](integrations.md#nextjs).

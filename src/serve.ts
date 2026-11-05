@@ -88,6 +88,26 @@ function stripPrefix(rawUrl: string, prefix: string): string | null {
   return rest;
 }
 
+/** Whether the app answers a method and a path (with query, prefix already removed) itself. */
+function answersPath(app: object, method: string, path: string): boolean {
+  let pathname = path.split("?")[0]!;
+  try {
+    pathname = new URL(pathname, "http://localhost").pathname;
+  } catch {
+    // Leave a path the URL parser rejects to the app, which answers it.
+  }
+  return appAnswers(app, method, pathname) === true;
+}
+
+/**
+ * Whether toNodeHandler(app, { prefix, fallthrough: true }) answers a Node request itself instead of passing it
+ * on. For hosts that must decide before handing the request over, such as a Fastify onRequest hook.
+ */
+export function answersNodeRequest(app: object, req: Pick<NodeRequest, "url" | "method">, prefix?: string): boolean {
+  const path = stripPrefix(req.url ?? "/", normalizePrefix(prefix));
+  return path !== null && answersPath(app, req.method ?? "GET", path);
+}
+
 function bodyStream(req: NodeRequest): ReadableStream<Uint8Array> {
   const iterator = req[Symbol.asyncIterator]();
   return new ReadableStream<Uint8Array>({
@@ -199,15 +219,7 @@ export function toNodeHandler(app: Pick<App<any>, "fetch">, options: NodeHandler
   return async (req, res, next) => {
     const path = stripPrefix(req.url ?? "/", prefix);
     if (path === null && next) return next();
-    if (options.fallthrough && next && path !== null) {
-      let pathname = path.split("?")[0]!;
-      try {
-        pathname = new URL(pathname, "http://localhost").pathname;
-      } catch {
-        // Leave a path the URL parser rejects to the app, which answers it.
-      }
-      if (!appAnswers(app, req.method ?? "GET", pathname)) return next();
-    }
+    if (options.fallthrough && next && path !== null && !answersPath(app, req.method ?? "GET", path)) return next();
     try {
       const controller = new AbortController();
       res.on("close", () => {

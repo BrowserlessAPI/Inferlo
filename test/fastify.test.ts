@@ -142,6 +142,90 @@ describe("inferloPlugin with { app, prefix }", () => {
   });
 });
 
+describe("inferloPlugin with { app, fallthrough: true }", () => {
+  const start = async (options: { prefix?: string } = {}) => {
+    const fastify = Fastify();
+    fastify.get("/", async () => "fastify home");
+    fastify.get("/notes", async () => ({ from: "fastify" })); // same path as Inferlo's POST /notes
+    fastify.post("/echo", async (request) => ({ from: "fastify", body: request.body }));
+    await fastify.register(inferloPlugin, { app: makeInferlo(makeAI().ai), fallthrough: true, ...options });
+    return fastify;
+  };
+
+  test("answers the app's routes at their own URLs and leaves everything else to Fastify", async () => {
+    const fastify = await start();
+    assert.equal((await fastify.inject("/")).body, "fastify home");
+    assert.deepEqual((await fastify.inject("/ping")).json(), { pong: true }, "a path only Inferlo has");
+    assert.deepEqual((await fastify.inject("/notes")).json(), { from: "fastify" }, "GET stays with Fastify");
+    const created = await fastify.inject({ method: "POST", url: "/notes", headers: { authorization: "Bearer alice" }, payload: { title: "Hi" } });
+    assert.equal(created.statusCode, 201, "POST on the same path goes to Inferlo");
+    assert.deepEqual(created.json(), { title: "Hi" });
+    assert.equal((await fastify.inject({ method: "POST", url: "/notes", payload: { title: "Hi" } })).json().error.code, "IL3001");
+    const echoed = await fastify.inject({ method: "POST", url: "/echo", payload: { a: 1 } });
+    assert.deepEqual(echoed.json(), { from: "fastify", body: { a: 1 } }, "Fastify still parses bodies for its routes");
+    const missing = await fastify.inject("/nothing-here");
+    assert.equal(missing.statusCode, 404);
+    assert.equal(missing.json().message, "Route GET:/nothing-here not found", "Fastify's own 404");
+    await fastify.close();
+  });
+
+  test("Inferlo reads the body itself, and serves OpenAPI and MCP", async () => {
+    const fastify = await start();
+    const formRes = await fastify.inject({ method: "POST", url: "/form", headers: { "content-type": "application/x-www-form-urlencoded" }, payload: "name=Ada" });
+    assert.deepEqual(formRes.json(), { name: "Ada" });
+    const big = await fastify.inject({ method: "POST", url: "/form", headers: { "content-type": "application/json" }, payload: JSON.stringify({ name: "x".repeat(2000) }) });
+    assert.equal(big.json().error.code, "IL2004");
+    assert.ok((await fastify.inject("/openapi.json")).json().paths["/notes"]);
+    const mcp = await fastify.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: "Bearer alice", "content-type": "application/json", accept: "application/json, text/event-stream" },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    });
+    assert.equal(mcp.statusCode, 200);
+    await fastify.close();
+  });
+
+  test("Fastify hooks registered before the plugin run first; reply hooks after it do not touch Inferlo's responses", async () => {
+    const fastify = Fastify();
+    fastify.addHook("onRequest", async (_request, reply) => {
+      reply.raw.setHeader("x-seen-by", "fastify");
+    });
+    await fastify.register(inferloPlugin, { app: makeInferlo(), fallthrough: true });
+    fastify.addHook("onSend", async (_request, reply, payload) => {
+      reply.header("x-on-send", "1");
+      return payload;
+    });
+    fastify.get("/fastify", async () => "ok");
+    const res = await fastify.inject("/ping");
+    assert.deepEqual(res.json(), { pong: true });
+    assert.equal(res.headers["x-seen-by"], "fastify");
+    assert.equal(res.headers["x-on-send"], undefined);
+    assert.equal((await fastify.inject("/fastify")).headers["x-on-send"], "1");
+    await fastify.close();
+  });
+
+  test("with a prefix, only the app's routes under it are answered", async () => {
+    const fastify = await start({ prefix: "/v2" });
+    assert.deepEqual((await fastify.inject("/v2/ping")).json(), { pong: true });
+    assert.equal((await fastify.inject("/ping")).statusCode, 404, "outside the prefix");
+    assert.equal((await fastify.inject("/v2/nope")).json().message, "Route GET:/v2/nope not found", "unknown paths under the prefix stay Fastify's");
+    await fastify.close();
+  });
+
+  test("works over a real socket", async () => {
+    const fastify = await start();
+    const address = await fastify.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const res = await fetch(`${address}/notes`, { method: "POST", headers: { authorization: "Bearer alice", "content-type": "application/json" }, body: JSON.stringify({ title: "Hi" }) });
+      assert.equal(res.status, 201);
+      assert.deepEqual(await (await fetch(`${address}/notes`)).json(), { from: "fastify" });
+    } finally {
+      await fastify.close();
+    }
+  });
+});
+
 test("invalid options raise IL5014 or IL5015", async () => {
   const cases: [unknown, string][] = [
     [{}, "IL5015"],
@@ -150,6 +234,9 @@ test("invalid options raise IL5014 or IL5015", async () => {
     [{ app: makeInferlo() }, "IL5015"],
     [{ app: makeInferlo(), prefix: "api" }, "IL5015"],
     [{ app: makeInferlo(), prefix: "/api/" }, "IL5015"],
+    [{ app: makeInferlo(), fallthrough: "yes" }, "IL5015"],
+    [{ app: makeInferlo(), fallthrough: true, prefix: "api" }, "IL5015"],
+    [{ app: { fetch: async () => new Response() }, fallthrough: true }, "IL5019"],
   ];
   for (const [options, code] of cases) {
     const fastify = Fastify();
