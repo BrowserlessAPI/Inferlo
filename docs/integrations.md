@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, and AWS Lambda uses `toLambdaHandler(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, hapi uses `inferloPlugin` from `@browserlessapi/inferlo/hapi`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, and AWS Lambda uses `toLambdaHandler(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -165,6 +165,42 @@ await fastify.listen({ port: 3000 });
 - A missing or invalid `prefix` (it must start with `/` and not end with `/`; optional with `fallthrough: true`), an invalid `fallthrough`, an `app` that is not an Inferlo app, or neither `ai` nor `app` raise IL5015.
 
 The [with-fastify example](../examples/with-fastify) uses both, and CI tests it with Fastify 5.0.0 (Fastify 4 reached end of life in June 2025) and the latest Fastify.
+
+## hapi
+
+hapi 21. `@browserlessapi/inferlo/hapi` has no runtime dependency on hapi and never loads Inferlo's router, database or jobs code.
+
+```ts
+import Hapi from "@hapi/hapi";
+import { anthropic, createAI, t } from "@browserlessapi/inferlo/ai";
+import { inferloPlugin } from "@browserlessapi/inferlo/hapi";
+
+const ai = createAI({ providers: { anthropic: anthropic() }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+const server = Hapi.server({ port: 3000 });
+await server.register({ plugin: inferloPlugin, options: { ai } });                                     // server.ai and request.ai
+await server.register({ plugin: inferloPlugin, options: { app: inferloApp }, routes: { prefix: "/api" } }); // a whole Inferlo app under /api
+
+server.route({
+  method: "POST",
+  path: "/classify",
+  handler: async (request) => {
+    const { object } = await request.ai.generate({ model: "fast", prompt: (request.payload as { text: string }).text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+    return object;
+  },
+});
+
+await server.start();
+```
+
+- `options: { ai }` decorates `server.ai` and `request.ai`. Importing `@browserlessapi/inferlo/hapi` adds `ai` to hapi's `Server` and `Request` types. Pass `createAI(...)` or an Inferlo app's `app.ai`; anything else raises IL5014. Register it with `{ ai }` once.
+- `options: { app }` serves a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) under the prefix you register the plugin with, hapi's own `routes: { prefix: "/api" }`: the app's `/summaries` answers at `/api/summaries`, OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. Without a prefix, it answers every path hapi has no route for, because hapi's own routes are more specific than its catch-all. Without `ai`, `server.ai` is the app's `app.ai` (unless it is already set).
+- Inferlo reads the request body itself (hapi does not parse it for these routes), so forms work and `createApp({ maxBodySize })` applies, and writes the answer, AI streams included, to the connection. hapi's `onPreResponse` extensions and response events do not run for the app's requests; the app's own logging, metrics and tracing do.
+- Options that are not an object, neither `ai` nor `app`, an `app` that is not an Inferlo app, a `prefix` in the options (use `routes: { prefix }`) or a second `{ ai }` raise IL5025.
+
+hapi does not send Web `Response` objects, so serve routes that stream AI answers (`ai.stream(...).toResponse()`) from the Inferlo app, like `/api/chat` in the example.
+
+The [with-hapi example](../examples/with-hapi) uses both, and CI tests it with hapi 21.1.0 (the first hapi 21 release with its own TypeScript types) and the latest hapi.
 
 ## ElysiaJS
 

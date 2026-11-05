@@ -159,6 +159,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/fastify.test.ts test/migrate-from-fastify.test.ts "examples/with-fastify/test/*.test.ts"
 
+  hapi:
+    name: hapi ${{ matrix.hapi }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 21.1.0 = oldest supported (hapi 21 is the supported major, and 21.1.0 is its first release with its own
+        # TypeScript types; hapi 20 no longer gets updates), latest = newest release.
+        hapi: ["21.1.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save @hapi/hapi@${{ matrix.hapi }}
+      - run: node -p "'hapi ' + require('./node_modules/@hapi/hapi/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/hapi.test.ts "examples/with-hapi/test/*.test.ts"
+
   elysia:
     name: Elysia ${{ matrix.elysia }} on ${{ matrix.runtime }}
     runs-on: ubuntu-latest

@@ -65,6 +65,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Hono (`/hono`) | 4.0.0 and newer |
 | Express (`/express`, `toNodeHandler`) | 4 (newest 4.x) and 5 |
 | Fastify (`/fastify`) | 5.0.0 and newer |
+| hapi (`/hapi`) | 21.1.0 and newer |
 | ElysiaJS (`/elysia`), on Node.js and Bun | 1.0.0 and newer |
 | NestJS (`/nestjs`) | 11.0.0 and newer |
 | tRPC (`/trpc`) | 11.0.0 and newer |

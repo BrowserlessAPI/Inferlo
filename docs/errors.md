@@ -176,6 +176,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5024
 **Invalid toLambdaHandler() arguments or event.** `toLambdaHandler(app, { prefix, streaming })` from `@browserlessapi/inferlo/lambda` needs the app returned by `createApp`; `prefix`, if given, starts with `/` (such as `"/prod"`), and `streaming` is `true` or `false`. `streaming: true` only works inside the AWS Lambda Node.js runtime, which provides the `awslambda` global. The handler only takes HTTP events from a Lambda function URL or API Gateway (HTTP API or REST API with a Lambda proxy integration); other event sources such as SQS, S3 or schedules need their own handler. See [AWS Lambda](integrations.md#aws-lambda).
 
+### IL5025
+**Invalid hapi inferloPlugin options.** `server.register({ plugin: inferloPlugin, options })` from `@browserlessapi/inferlo/hapi` needs `options` with `ai` (an AI client, for `server.ai` and `request.ai`), `app` (an Inferlo app from `createApp`) or both. The path prefix comes from hapi, not from the options: `server.register({ plugin: inferloPlugin, options: { app }, routes: { prefix: "/api" } })`. `server.ai` can only be set once, so register the plugin with `{ ai }` once and with `{ app }` for each app you serve. See [hapi](integrations.md#hapi).
+
 ## App configuration (6xxx)
 
 ### IL6001

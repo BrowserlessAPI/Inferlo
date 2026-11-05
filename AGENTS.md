@@ -55,6 +55,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Hono (`@browserlessapi/inferlo/hono`, examples/with-hono) | 4.0.0 | `latest` |
 | Express (`@browserlessapi/inferlo/express`, examples/with-express) | 4 (newest 4.x, maintained upstream) | `latest` (5) |
 | Fastify (`@browserlessapi/inferlo/fastify`, examples/with-fastify) | 5.0.0 (Fastify 4 reached end of life 2025-06-30) | `latest` |
+| hapi (`@browserlessapi/inferlo/hapi`, examples/with-hapi) | 21.1.0 (hapi 21 is the supported major; 21.1.0 is its first release with its own TypeScript types) | `latest` |
 | ElysiaJS (`@browserlessapi/inferlo/elysia`, examples/with-elysia), on Node.js and Bun | 1.0.0 | `latest` |
 | NestJS (`@browserlessapi/inferlo/nestjs`, examples/with-nestjs) | 11.0.0 (oldest major with security support; 10 ended 2025-01-20) | `latest` (12) |
 | tRPC (`@browserlessapi/inferlo/trpc`, examples/with-trpc) | 11.0.0 (tRPC 10 is no longer maintained) | `latest` |

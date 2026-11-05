@@ -1,0 +1,5 @@
+{
+  "title": "Serve the app inside a hapi server",
+  "prompt": "Our existing services run on hapi. Create src/hapi.ts exporting an async function `makeServer()` that creates a hapi server (@hapi/hapi, do not start it) and serves the Inferlo app exported from src/app.ts under /api with Inferlo's hapi integration: GET /api/health reaches the app's health endpoint, /api/openapi.json serves its OpenAPI document and POST /api/notes reaches POST /notes. hapi handlers on the same server must also get the app's AI client as `request.ai`.",
+  "packages": ["@hapi/hapi"]
+}
