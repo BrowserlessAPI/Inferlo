@@ -63,6 +63,7 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
       security: !isPublic && options.auth ? [{ bearerAuth: [] }] : undefined,
       "x-inferlo-auth": o.auth ?? "user",
       "x-inferlo-permission": o.permission,
+      "x-inferlo-cache": o.cache ? { ttlMs: o.cache.ttlMs, by: o.cache.by ?? "user", tags: [...(o.cache.tags ?? [])] } : undefined,
       "x-inferlo-tool": o.tool ? toolName(route) : undefined,
       deprecated: o.deprecated ? true : undefined,
       "x-inferlo-deprecation": typeof o.deprecated === "object" ? describeDeprecation(resolveDeprecation(o.deprecated, `${route.method} ${route.path}`)!) : undefined,

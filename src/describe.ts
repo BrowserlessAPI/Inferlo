@@ -62,6 +62,8 @@ export interface AppDescription {
     timeoutMs?: number | false;
     /** true, or when the route was deprecated, when it stops working and where the migration is explained. */
     deprecated?: true | { since?: string; sunset?: string; link?: string };
+    /** The route's response cache (route option cache). */
+    cache?: { ttlMs: number; by: "user" | "public"; tags: string[] };
     params?: JSONSchema;
     query?: JSONSchema;
     body?: JSONSchema;
@@ -141,6 +143,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       if (o.tool) out.tool = toolName(r);
       if (o.rateLimit) out.rateLimit = { max: o.rateLimit.max, per: o.rateLimit.per, by: o.rateLimit.by ?? "user" };
       if (o.timeoutMs !== undefined) out.timeoutMs = o.timeoutMs;
+      if (o.cache) out.cache = { ttlMs: o.cache.ttlMs, by: o.cache.by ?? "user", tags: [...(o.cache.tags ?? [])] };
       if (o.deprecated) out.deprecated = typeof o.deprecated === "object" ? describeDeprecation(resolveDeprecation(o.deprecated, `${r.method} ${r.path}`)!) : true;
       if (o.params) out.params = o.params.toJSONSchema();
       if (o.query) out.query = o.query.toJSONSchema();

@@ -654,6 +654,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
 | `rateLimit` | `{ max, per, by }` to limit requests per user or IP (see below) |
 | `deprecated` | `true`, or `{ since, sunset, link }` to send deprecation headers (see below) |
+| `cache` | `{ ttlMs, by: "user" \| "public", tags }` to cache a GET route's JSON responses (see [Caching](caching.md#caching-route-responses)) |
 | `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
@@ -1298,7 +1299,7 @@ assert.deepEqual(await app.jobs.runDue(), { done: 1, retried: 0, failed: 0 });
 
 # Caching
 
-Every app has a cache for results that are slow or expensive to compute: reports, counts, responses from other services, AI answers that do not change often. It is `ctx.cache` in routes and jobs and `app.cache` everywhere else (scripts, tests, server startup), all the same cache.
+Every app has a cache for results that are slow or expensive to compute, and GET routes can cache their whole responses (see [Caching route responses](#caching-route-responses)): reports, counts, responses from other services, AI answers that do not change often. It is `ctx.cache` in routes and jobs and `app.cache` everywhere else (scripts, tests, server startup), all the same cache.
 
 ```ts
 import { route } from "@browserlessapi/inferlo";
@@ -1349,6 +1350,29 @@ createApp({ cache: { store: "database" }, db: postgres({ url: settings.DATABASE_
 `inferlo describe` and `app.describe().cache` show which store an app uses.
 
 A Redis store is planned (see the roadmap). Until then, apps with several instances that need a shared cache use `"database"`.
+
+## Caching route responses
+
+A GET route can cache its whole JSON response with the `cache` option, without changing the handler:
+
+```ts
+export const ticketStats = route
+  .get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })
+  .handle(async ({ db, user }) => ({ open: await db.tickets.count({ ownerId: user.id, status: "open" }) }));
+```
+
+| Option | |
+|---|---|
+| `ttlMs` | Required. How long a response is kept, in milliseconds (1 to 365 days). |
+| `by` | `"user"` (default): each signed-in user gets their own cached response (requests without a user share one). `"public"`: every caller gets the same response; use it only when the response does not depend on the user. |
+| `tags` | Tags for `ctx.cache.invalidate(tag)`, so a change removes the cached responses at once. |
+
+- **Checks still run.** Auth, roles, `permission`, `rateLimit` and the `query` and `params` schemas run on every request before the cache is read, so a cached response only reaches callers who may call the route with valid input. Only the handler is skipped.
+- **One entry per URL.** The key is the route, who shares it (`by`) and the full path and query string (in any parameter order), so `/tickets?page=2` and `/tickets?page=3` are cached separately.
+- **What is cached.** Answers with status 200 that the handler returned as a value (JSON), with the headers the handler set itself (`header(name, value)`). A handler that returns a `Response` (streams, files), another status, `undefined` (204), or sets a cookie is never cached. Per-request headers (request id, rate limit, CORS) are always fresh.
+- **Headers.** Every response of a cached route has `X-Inferlo-Cache: HIT` or `MISS` and an `ETag`; a request with a matching `If-None-Match` gets `304 Not Modified` without a body. `Cache-Control` is `private, no-cache` (or `public, no-cache` for `by: "public"` on an `auth: "public"` route), so browsers and CDNs revalidate instead of serving a copy that `invalidate` cannot reach; `by: "user"` adds `Vary: Authorization, Cookie`. A `Cache-Control` the handler sets itself is kept.
+- **Invalidation.** Call `await cache.invalidate("tickets")` in the routes and jobs that change tickets, as above. Without tags, a cached response is only replaced after `ttlMs`.
+- Only GET routes (and their HEAD requests) can be cached; anything else raises IL6028 when the app starts. `describe()`, `inferlo describe` and OpenAPI (`x-inferlo-cache`) show each route's cache.
 
 ## In jobs and tests
 
@@ -3962,7 +3986,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Audit log not available or used wrongly.** `ctx.audit(action, entry)` in a route or job needs the built-in `AuditLog` model in `createApp({ models: [...models, AuditLog] })` (run `inferlo db migrate` to create the `audit_log` table), an action name such as `"tickets.update"`, and an object as `entry`. See [Audit log](auth.md#audit-log).
 
 ### IL6028
-**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1) or `{ store: "database" }`, which needs `postgres()` as the database. Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. See [Caching](caching.md).
+**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1) or `{ store: "database" }`, which needs `postgres()` as the database. Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. The route option `cache` only works on GET routes and takes `{ ttlMs, by: "user" | "public", tags }`: `route.get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })`. See [Caching](caching.md).
 
 ## Environment (7xxx)
 

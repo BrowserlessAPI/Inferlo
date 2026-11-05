@@ -31,6 +31,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
 | `rateLimit` | `{ max, per, by }` to limit requests per user or IP (see below) |
 | `deprecated` | `true`, or `{ since, sunset, link }` to send deprecation headers (see below) |
+| `cache` | `{ ttlMs, by: "user" \| "public", tags }` to cache a GET route's JSON responses (see [Caching](caching.md#caching-route-responses)) |
 | `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).

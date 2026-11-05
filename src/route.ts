@@ -14,7 +14,7 @@ import type { Db } from "./db/table.ts";
 import type { Jobs } from "./jobs.ts";
 import type { AnyModel } from "./model.ts";
 import type { Audit } from "./audit.ts";
-import type { Cache } from "./cache.ts";
+import type { Cache, RouteCache } from "./cache.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
 import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
@@ -88,6 +88,12 @@ export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectS
    * Link rel="deprecation" headers on every response. Shown in OpenAPI, describe and MCP tool descriptions.
    */
   deprecated?: boolean | Deprecation;
+  /**
+   * Cache this GET route's JSON responses in the app cache: { ttlMs: 60_000, by: "user", tags: ["tickets"] }.
+   * "user" (default) keeps one response per signed-in user, "public" one for every caller. Remove them early with
+   * ctx.cache.invalidate(tag). Responses carry an ETag, so clients revalidate with If-None-Match (304).
+   */
+  cache?: RouteCache;
 }
 
 type PathParams<P extends string> = P extends `${string}:${infer Param}/${infer Rest}`

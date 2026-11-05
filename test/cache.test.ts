@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import { createApp, InferloError, job, memory, route, t, type Adapter, type Cache, type CacheConfig } from "../src/index.ts";
+import { bearer, createApp, InferloError, job, memory, route, t, type Adapter, type Cache, type CacheConfig } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
 import { createCache, memoryCacheStore } from "../src/cache.ts";
 
@@ -154,6 +154,115 @@ describe("cache in apps", () => {
   });
 });
 
+describe("route response caching", () => {
+  const people: Record<string, { id: string; roles: string[] }> = { alice: { id: "alice", roles: ["admin"] }, bob: { id: "bob", roles: [] } };
+  const makeApp = () => {
+    const calls = { mine: 0, catalog: 0, status: 0 };
+    const mine = route
+      .get("/mine", { cache: { ttlMs: 60_000, tags: ["notes"] }, query: t.object({ page: t.int().default(1) }) })
+      .handle(({ user, query, header }) => {
+        calls.mine++;
+        header("x-total", "7");
+        return { user: user.id, page: query.page, call: calls.mine, at: new Date("2030-01-01T00:00:00Z") };
+      });
+    const catalog = route.get("/catalog", { auth: "public", cache: { ttlMs: 60_000, by: "public" } }).handle(() => ({ call: ++calls.catalog }));
+    const created = route.get("/status-created", { auth: "public", cache: { ttlMs: 60_000, by: "public" } }).handle(({ status }) => {
+      status(201);
+      return { call: ++calls.status };
+    });
+    const cookie = route.get("/cookie", { auth: "public", cache: { ttlMs: 60_000, by: "public" } }).handle(({ header }) => {
+      header("set-cookie", "a=1");
+      return { call: ++calls.status };
+    });
+    const admin = route.get("/admin-report", { auth: "admin", cache: { ttlMs: 60_000, by: "public" } }).handle(() => ({ report: true }));
+    const limited = route.get("/limited", { auth: "public", rateLimit: { max: 2, per: "minute", by: "ip" }, cache: { ttlMs: 60_000, by: "public" } }).handle(() => ({ ok: true }));
+    const app = createApp({ routes: [{ mine, catalog, created, cookie, admin, limited }], auth: bearer((token) => people[token] ?? null), logger: quiet });
+    return { app, calls };
+  };
+  const as = (token: string) => ({ headers: { authorization: `Bearer ${token}` } });
+
+  test("a cached route runs its handler once per user and URL, and replays the handler's headers", async () => {
+    const { app, calls } = makeApp();
+    const first = await app.request("/mine?page=2", as("alice"));
+    assert.equal(first.headers.get("x-inferlo-cache"), "MISS");
+    assert.equal(first.headers.get("cache-control"), "private, no-cache");
+    assert.match(String(first.headers.get("vary")), /Authorization/);
+    const body = await first.json();
+    assert.deepEqual(body, { user: "alice", page: 2, call: 1, at: "2030-01-01T00:00:00.000Z" });
+    const second = await app.request("/mine?page=2", as("alice"));
+    assert.equal(second.headers.get("x-inferlo-cache"), "HIT");
+    assert.equal(second.headers.get("x-total"), "7", "headers the handler set are replayed");
+    assert.ok(second.headers.get("x-request-id"), "per-request headers are fresh");
+    assert.deepEqual(await second.json(), body);
+    assert.equal(calls.mine, 1);
+    assert.equal((await (await app.request("/mine?page=2", as("bob"))).json()).user, "bob", "never another user's response");
+    assert.equal((await (await app.request("/mine?page=3", as("alice"))).json()).call, 3, "the query is part of the key");
+    assert.equal((await app.request("/mine")).status, 401, "auth runs before the cache");
+    assert.equal((await app.request("/mine?page=x", as("alice"))).status, 422, "validation runs before the cache");
+  });
+
+  test("ETags answer If-None-Match with 304, and invalidate() removes cached responses", async () => {
+    const { app, calls } = makeApp();
+    const first = await app.request("/mine", as("alice"));
+    const etag = first.headers.get("etag")!;
+    assert.match(etag, /^W\/"/);
+    const notModified = await app.request("/mine", { headers: { authorization: "Bearer alice", "if-none-match": etag } });
+    assert.equal(notModified.status, 304);
+    assert.equal(await notModified.text(), "");
+    await app.cache.invalidate("notes");
+    const fresh = await app.request("/mine", { headers: { authorization: "Bearer alice", "if-none-match": etag } });
+    assert.equal(fresh.status, 200, "the handler ran again and the body changed");
+    assert.equal(fresh.headers.get("x-inferlo-cache"), "MISS");
+    assert.equal(calls.mine, 2);
+  });
+
+  test("by: \"public\" shares one response; only 200 answers without cookies are cached", async () => {
+    const { app, calls } = makeApp();
+    assert.deepEqual(await (await app.request("/catalog")).json(), { call: 1 });
+    const hit = await app.request("/catalog", as("bob"));
+    assert.deepEqual(await hit.json(), { call: 1 });
+    assert.equal(hit.headers.get("cache-control"), "public, no-cache");
+    assert.equal(hit.headers.get("vary"), null);
+    const head = await app.request("/catalog", { method: "HEAD" });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), "");
+    assert.equal(calls.catalog, 1);
+    await app.request("/status-created");
+    await app.request("/status-created");
+    assert.equal(calls.status, 2, "201 is not cached");
+    await app.request("/cookie");
+    await app.request("/cookie");
+    assert.equal(calls.status, 4, "a response that sets a cookie is not cached");
+  });
+
+  test("roles and rate limits still apply to cached responses", async () => {
+    const { app } = makeApp();
+    assert.equal((await app.request("/admin-report", as("alice"))).status, 200);
+    assert.equal((await app.request("/admin-report", as("bob"))).status, 403);
+    assert.equal((await app.request("/limited")).status, 200);
+    assert.equal((await app.request("/limited")).status, 200);
+    assert.equal((await app.request("/limited")).status, 429);
+  });
+
+  test("describe and OpenAPI show the cache; invalid options raise IL6028 at startup", () => {
+    const { app } = makeApp();
+    assert.deepEqual(app.describe().routes.find((r) => r.path === "/mine")?.cache, { ttlMs: 60_000, by: "user", tags: ["notes"] });
+    assert.deepEqual((app.openapi() as any).paths["/catalog"].get["x-inferlo-cache"], { ttlMs: 60_000, by: "public", tags: [] });
+    const cases: [string, unknown][] = [
+      ["post", { ttlMs: 1000 }],
+      ["get", { ttlMs: 0 }],
+      ["get", { ttlMs: 1000, by: "everyone" }],
+      ["get", { ttlMs: 1000, tags: "notes" }],
+      ["get", { ttl: 1000 }],
+      ["get", null],
+    ];
+    for (const [method, cache] of cases) {
+      const r = (route as any)[method]("/x", { auth: "public", cache }).handle(() => ({}));
+      assert.throws(() => createApp({ routes: [{ r }], logger: quiet }), isCode("IL6028"), `${method} ${JSON.stringify(cache)}`);
+    }
+  });
+});
+
 if (PG_URL) {
   const adapters: Adapter[] = [];
   const pg = () => {
@@ -176,6 +285,20 @@ if (PG_URL) {
       await second.cache.invalidate(`shared-${suffix}`);
       assert.equal(await first.cache.get(`shared-${suffix}`), undefined);
       assert.equal(first.describe().cache, "database");
+    });
+
+    test("cached route responses are shared by every instance", async () => {
+      let calls = 0;
+      const shared = route.get(`/shared-${suffix}`, { auth: "public", cache: { ttlMs: 60_000, by: "public", tags: [`route-${suffix}`] } }).handle(() => ({ call: ++calls }));
+      const make = () => createApp({ db: pg(), routes: [{ shared }], cache: { store: "database" }, logger: quiet });
+      const first = await make().request(`/shared-${suffix}`);
+      assert.equal(first.headers.get("x-inferlo-cache"), "MISS");
+      const second = await make().request(`/shared-${suffix}`);
+      assert.equal(second.headers.get("x-inferlo-cache"), "HIT");
+      assert.equal(second.headers.get("etag"), first.headers.get("etag"));
+      assert.deepEqual(await second.json(), { call: 1 });
+      await make().cache.invalidate(`route-${suffix}`);
+      assert.deepEqual(await (await make().request(`/shared-${suffix}`)).json(), { call: 2 });
     });
   });
 }

@@ -5,7 +5,7 @@
 import { bindTools, createAI, type AI, type AIConfig } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
-import { createCache, databaseCacheStore, memoryCacheStore, resolveCacheConfig, type Cache, type CacheConfig } from "./cache.ts";
+import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
 import { bindDb, createDb, guardAdapter, type Db } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { describeApp, type AppDescription } from "./describe.ts";
@@ -402,6 +402,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   }
 
   for (const r of routes) if (r.options.rateLimit !== undefined) checkRateLimit(r.options.rateLimit, `${r.method} ${r.path}`);
+  for (const r of routes) if (r.options.cache !== undefined) checkRouteCache(r.options.cache, r.method, `${r.method} ${r.path}`);
   const requestTimeoutMs = config.requestTimeoutMs === undefined ? 60_000 : checkTimeout(config.requestTimeoutMs, "createApp({ requestTimeoutMs })");
   for (const r of routes) if (r.options.timeoutMs !== undefined) checkTimeout(r.options.timeoutMs, `${r.method} ${r.path} { timeoutMs }`);
   const deprecations = new Map<RouteDef, ResolvedDeprecation>();
@@ -690,6 +691,31 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           body = parseOrThrow(opts.body, raw, "request body", type.includes("application/x-www-form-urlencoded"));
         }
 
+        // Response cache: after auth, permissions, rate limits and input checks, so a cached response is only
+        // served to callers who may call the route with valid input.
+        const routeCache = opts.cache;
+        const cacheKey = routeCache ? await routeCacheKey(def.method, def.path, routeCache, user?.id, url) : undefined;
+        const cacheHeaders = (outcome: "HIT" | "MISS", etag: string) => {
+          headers.set("x-inferlo-cache", outcome);
+          headers.set("etag", etag);
+          if (!headers.has("cache-control")) headers.set("cache-control", `${(routeCache!.by ?? "user") === "public" && (opts.auth ?? "user") === "public" ? "public" : "private"}, no-cache`);
+          if ((routeCache!.by ?? "user") === "user") headers.append("vary", "Authorization, Cookie");
+        };
+        const cachedAnswer = (body: string, etag: string): Response => {
+          if (etagMatches(req.headers.get("if-none-match"), etag)) return new Response(null, { status: 304, headers });
+          headers.set("content-type", "application/json; charset=utf-8");
+          return new Response(method === "HEAD" ? null : body, { status: 200, headers });
+        };
+        if (cacheKey) {
+          const hit = await cache.get<CachedResponse>(cacheKey);
+          if (hit) {
+            for (const [name, value] of hit.headers) headers.set(name, value);
+            cacheHeaders("HIT", hit.etag);
+            return cachedAnswer(JSON.stringify(hit.body), hit.etag);
+          }
+        }
+        const handlerHeaders: [string, string][] = [];
+
         let status = 0;
         const ctx: AnyContext = {
           body,
@@ -710,7 +736,10 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           headers: req.headers,
           state,
           status: (code: number) => void (status = code),
-          header: (name: string, value: string) => headers.set(name, value),
+          header: (name: string, value: string) => {
+            headers.set(name, value);
+            handlerHeaders.push([name.toLowerCase(), value]);
+          },
           waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e, { requestId }))),
           audit: createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, source: `${def.method} ${def.path}`, requestId }),
         };
@@ -722,6 +751,14 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           return result;
         }
         if (result === undefined) return new Response(null, { status: status || 204, headers });
+        // Only plain 200 JSON answers are cached, never one that sets a cookie.
+        if (cacheKey && (status || 200) === 200 && !handlerHeaders.some(([name]) => name === "set-cookie")) {
+          const body = JSON.stringify(result);
+          const etag = await etagFor(body);
+          await cache.set(cacheKey, { body: JSON.parse(body), headers: handlerHeaders, etag } satisfies CachedResponse, { ttlMs: routeCache!.ttlMs, tags: routeCache!.tags ?? [] });
+          cacheHeaders("MISS", etag);
+          return cachedAnswer(body, etag);
+        }
         const response = json(result, status || 200, headers);
         return method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;
       };

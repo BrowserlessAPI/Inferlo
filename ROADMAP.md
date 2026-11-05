@@ -30,7 +30,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] API versioning part 1: `deprecated: { since, sunset, link }` on routes sends the Deprecation (RFC 9745), Sunset (RFC 8594) and `Link rel="deprecation"` headers, and marks the route in OpenAPI, describe and MCP
 - [x] API versioning part 2: `/v1` and `/v2` route groups, and an OpenAPI document per version
 - [x] Caching part 1: `ctx.cache` and `app.cache` with `getOrSet`, `get`, `set`, `delete`, tag invalidation and required time to live, in memory or in Postgres (`createApp({ cache: { store } })`)
-- [ ] Caching part 2: per-route response caching, `route.get(path, { cache: { ttlMs, by: "user" | "public", tags } })` with `Cache-Control` and `Vary` headers, invalidated with `ctx.cache.invalidate(tag)`
+- [x] Caching part 2: per-route response caching, `route.get(path, { cache: { ttlMs, by: "user" | "public", tags } })` with ETags, `Cache-Control` and `Vary` headers, invalidated with `ctx.cache.invalidate(tag)`
 - [ ] Caching part 3: Redis cache store (together with the Redis item)
 - [ ] Redis support for rate limits, job queues and cache, tested on the oldest supported and latest Redis versions
 - [ ] Performance: published, reproducible throughput and latency benchmarks against Fastify, Hono, Express and NestJS, and a performance regression check in CI

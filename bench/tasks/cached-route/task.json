@@ -1,0 +1,4 @@
+{
+  "title": "Cache a route's responses and invalidate them on change",
+  "prompt": "GET /notes is slow. Cache its responses for 30 seconds with Inferlo's route response cache (the route option, not code in the handler), one cached response per user, tagged \"notes\". Creating a note with POST /notes must invalidate that tag, so the user's next GET /notes includes the new note."
+}
