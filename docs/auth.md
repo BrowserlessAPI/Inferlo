@@ -23,6 +23,48 @@ route.get("/me")                              // any signed-in user (default)
 route.delete("/users/:id", { auth: "admin" }) // users whose roles include "admin"
 ```
 
+## Permissions
+
+Roles answer "who is this user"; permissions answer "may this user do this, to this record". Define every permission once, by name, in one file, and check it the same way in routes, AI tools and jobs:
+
+```ts
+// src/permissions.ts
+import { permissions, type AppUser, type Row } from "@browserlessapi/inferlo";
+import type { Ticket } from "./models.ts";
+
+export const access = permissions({
+  "reports.view": { roles: ["admin", "analyst"] },
+  "tickets.update": ({ user, ticket }: { user: AppUser; ticket: Row<typeof Ticket> }) =>
+    ticket.ownerId === user.id || (user.roles ?? []).includes("admin"),
+});
+```
+
+- A rule is either `{ roles: [...] }` (the user has one of these roles in `user.roles`) or a function, sync or async, that receives the user and the records it needs and returns `true` or `false`. Anything else a function returns (`undefined`, a string) is a bug and raises IL6026 instead of allowing.
+- Deny by default: without a user (`null` or `undefined`) every permission is denied and the rule is not called. An unknown permission name raises IL6026.
+- `await access.can("tickets.update", { user, ticket })` returns `true` or `false`.
+- `await access.authorize("tickets.update", { user, ticket })` returns when allowed and otherwise throws IL3004 (403), or IL3001 (401) without a user. Throw it from a handler and the client gets the error.
+- The input of `can()` and `authorize()` is typed from the rule, so a missing `ticket` is a type error.
+
+Permissions that need only the user can go on the route. Pass the permissions to `createApp` and set `permission`:
+
+```ts
+createApp({ routes, auth, permissions: access });
+
+export const reports = route.get("/reports", { permission: "reports.view", tool: true }).handle(...);
+
+export const updateTicket = route.patch("/tickets/:id", { body: Ticket.pick("title").partial() }).handle(async ({ params, body, user, db }) => {
+  const ticket = await db.tickets.get(params.id);
+  await access.authorize("tickets.update", { user, ticket });  // 403 IL3004 for other users' tickets
+  return db.tickets.update(ticket.id, body);
+});
+```
+
+- `permission` is checked with `{ user }` after sign-in and before rate limits, validation and the handler. It also applies when a model calls the route as a tool (`ai.generate({ tools })` and MCP), because tools run with the caller's user.
+- `createApp` checks at startup that every route's permission exists, that `createApp({ permissions })` is set when a route uses one, and that no route combines `permission` with `auth: "public"` (IL6026).
+- `describe()` lists the permissions and each route's `permission`, `inferlo describe` shows them, and OpenAPI marks the route with `x-inferlo-permission` and a 403 response.
+- In jobs there is no signed-in user: pass the user's id in the job input, load the user, and call `access.authorize(name, { user, ... })` before doing the work.
+- In tests, call `access.can()` directly, or send requests as a user with `app.request(path, { as: user })`.
+
 ## API keys with bearer()
 
 ```ts

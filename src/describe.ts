@@ -42,6 +42,8 @@ export interface AppDescription {
   models: { name: string; module?: string; fields: Record<string, FieldDescription> }[];
   /** API versions from apiVersion("v1", routes), oldest first, with the path of each version's OpenAPI document. */
   versions: { name: string; openapi: string | false }[];
+  /** Named permissions from createApp({ permissions }), with the roles of roles rules. */
+  permissions: { name: string; roles?: string[] }[];
   routes: {
     /** The API version of the route ("v1"), when it comes from apiVersion(). */
     version?: string;
@@ -51,6 +53,8 @@ export interface AppDescription {
     method: string;
     path: string;
     auth: string;
+    /** The permission the user must have (route option permission). */
+    permission?: string;
     summary?: string;
     tool?: string;
     rateLimit?: { max: number; per: string; by: string };
@@ -89,7 +93,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string; modules: ModuleInfo; versions: AppDescription["versions"] }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string; modules: ModuleInfo; versions: AppDescription["versions"]; permissions: AppDescription["permissions"] }): AppDescription {
   const info = options.modules;
   return {
     inferlo: INFERLO_VERSION,
@@ -103,6 +107,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     requestTimeoutMs: options.requestTimeoutMs,
     logging: options.logging,
     versions: options.versions,
+    permissions: options.permissions,
     modules: info.modules.map((m) => ({
       name: m.name,
       ...(m.description ? { description: m.description } : {}),
@@ -129,6 +134,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       if (r.version) out.version = r.version;
       const owner = info.routeModule.get(r);
       if (owner) out.module = owner;
+      if (o.permission) out.permission = o.permission;
       if (o.summary) out.summary = o.summary;
       if (o.tool) out.tool = toolName(r);
       if (o.rateLimit) out.rateLimit = { max: o.rateLimit.max, per: o.rateLimit.per, by: o.rateLimit.by ?? "user" };

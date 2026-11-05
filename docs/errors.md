@@ -58,6 +58,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL3003
 **Private routes but no auth configured.** Raised by `createApp` at startup. Either add `auth: "public"` to routes anyone may call, or pass `createApp({ auth })`.
 
+### IL3004
+**Permission denied (403).** The signed-in user does not have the permission a route requires (`permission: "reports.view"`), or a handler called `access.authorize(name, { user, ... })` and the rule returned `false`. Sign in as a user the rule allows, or change the rule in `permissions({ ... })`. See [Permissions](auth.md#permissions).
+
 ## Database (4xxx)
 
 ### IL4001
@@ -229,6 +232,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6025
 **Invalid API version.** `apiVersion(version, routes, options)` takes a version of `"v"` and a number (`"v1"`, `"v2"`), a non-empty array of routes or route files, and options with only `deprecated`. A route returned by `apiVersion()` cannot be put in another version: pass the original route to each version instead. `app.openapi({ version })` needs a version the app has, and no `GET` route may use a version's OpenAPI document path (`/v1/openapi.json`). See [API versions](routes.md#api-versions).
+
+### IL6026
+**Invalid permissions.** `permissions({ ... })` takes an object of named rules: each name like `"tickets.update"`, each rule a function that returns `true` or `false` or `{ roles: ["admin"] }` with at least one role. A function rule that returns anything other than `true` or `false` raises it when checked, as does `can()` or `authorize()` with an unknown name. `createApp` raises it when a route's `permission` is not defined, when a route has a `permission` but the app has no `createApp({ permissions })`, when a route combines `permission` with `auth: "public"`, or when `permissions` is not the result of `permissions()`. See [Permissions](auth.md#permissions).
 
 ## Environment (7xxx)
 

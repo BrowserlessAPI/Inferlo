@@ -19,7 +19,9 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Observability part 1: request ids (`X-Request-Id`, `ctx.requestId`), request logs with timing, and JSON log output (`createApp({ logging: { format: "json", requests: true } })`)
 - [x] Observability part 2: Prometheus metrics endpoint (request counts and durations by route and status, job runs, AI calls, tokens and cost per alias)
 - [ ] Observability part 3: OpenTelemetry tracing for requests, database queries, jobs and AI calls (optional peer dependency, trace ids in logs)
-- [ ] Permissions: role- and policy-based access control (`can("ticket.update", { user, ticket })`) usable in routes, tools and jobs, plus an audit log of who changed what
+- [x] Permissions part 1: role- and policy-based access control, `permissions({ "tickets.update": ({ user, ticket }) => ... })` with `access.can(name, { user, ticket })` and `access.authorize(...)` usable in routes, tools and jobs, and the route option `permission`
+- [ ] Permissions part 2: audit log of who changed what (`audit` table, written from routes and jobs with the user, action, record and changes; secrets redacted)
+- [ ] Permissions part 3: permission names typed through `Register` (a typo in `permission: "..."` is a type error), and MCP `tools/list` leaves out tools the caller's permissions deny
 - [x] Security hardening part 1: secure response headers by default (`createApp({ secureHeaders })`, CSP, HSTS over HTTPS, nosniff, frame and referrer policies), and docs/security.md listing the secure defaults
 - [x] Security hardening part 2: request timeouts (`createApp({ requestTimeoutMs })` and per-route `timeoutMs`, with an abort `signal` in the handler context passed on to AI and database calls)
 - [x] Security hardening part 3: secret redaction in logs and errors (authorization headers, cookies, `config` secrets and provider API keys never appear in logged errors)

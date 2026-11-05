@@ -1,0 +1,4 @@
+{
+  "title": "Named permissions for notes",
+  "prompt": "Admins (users whose roles include \"admin\") must be able to delete any note; other users may only delete their own. Create src/permissions.ts exporting `access`, made with Inferlo's permissions(), with two permissions: \"notes.delete\" (the note's owner or an admin) and \"notes.stats\" (only users with the \"admin\" role). Pass it to createApp in src/app.ts. DELETE /notes/:id must use access to check \"notes.delete\": a user who is neither the owner nor an admin gets a 403 with error code IL3004 and the note stays. Add `export const noteStats` in src/routes/notes.ts: GET /notes/stats returning { total } (the number of all notes), allowed only with the \"notes.stats\" permission, checked by the route itself."
+}

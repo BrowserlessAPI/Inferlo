@@ -46,6 +46,12 @@ export interface ToolOptions {
 export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectSchema<any> | undefined, P extends ObjectSchema<any> | undefined> {
   /** Who may call this route. Default "user" (signed in). */
   auth?: Auth;
+  /**
+   * A permission from createApp({ permissions }) the signed-in user must have, checked with { user } before the
+   * handler runs (also when the route is called as an AI tool). Denied: 403 IL3004. For rules that also need a
+   * resource, call access.authorize(name, { user, ticket }) in the handler instead.
+   */
+  permission?: string;
   /** Request body schema (JSON or form). */
   body?: B;
   /** Query string schema. Strings are converted to numbers and booleans automatically. */

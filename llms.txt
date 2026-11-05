@@ -11,7 +11,7 @@ Key rules: routes are private unless `auth: "public"`; validate input with `t.*`
 - [Schemas](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/schema.md): t.* types, modifiers, validation, JSON Schema
 - [Models and database](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/database.md): model(), queries, adapters, db push, transactions
 - [Routes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/routes.md): options, handler context, return values, errors, middleware, deprecated routes (Deprecation and Sunset headers), API versions with apiVersion("v1", routes) and an OpenAPI document per version
-- [Auth](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/auth.md): auth.resolve, roles, bearer API keys, passwords
+- [Auth](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/auth.md): auth.resolve, roles, permissions() with can() and authorize() and the route permission option, bearer API keys, passwords
 - [AI](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/ai.md): providers, aliases and fallback, structured output, streaming, embeddings, usage and budgets
 - [Modules](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/modules.md): module("billing", { imports, models, routes, jobs, provides }) splits a large app into feature modules with explicit dependencies, createApp({ modules }), checked at startup and shown in describe
 - [MCP, OpenAPI and describe](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/mcp.md)

@@ -131,7 +131,7 @@ async function cmdDescribe(args: Args) {
       }
     }
     lines.push("", "Routes");
-    for (const r of d.routes) lines.push(`  ${r.method.padEnd(6)} ${r.path.padEnd(28)} auth=${r.auth}${r.tool ? `  tool=${r.tool}` : ""}${r.deprecated ? `  deprecated${r.deprecated !== true && r.deprecated.sunset ? ` (sunset ${r.deprecated.sunset})` : ""}` : ""}${r.name ? `  (${r.name})` : ""}${r.module ? `  [${r.module}]` : ""}`);
+    for (const r of d.routes) lines.push(`  ${r.method.padEnd(6)} ${r.path.padEnd(28)} auth=${r.auth}${r.permission ? `  permission=${r.permission}` : ""}${r.tool ? `  tool=${r.tool}` : ""}${r.deprecated ? `  deprecated${r.deprecated !== true && r.deprecated.sunset ? ` (sunset ${r.deprecated.sunset})` : ""}` : ""}${r.name ? `  (${r.name})` : ""}${r.module ? `  [${r.module}]` : ""}`);
     if (d.jobs?.length) {
       lines.push("", `Jobs (queue: ${d.jobQueue})`);
       for (const j of d.jobs) lines.push(`  ${j.name.padEnd(28)} retries=${j.retries}${j.summary ? `  ${j.summary}` : ""}`);
@@ -139,6 +139,7 @@ async function cmdDescribe(args: Args) {
     }
     lines.push("", `AI: ${d.ai.configured ? Object.entries<string[]>(d.ai.aliases).map(([a, ids]) => `${a} = ${ids.join(" > ")}`).join("; ") || "configured" : "not configured"}`);
     if (d.endpoints.openapi) lines.push(`OpenAPI: ${d.endpoints.openapi}${d.versions?.some((v: { name: string; openapi: string | false }) => v.openapi) ? ` (per version: ${d.versions.map((v: { name: string; openapi: string | false }) => v.openapi).filter(Boolean).join(", ")})` : ""}`);
+    if (d.permissions?.length) lines.push(`Permissions: ${d.permissions.map((p: { name: string; roles?: string[] }) => (p.roles ? `${p.name} (${p.roles.join(", ")})` : p.name)).join(", ")}`);
     if (d.versions?.length) lines.push(`API versions: ${d.versions.map((v: { name: string; openapi: string | false }) => v.name).join(", ")}`);
     if (d.endpoints.mcp) lines.push(`MCP: ${d.endpoints.mcp}`);
     if (d.endpoints.health) lines.push(`Health: ${d.endpoints.health} (liveness), ${d.endpoints.ready} (readiness)`);

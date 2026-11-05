@@ -25,6 +25,7 @@ import { INFERLO_VERSION } from "./describe.ts";
 import { registerRequestMatcher } from "./request-matcher.ts";
 import { versionDocPath, versionsOf } from "./api-version.ts";
 import { resolveModules, type AnyModule, type ModuleInfo, type ModuleModels } from "./module.ts";
+import { isPermissions, type Permissions } from "./permissions.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
 export interface AuthConfig {
@@ -118,6 +119,8 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/inferlo/postgres" in production. */
   db?: Adapter;
   auth?: AuthConfig;
+  /** Named permissions from permissions({ ... }), required when a route sets permission. */
+  permissions?: Permissions<any>;
   ai?: AIConfig;
   cors?: boolean | CorsConfig;
   middleware?: Middleware[];
@@ -375,6 +378,23 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     });
   }
 
+  if (config.permissions !== undefined && !isPermissions(config.permissions)) {
+    throw new InferloError("IL6026", "createApp({ permissions }) takes the result of permissions({ ... }).", { fix: 'Define them with permissions({ "tickets.update": ({ user, ticket }) => ticket.ownerId === user.id }) and pass that value.' });
+  }
+  for (const r of routes) {
+    const name = r.options.permission;
+    if (name === undefined) continue;
+    const where = `${r.method} ${r.path}`;
+    if (typeof name !== "string" || !config.permissions?.has(name)) {
+      throw new InferloError("IL6026", config.permissions ? `The route ${where} uses the unknown permission "${String(name)}".` : `The route ${where} uses the permission "${String(name)}", but createApp has no permissions.`, {
+        fix: config.permissions ? `Use one of: ${config.permissions.list.map((p) => p.name).join(", ")}, or add it to permissions({ ... }).` : "Pass createApp({ permissions }) with the value from permissions({ ... }).",
+      });
+    }
+    if (r.options.auth === "public") {
+      throw new InferloError("IL6026", `The route ${where} has a permission but auth: "public".`, { fix: 'A permission needs a signed-in user: remove auth: "public" from the route.' });
+    }
+  }
+
   for (const r of routes) if (r.options.rateLimit !== undefined) checkRateLimit(r.options.rateLimit, `${r.method} ${r.path}`);
   const requestTimeoutMs = config.requestTimeoutMs === undefined ? 60_000 : checkTimeout(config.requestTimeoutMs, "createApp({ requestTimeoutMs })");
   for (const r of routes) if (r.options.timeoutMs !== undefined) checkTimeout(r.options.timeoutMs, `${r.method} ${r.path} { timeoutMs }`);
@@ -610,6 +630,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           if (!user) throw new InferloError("IL3001", "Sign in required.", { status: 401, fix: "Send valid credentials, e.g. an Authorization: Bearer <token> header." });
           if (level !== "user" && !roles(user).includes(level)) throw new InferloError("IL3002", `This requires the "${level}" role.`, { status: 403 });
         }
+        if (opts.permission) await config.permissions!.authorize(opts.permission, { user });
 
         // Rate limit: counted per user (or IP without one), after auth so failed sign-ins on private routes do not use it up.
         if (opts.rateLimit) {
@@ -900,6 +921,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         description: config.description,
         modules: moduleInfo,
         versions: versions.map((v) => ({ name: v, openapi: openapiPath ? versionDocPath(v, openapiPath) : false })),
+        permissions: config.permissions?.list.map((p) => (p.roles ? { name: p.name, roles: [...p.roles] } : { name: p.name })) ?? [],
       });
     },
 
