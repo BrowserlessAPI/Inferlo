@@ -132,6 +132,19 @@ azure.http("inferlo", {
 
 See [Azure Functions](integrations.md#azure-functions) for the route prefix, cookies, client addresses and streaming AI answers.
 
+## Google Cloud Run functions
+
+```ts
+// src/index.ts
+import * as functions from "@google-cloud/functions-framework";
+import { toNodeHandler } from "@browserlessapi/inferlo";
+import { app } from "./app.ts";
+
+functions.http("inferlo", toNodeHandler(app));
+```
+
+Deploy with `gcloud run deploy my-api --source . --function inferlo --base-image nodejs22`. See [Google Cloud Run functions](integrations.md#google-cloud-run-functions).
+
 ## Inside another framework
 
 To run an Inferlo app under a path of an existing Express, Fastify, NestJS or Hono app, see [Use with other frameworks](integrations.md) (`toNodeHandler(app, { prefix })`).

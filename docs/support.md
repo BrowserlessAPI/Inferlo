@@ -81,6 +81,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
 | AWS Lambda (`/lambda`): function URLs, API Gateway HTTP API and REST API | Node.js runtimes `nodejs22.x` and `nodejs24.x` (tested through the Node.js 22 and 24 jobs) |
 | Azure Functions (`/azure`): HTTP triggers in the Node.js programming model v4 | `@azure/functions` 4.3.0 and newer, on Node.js 22 and 24 |
+| Google Cloud Run functions (`toNodeHandler` with the Functions Framework) | `@google-cloud/functions-framework` 4.0.0 and newer, on Node.js 22 and 24 |
 
 When a version reaches end of life upstream, the next Inferlo release stops supporting it: the minimum moves forward, `engines` and these docs change, and the changelog lists it under "Breaking". When a new major version is released upstream, it is added to CI and supported as soon as it passes.
 

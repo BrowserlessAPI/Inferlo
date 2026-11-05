@@ -35,6 +35,11 @@ export interface NodeRequest {
    * array. Used instead of the stream. Instances of other classes are ignored and the stream is read.
    */
   body?: unknown;
+  /**
+   * The exact bytes of a body the host already read, as Google Cloud Run functions (the Functions Framework)
+   * and Firebase set them. Preferred over body when present, so forms and JSON reach the app unchanged.
+   */
+  rawBody?: unknown;
   [Symbol.asyncIterator](): AsyncIterator<unknown>;
 }
 
@@ -150,7 +155,11 @@ export function buildRequest(req: NodeRequest, path: string, signal?: AbortSigna
   const method = (req.method ?? "GET").toUpperCase();
   let body: BodyInit | ReadableStream | undefined;
   if (method !== "GET" && method !== "HEAD") {
-    if (isParsedBody(req.body)) {
+    if (req.rawBody instanceof Uint8Array && isParsedBody(req.body)) {
+      // The host read the stream and kept the bytes: the app gets them unchanged, with their own content type.
+      headers.delete("content-length");
+      body = req.rawBody as Uint8Array<ArrayBuffer>;
+    } else if (isParsedBody(req.body)) {
       // The host framework already read the stream: use what it parsed.
       headers.delete("content-length");
       if (typeof req.body === "string" || req.body instanceof Uint8Array) body = req.body as BodyInit;

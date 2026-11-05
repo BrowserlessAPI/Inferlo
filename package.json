@@ -125,7 +125,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc && tsc --noEmit -p examples/with-adonisjs && tsc --noEmit -p examples/with-tsed && tsc --noEmit -p examples/with-encore && tsc --noEmit -p examples/with-koa && tsc --noEmit -p examples/with-nextjs && tsc --noEmit -p examples/with-nitro && tsc --noEmit -p examples/with-sveltekit && tsc --noEmit -p examples/with-react-router && tsc --noEmit -p examples/with-lambda && tsc --noEmit -p examples/with-hapi && tsc --noEmit -p examples/with-azure",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc && tsc --noEmit -p examples/with-adonisjs && tsc --noEmit -p examples/with-tsed && tsc --noEmit -p examples/with-encore && tsc --noEmit -p examples/with-koa && tsc --noEmit -p examples/with-nextjs && tsc --noEmit -p examples/with-nitro && tsc --noEmit -p examples/with-sveltekit && tsc --noEmit -p examples/with-react-router && tsc --noEmit -p examples/with-lambda && tsc --noEmit -p examples/with-hapi && tsc --noEmit -p examples/with-azure && tsc --noEmit -p examples/with-cloud-run-functions",
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\" \"examples/*/test/*.test.ts\"",
     "test:bun": "bun test test/",
     "llms": "node scripts/build-llms.ts",
@@ -147,6 +147,7 @@
   "devDependencies": {
     "@adonisjs/core": "^6.21.0",
     "@azure/functions": "^4.17.0",
+    "@google-cloud/functions-framework": "^5.0.5",
     "@hapi/hapi": "^21.4.13",
     "@nestjs/common": "^12.3.3",
     "@nestjs/core": "^12.3.3",

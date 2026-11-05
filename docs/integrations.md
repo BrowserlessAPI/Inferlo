@@ -699,6 +699,29 @@ Anything that is not an app, an unknown option, a prefix that does not start wit
 
 `@azure/functions` is a bundled CommonJS package: `import { app } from "@azure/functions"` works in ES modules, while the test helpers `HttpRequest` and `HttpResponse` come from the default export (`import azureFunctions from "@azure/functions"; const { HttpRequest } = azureFunctions`). The [with-azure example](../examples/with-azure) has the function, its `host.json`, and tests that call the handler with `HttpRequest` objects the way the Functions host does. CI tests `@azure/functions` 4.3.0 and the latest release.
 
+## Google Cloud Run functions
+
+Cloud Run functions (formerly Cloud Functions) call your code through the Google Cloud Functions Framework with Express-style `req` and `res`, so `toNodeHandler` serves a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one HTTP function. Inferlo needs no extra entry point and loads nothing from the Functions Framework.
+
+```ts
+// src/index.ts
+import * as functions from "@google-cloud/functions-framework";
+import { toNodeHandler } from "@browserlessapi/inferlo";
+import { app } from "./app.ts"; // export const app = createApp({ ... })
+
+functions.http("inferlo", toNodeHandler(app));
+```
+
+Deploy it with `gcloud run deploy my-api --source . --function inferlo --base-image nodejs22` (or `gcloud functions deploy`), with `"main"` in package.json pointing at the built `index.js`.
+
+- The Functions Framework reads and parses every request body before your function runs. It keeps the exact bytes in `req.rawBody`, and `toNodeHandler` (and `fromNodeRequest`) give the app those bytes with their own content type, so JSON, forms, text and binary uploads arrive unchanged and the app validates them as usual.
+- Every `Set-Cookie` is sent, and AI streams (`ai.stream(...).toResponse()`) are written as they are generated.
+- The whole function URL is the app. To serve it under a path, use `toNodeHandler(app, { prefix: "/api" })`.
+- The socket address is Google's front end. For `rateLimit: { by: "ip" }` set `createApp({ trustProxy: true })` to use the first `X-Forwarded-For` address; clients can send that header themselves, so prefer `by: "user"` for limits that matter. Instances do not share memory, so use `createApp({ rateLimit: { store: "database" } })` or `"redis"` (and the database queue and cache) across instances.
+- Create the app at module level (as above), so warm requests reuse it, its database pool and its AI clients.
+
+To test the function as the Functions Framework runs it, use `getTestServer("inferlo")` from `@google-cloud/functions-framework/testing` after importing `src/index.ts`. The [with-cloud-run-functions example](../examples/with-cloud-run-functions) does that. CI tests Functions Framework 4.0.0 and the latest release.
+
 ## Encore.ts
 
 Encore.ts needs no Inferlo entry point: an Encore raw endpoint is called with Node.js-style request and response objects, so `toNodeHandler` serves a whole Inferlo app from it, and `@browserlessapi/inferlo/ai` works in any Encore service. Nothing Encore-specific is loaded by Inferlo.

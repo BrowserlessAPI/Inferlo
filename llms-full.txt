@@ -53,7 +53,7 @@ That one model definition gives you the database table, insert and update valida
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
-- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `server.register({ plugin: inferloPlugin, options: { ai } })` from `@browserlessapi/inferlo/hapi` gives hapi `request.ai` (and `options: { app }` with `routes: { prefix }` serves a whole Inferlo app), `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, `export const { GET, POST } = toNextHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/nextjs` serves a whole Inferlo app from a Next.js App Router route, `export default toH3Handler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/h3` serves it from a Nuxt or Nitro server route (with `event.context.ai` from a Nitro plugin), `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/sveltekit` serves it from a SvelteKit rest route (with `event.locals.ai` from a handle hook), `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/react-router` serves it from a React Router (Remix) resource route, `export const handler = toLambdaHandler(app)` from `@browserlessapi/inferlo/lambda` runs it on AWS Lambda (function URLs and API Gateway, with response streaming), `handler: toAzureHandler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/azure` runs it in an Azure Functions HTTP trigger (with streaming), and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` (see [Use with other frameworks](docs/integrations.md)).
+- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `server.register({ plugin: inferloPlugin, options: { ai } })` from `@browserlessapi/inferlo/hapi` gives hapi `request.ai` (and `options: { app }` with `routes: { prefix }` serves a whole Inferlo app), `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, `export const { GET, POST } = toNextHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/nextjs` serves a whole Inferlo app from a Next.js App Router route, `export default toH3Handler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/h3` serves it from a Nuxt or Nitro server route (with `event.context.ai` from a Nitro plugin), `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/sveltekit` serves it from a SvelteKit rest route (with `event.locals.ai` from a handle hook), `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/react-router` serves it from a React Router (Remix) resource route, `export const handler = toLambdaHandler(app)` from `@browserlessapi/inferlo/lambda` runs it on AWS Lambda (function URLs and API Gateway, with response streaming), `handler: toAzureHandler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/azure` runs it in an Azure Functions HTTP trigger (with streaming), `functions.http("inferlo", toNodeHandler(app))` runs it as a Google Cloud Run function, and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` (see [Use with other frameworks](docs/integrations.md)).
 - **Background jobs for slow AI work.** Queue a typed job from a route with `ctx.jobs.enqueue(...)` and it runs after the response, with retries, from a Postgres queue shared by every instance (`inferlo worker` runs them in their own process), and schedule jobs with `cron("0 3 * * *", job)`.
 
 ## Why Inferlo
@@ -2468,6 +2468,29 @@ Anything that is not an app, an unknown option, a prefix that does not start wit
 
 `@azure/functions` is a bundled CommonJS package: `import { app } from "@azure/functions"` works in ES modules, while the test helpers `HttpRequest` and `HttpResponse` come from the default export (`import azureFunctions from "@azure/functions"; const { HttpRequest } = azureFunctions`). The [with-azure example](../examples/with-azure) has the function, its `host.json`, and tests that call the handler with `HttpRequest` objects the way the Functions host does. CI tests `@azure/functions` 4.3.0 and the latest release.
 
+## Google Cloud Run functions
+
+Cloud Run functions (formerly Cloud Functions) call your code through the Google Cloud Functions Framework with Express-style `req` and `res`, so `toNodeHandler` serves a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one HTTP function. Inferlo needs no extra entry point and loads nothing from the Functions Framework.
+
+```ts
+// src/index.ts
+import * as functions from "@google-cloud/functions-framework";
+import { toNodeHandler } from "@browserlessapi/inferlo";
+import { app } from "./app.ts"; // export const app = createApp({ ... })
+
+functions.http("inferlo", toNodeHandler(app));
+```
+
+Deploy it with `gcloud run deploy my-api --source . --function inferlo --base-image nodejs22` (or `gcloud functions deploy`), with `"main"` in package.json pointing at the built `index.js`.
+
+- The Functions Framework reads and parses every request body before your function runs. It keeps the exact bytes in `req.rawBody`, and `toNodeHandler` (and `fromNodeRequest`) give the app those bytes with their own content type, so JSON, forms, text and binary uploads arrive unchanged and the app validates them as usual.
+- Every `Set-Cookie` is sent, and AI streams (`ai.stream(...).toResponse()`) are written as they are generated.
+- The whole function URL is the app. To serve it under a path, use `toNodeHandler(app, { prefix: "/api" })`.
+- The socket address is Google's front end. For `rateLimit: { by: "ip" }` set `createApp({ trustProxy: true })` to use the first `X-Forwarded-For` address; clients can send that header themselves, so prefer `by: "user"` for limits that matter. Instances do not share memory, so use `createApp({ rateLimit: { store: "database" } })` or `"redis"` (and the database queue and cache) across instances.
+- Create the app at module level (as above), so warm requests reuse it, its database pool and its AI clients.
+
+To test the function as the Functions Framework runs it, use `getTestServer("inferlo")` from `@google-cloud/functions-framework/testing` after importing `src/index.ts`. The [with-cloud-run-functions example](../examples/with-cloud-run-functions) does that. CI tests Functions Framework 4.0.0 and the latest release.
+
 ## Encore.ts
 
 Encore.ts needs no Inferlo entry point: an Encore raw endpoint is called with Node.js-style request and response objects, so `toNodeHandler` serves a whole Inferlo app from it, and `@browserlessapi/inferlo/ai` works in any Encore service. Nothing Encore-specific is loaded by Inferlo.
@@ -4060,6 +4083,19 @@ azure.http("inferlo", {
 
 See [Azure Functions](integrations.md#azure-functions) for the route prefix, cookies, client addresses and streaming AI answers.
 
+## Google Cloud Run functions
+
+```ts
+// src/index.ts
+import * as functions from "@google-cloud/functions-framework";
+import { toNodeHandler } from "@browserlessapi/inferlo";
+import { app } from "./app.ts";
+
+functions.http("inferlo", toNodeHandler(app));
+```
+
+Deploy with `gcloud run deploy my-api --source . --function inferlo --base-image nodejs22`. See [Google Cloud Run functions](integrations.md#google-cloud-run-functions).
+
 ## Inside another framework
 
 To run an Inferlo app under a path of an existing Express, Fastify, NestJS or Hono app, see [Use with other frameworks](integrations.md) (`toNodeHandler(app, { prefix })`).
@@ -4149,6 +4185,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
 | AWS Lambda (`/lambda`): function URLs, API Gateway HTTP API and REST API | Node.js runtimes `nodejs22.x` and `nodejs24.x` (tested through the Node.js 22 and 24 jobs) |
 | Azure Functions (`/azure`): HTTP triggers in the Node.js programming model v4 | `@azure/functions` 4.3.0 and newer, on Node.js 22 and 24 |
+| Google Cloud Run functions (`toNodeHandler` with the Functions Framework) | `@google-cloud/functions-framework` 4.0.0 and newer, on Node.js 22 and 24 |
 
 When a version reaches end of life upstream, the next Inferlo release stops supporting it: the minimum moves forward, `engines` and these docs change, and the changelog lists it under "Breaking". When a new major version is released upstream, it is added to CI and supported as soon as it passes.
 

@@ -245,6 +245,26 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/azure.test.ts "examples/with-azure/test/*.test.ts"
 
+  cloud-run-functions:
+    name: Cloud Run functions (Functions Framework ${{ matrix.framework }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 4.0.0 = oldest supported (Functions Framework 3 has had no release since March 2025), latest = newest release.
+        framework: ["4.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save @google-cloud/functions-framework@${{ matrix.framework }}
+      - run: node -p "'Functions Framework ' + JSON.parse(require('fs').readFileSync('node_modules/@google-cloud/functions-framework/package.json', 'utf8')).version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/cloud-run-functions.test.ts test/node-handler.test.ts "examples/with-cloud-run-functions/test/*.test.ts"
+
   elysia:
     name: Elysia ${{ matrix.elysia }} on ${{ matrix.runtime }}
     runs-on: ubuntu-latest

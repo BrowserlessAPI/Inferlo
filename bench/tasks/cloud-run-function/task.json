@@ -1,0 +1,5 @@
+{
+  "title": "Run the app as a Google Cloud Run function",
+  "prompt": "We want to deploy this Inferlo app as a Google Cloud Run function. Create src/index.ts that registers an HTTP function named \"inferlo\" with @google-cloud/functions-framework, serving the whole Inferlo app exported from src/app.ts: GET /health reaches the app's health endpoint, /openapi.json serves its OpenAPI document and POST /notes reaches POST /notes with its JSON body.",
+  "packages": ["@google-cloud/functions-framework"]
+}

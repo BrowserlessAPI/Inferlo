@@ -68,7 +68,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] hapi: a plugin that serves an Inferlo app under a path and decorates requests with `request.ai`, tested on the oldest supported and latest hapi
 - [ ] Cloudflare Workers: `export default app` tested in workerd (Miniflare) on the oldest supported and latest Workers runtime, with Worker bindings readable through `env()` and the AI module on Workers
 - [x] Azure Functions and Google Cloud Run functions part 1: `toAzureHandler(app, { prefix })` for Azure Functions v4 HTTP triggers (with streaming), tested on the oldest supported and latest `@azure/functions`
-- [ ] Azure Functions and Google Cloud Run functions part 2: a tested `toNodeHandler(app)` setup for `@google-cloud/functions-framework` (Cloud Run functions), on the oldest supported and latest versions
+- [x] Azure Functions and Google Cloud Run functions part 2: a tested `toNodeHandler(app)` setup for `@google-cloud/functions-framework` (Cloud Run functions), on the oldest supported and latest versions
 - [x] Migration guides part 1: from Express to Inferlo, route by route at the same URLs (docs/migrate-from-express.md, with a test of the setup it recommends)
 - [x] Migration guides part 2: from NestJS to Inferlo (modules, providers, guards, pipes and DTOs)
 - [x] Migration guides part 3: from Hono to Inferlo
