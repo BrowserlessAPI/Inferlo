@@ -294,7 +294,7 @@ jobs:
       - run: npm install --no-save koa@${{ matrix.koa }}
       - run: node -p "'Koa ' + require('./node_modules/koa/package.json').version"
       - run: npm run typecheck
-      - run: node --test --test-reporter=spec test/koa.test.ts "examples/with-koa/test/*.test.ts"
+      - run: node --test --test-reporter=spec test/koa.test.ts test/migrate-from-koa.test.ts "examples/with-koa/test/*.test.ts"
 
   nextjs:
     name: Next.js ${{ matrix.next }}

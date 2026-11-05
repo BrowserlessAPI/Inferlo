@@ -54,8 +54,10 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Express: middleware mount and `req.ai`
 - [x] Koa: `inferloAI()` middleware for `ctx.ai`, `toKoaMiddleware(app, { prefix, fallthrough })` and `sendResponse(ctx, response)`
 - [ ] Migration guides part 4: from Fastify to Inferlo (plugins, hooks, decorators, JSON schemas), with a mount that passes unmatched requests back to Fastify
-- [ ] Migration guides part 5: from Koa to Inferlo, route by route at the same URLs with `toKoaMiddleware(app, { fallthrough: true })`
+- [x] Migration guides part 5: from Koa to Inferlo, route by route at the same URLs with `toKoaMiddleware(app, { fallthrough: true })`
 - [x] Next.js route handlers: `export const { GET, POST } = toNextHandlers(app)` for the App Router, and `@browserlessapi/inferlo/ai` in server actions
+- [ ] Nuxt and Nitro (h3): mount an Inferlo app in a server route with `fromWebHandler(app.fetch)` under a prefix, and `event.context.ai` from a Nitro plugin
+- [ ] SvelteKit and React Router 7 (Remix) server routes: a catch-all `+server.ts` / resource route that serves an Inferlo app, and `@browserlessapi/inferlo/ai` in load functions and actions
 - [x] Migration guides part 1: from Express to Inferlo, route by route at the same URLs (docs/migrate-from-express.md, with a test of the setup it recommends)
 - [x] Migration guides part 2: from NestJS to Inferlo (modules, providers, guards, pipes and DTOs)
 - [x] Migration guides part 3: from Hono to Inferlo
