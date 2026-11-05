@@ -12,6 +12,7 @@ export { createAI, cosineSimilarity, extractJson } from "./index.ts";
 export { tool, isTool, ToolBuilder } from "./tool.ts";
 export type { ToolDef, FunctionToolOptions, ToolContext } from "./tool.ts";
 export { openai, openaiCompatible, anthropic, gemini, ollama, mockProvider, ProviderError } from "./providers.ts";
+export type { TracingConfig, OtelApi, OtelSpan } from "../tracing.ts";
 export type { AI, AIConfig, GenerateOptions, GenerateResult, StreamResult, Usage, Pricing, Step, ToolCallResult } from "./index.ts";
 export type { Provider, ProviderRequest, ProviderResponse, ProviderUsage, Image, ImageMediaType, Message, MockReply, ToolCall, ToolSpec, OpenAICompatibleOptions } from "./providers.ts";
 export { t, Schema, ObjectSchema, ArraySchema, ValidationError, toJSONSchema } from "../schema.ts";

@@ -1,0 +1,5 @@
+{
+  "title": "Trace AI calls made without the app",
+  "prompt": "Our nightly report script calls models through Inferlo's AI module without createApp, and our platform team collects traces with OpenTelemetry. Create src/lib/ai.ts exporting `ai`, an AI client created with Inferlo's standalone AI module (@browserlessapi/inferlo/ai) with the Anthropic provider (API key from the ANTHROPIC_API_KEY environment variable, empty string when it is not set) and the alias `fast` for anthropic:claude-haiku-4-5. Every call it makes must produce an OpenTelemetry span with the model, tokens and cost, using the @opentelemetry/api package. Do not add an OpenTelemetry SDK; the platform starts one.",
+  "packages": ["@opentelemetry/api"]
+}

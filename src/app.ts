@@ -2,7 +2,7 @@
  * createApp wires models, routes, database, auth and AI together and gives you a standard
  * fetch(Request) => Response handler that runs on Node, Bun, Deno and edge runtimes.
  */
-import { bindTools, createAI, type AI, type AIConfig } from "./ai/index.ts";
+import { bindTools, createAI, type AI, type AIConfig, type Usage } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
 import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
@@ -21,7 +21,7 @@ import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
-import { requestTracing, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
+import { clientTracing, requestTracing, traceAdapter, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
 import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
 import { INFERLO_VERSION } from "./describe.ts";
@@ -182,7 +182,8 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   metrics?: boolean | MetricsConfig;
   /**
    * OpenTelemetry tracing: import * as otel from "@opentelemetry/api", then tracing: { api: otel }. Every request
-   * gets a server span that continues the caller's trace, and log entries get traceId and spanId. Off by default.
+   * gets a server span that continues the caller's trace, and log entries get traceId and spanId. AI calls and
+   * database queries inside it get client spans (model, tokens and cost; table and operation). Off by default.
    */
   tracing?: TracingConfig;
 }
@@ -444,7 +445,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     { path: health?.readyPath ?? false, what: "the readiness path" },
     ...routes.filter((r) => r.method === "GET").map((r) => ({ path: r.path, what: `the route GET ${r.path}` })),
   ]);
-  const adapter = config.db ?? memory();
+  // With tracing, database queries made while a request or job is traced get client spans.
+  const appTracing: TracingConfig | undefined = tracing ? { ...config.tracing!, tracerName: config.tracing!.tracerName ?? config.name ?? "inferlo-app" } : undefined;
+  const adapter = appTracing ? traceAdapter(config.db ?? memory(), clientTracing(appTracing, "inferlo-app", config.version ?? "0.0.0")) : (config.db ?? memory());
   const db = createDb(models, adapter);
   const rateLimits: RateLimitStore = storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
   const cacheConfig = resolveCacheConfig(config.cache);
@@ -453,8 +456,13 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     ? createMetrics({ app: config.name ?? "inferlo-app", version: config.version ?? "0.0.0", inferlo: INFERLO_VERSION }, metricsConfig.buckets)
     : undefined;
   // With metrics on, every AI call that reports usage is counted before the app's own onUsage runs.
-  const aiConfig: AIConfig | undefined = metrics && config.ai
-    ? { ...config.ai, onUsage: (usage) => (metrics.ai(usage), config.ai!.onUsage?.(usage)) }
+  // With tracing, AI calls get client spans too (unless the AI config has its own tracing).
+  const aiConfig: AIConfig | undefined = config.ai && (metrics || appTracing)
+    ? {
+        ...config.ai,
+        ...(metrics ? { onUsage: (usage: Usage) => (metrics.ai(usage), config.ai!.onUsage?.(usage)) } : {}),
+        ...(appTracing ? { tracing: config.ai.tracing ?? appTracing } : {}),
+      }
     : config.ai;
   const ai = createAI(aiConfig);
   const jobModule = new Map<string, string>();

@@ -19,7 +19,8 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Observability part 1: request ids (`X-Request-Id`, `ctx.requestId`), request logs with timing, and JSON log output (`createApp({ logging: { format: "json", requests: true } })`)
 - [x] Observability part 2: Prometheus metrics endpoint (request counts and durations by route and status, job runs, AI calls, tokens and cost per alias)
 - [x] Observability part 3: OpenTelemetry tracing for requests, `createApp({ tracing: { api } })` with a server span per request that continues the caller's trace and runs the handler inside it, and trace ids in logs (optional peer dependency)
-- [ ] Observability part 4: OpenTelemetry spans for database queries, jobs (with the trace carried from the request that queued them) and AI calls (model, tokens and cost as attributes)
+- [x] Observability part 4a: OpenTelemetry spans for AI calls (model, tokens and cost as attributes, also with `createAI({ tracing })` on its own) and database queries made inside a traced request or job
+- [ ] Observability part 4b: OpenTelemetry spans for jobs, with the trace carried from the request that queued them (stored with the job, also in the database queue) and cron runs as new traces
 - [x] Permissions part 1: role- and policy-based access control, `permissions({ "tickets.update": ({ user, ticket }) => ... })` with `access.can(name, { user, ticket })` and `access.authorize(...)` usable in routes, tools and jobs, and the route option `permission`
 - [x] Permissions part 2: audit log of who changed what (`audit` table, written from routes and jobs with the user, action, record and changes; secrets redacted)
 - [x] Permissions part 3: permission names typed through `Register` (a typo in `permission: "..."` is a type error), and MCP `tools/list` leaves out tools the caller's permissions deny
@@ -109,7 +110,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [ ] Email: `mail({ smtp })` helper with templates, used by jobs
 - [ ] OAuth login helpers: GitHub and Google, built on cookie sessions
 - [ ] Multi-tenancy: `tenant` scoping for models and routes, so every query is filtered by the current tenant
-- [ ] OpenTelemetry tracing for requests, database queries and AI calls (requests done as observability part 3; the rest is observability part 4)
+- [x] OpenTelemetry tracing for requests, database queries and AI calls (observability parts 3 and 4a)
 - [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)
 - [ ] SQLite adapter for small apps and tests (tested on the oldest supported and latest versions)
 

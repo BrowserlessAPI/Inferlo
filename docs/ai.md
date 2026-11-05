@@ -193,6 +193,10 @@ cosineSimilarity(embeddings[0], embeddings[1]);
 
 Every call reports a `Usage` record (`requested`, `model` that answered, `inputTokens`, `outputTokens`, `cost`, `for`, `kind`, `durationMs`) to `onUsage`. Store it to bill customers. When `for` is set, `allow` is called first; returning false raises IL5004 (HTTP 402).
 
+## Tracing
+
+With `createApp({ tracing: { api: otel } })` (or `createAI({ ..., tracing: { api: otel } })` on its own), every call gets an OpenTelemetry span with the provider, the model that answered, tokens and cost; prompts and answers are never recorded. See [Observability, "AI calls"](observability.md#ai-calls).
+
 ## Testing
 
 ```ts

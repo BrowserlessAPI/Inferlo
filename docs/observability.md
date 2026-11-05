@@ -155,5 +155,31 @@ Inferlo has no dependency on OpenTelemetry (`@opentelemetry/api` 1.3 and newer i
 - The health, readiness and metrics endpoints are not traced. The tracer is named after the app (`createApp({ name })`) with its `version`; set `tracing: { api: otel, tracerName: "billing-api" }` to change it.
 - Anything else than `{ api }` with the OpenTelemetry API raises IL6030 at startup.
 
-Spans for database queries, jobs and AI calls come next (see the [roadmap](../ROADMAP.md)).
+### AI calls
+
+Every `ai.generate`, `ai.stream` and `ai.embed` call gets a client span under the active span (the request's, or yours), following the OpenTelemetry GenAI conventions:
+
+| Attribute | Example |
+|---|---|
+| span name | `chat claude-haiku-4-5`, `embeddings text-embedding-3-small` (operation and the first model of the alias) |
+| `gen_ai.operation.name` | `chat` or `embeddings` |
+| `gen_ai.provider.name` | `anthropic` (the provider that answered) |
+| `gen_ai.request.model`, `gen_ai.response.model` | the first model of the alias, and the model that answered (they differ after a fallback) |
+| `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | token counts of the whole call, tool steps included |
+| `gen_ai.request.max_tokens`, `gen_ai.request.temperature` | when you set them |
+| `inferlo.ai.model` | the alias you asked for (`fast`) |
+| `inferlo.ai.cost_usd` | cost from `pricing` (0 without pricing) |
+| `inferlo.ai.steps` | model calls in `generate` (more than 1 with tools or repairs) |
+| `inferlo.ai.stream`, `inferlo.ai.cancelled` | `true` for streams, and when the reader stopped early |
+
+- Prompts, answers, tool inputs and the `for` user id are never recorded.
+- The span is active while `generate` runs, so routes and function tools the model calls, and their database queries, become its children. A stream's span ends when the stream does.
+- A failed call (for example when every model failed) sets the error status, records the exception and sets `error.type` to the Inferlo error code (`IL5003`).
+- `createAI` on its own (`@browserlessapi/inferlo/ai`, in any framework) takes the same option: `createAI({ providers, models, tracing: { api: otel } })`. In an app, `createApp({ tracing })` turns it on for `ctx.ai` and `app.ai`.
+
+### Database queries
+
+Queries made while a request or job is traced get a client span named after the operation and table (`SELECT tickets`, `INSERT audit_log`) with `db.system.name` (`postgresql`), `db.operation.name` and `db.collection.name`. Raw SQL (`db.$sql`) and Inferlo's own queries (rate limits, cache, job queue) get a span named after the statement (`UPDATE`) with the parameterised SQL in `db.query.text`. Values are never recorded. Queries outside a trace, such as startup or the worker polling for jobs, are not traced, so idle instances send no spans. If you also use the `pg` instrumentation, its spans appear as children of these.
+
+Spans for jobs, with the trace carried from the request that queued them, come next (see the [roadmap](../ROADMAP.md)).
 

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { after, before, describe, test } from "node:test";
 import * as otel from "@opentelemetry/api";
-import { bearer, createApp, InferloError, route, t } from "../src/index.ts";
+import { createAI, mockProvider, ProviderError } from "../src/ai/public.ts";
+import { bearer, createApp, InferloError, memory, model, route, t, type Adapter } from "../src/index.ts";
+import { clientTracing, traceAdapter } from "../src/tracing.ts";
 
 // A minimal OpenTelemetry SDK for the test: an AsyncLocalStorage context manager, the W3C traceparent propagator and
 // a tracer that records spans. Real apps use @opentelemetry/sdk-node or another SDK.
@@ -201,5 +203,159 @@ describe("tracing", () => {
     } finally {
       otel.trace.setGlobalTracerProvider({ getTracer: () => tracer as unknown as otel.Tracer });
     }
+  });
+});
+
+
+const Note = model("notes", { title: t.string().min(1) });
+
+function aiApp() {
+  const failing = mockProvider({
+    name: "openai",
+    respond: () => {
+      throw new ProviderError("openai", 503, "overloaded");
+    },
+  });
+  const routes = {
+    summarize: route.post("/summaries", { auth: "public", body: t.object({ text: t.string() }) }).handle(async ({ body, ai, db }) => {
+      await (db as any).notes.insert({ title: body.text });
+      const { text } = await ai.generate({ model: "fast", prompt: body.text, maxTokens: 100 });
+      return { summary: text, notes: await (db as any).notes.count() };
+    }),
+    fallback: route.get("/fallback", { auth: "public" }).handle(async ({ ai }) => (await ai.generate({ model: "backup", prompt: "hi" })).text),
+    broken: route.get("/ai-broken", { auth: "public" }).handle(async ({ ai }) => (await ai.generate({ model: "openai:gpt-5-mini", prompt: "hi" })).text),
+    chat: route.get("/chat", { auth: "public" }).handle(({ ai }) => ai.stream({ model: "fast", prompt: "hello there" }).toResponse()),
+    embed: route.get("/embed", { auth: "public" }).handle(async ({ ai }) => (await ai.embed({ model: "mock:embedder", input: ["a", "b"] })).embeddings.length),
+  };
+  return createApp({
+    name: "traced-ai",
+    models: [Note],
+    db: memory(),
+    routes: [routes],
+    tracing: { api: otel },
+    ai: {
+      providers: { mock: mockProvider({ name: "anthropic", respond: () => "A short summary." }), openai: failing },
+      models: { fast: "mock:claude-haiku-4-5", backup: ["openai:gpt-5-mini", "mock:claude-haiku-4-5"] },
+      pricing: { "mock:claude-haiku-4-5": { input: 1, output: 5 } },
+    },
+  });
+}
+
+describe("tracing AI calls and database queries", () => {
+  test("AI calls get a client span under the request's span with the model, tokens and cost", async () => {
+    spans.length = 0;
+    const res = await aiApp().fetch(new Request("http://localhost/summaries", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Long text to summarize" }) }));
+    assert.equal(res.status, 200);
+    const server = spans.find((s) => s.kind === otel.SpanKind.SERVER)!;
+    const ai = spans.find((s) => s.name === "chat claude-haiku-4-5")!;
+    assert.ok(ai, "AI span");
+    assert.equal(ai.kind, otel.SpanKind.CLIENT);
+    assert.equal(ai.parentSpanId, server.context.spanId);
+    assert.equal(ai.context.traceId, server.context.traceId);
+    assert.ok(ai.ended);
+    assert.deepEqual(ai.attributes, {
+      "gen_ai.operation.name": "chat",
+      "gen_ai.provider.name": "anthropic",
+      "gen_ai.request.model": "claude-haiku-4-5",
+      "gen_ai.request.max_tokens": 100,
+      "inferlo.ai.model": "fast",
+      "gen_ai.response.model": "claude-haiku-4-5",
+      "gen_ai.usage.input_tokens": 6,
+      "gen_ai.usage.output_tokens": 4,
+      "inferlo.ai.cost_usd": (6 * 1 + 4 * 5) / 1_000_000,
+      "inferlo.ai.steps": 1,
+    });
+    assert.ok(!JSON.stringify(spans.map((s) => s.attributes)).includes("Long text"), "prompts and answers are never recorded");
+  });
+
+  test("database queries in a request get client spans with the table and operation", async () => {
+    spans.length = 0;
+    const app = aiApp();
+    await app.fetch(new Request("http://localhost/summaries", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) }));
+    const server = spans.find((s) => s.kind === otel.SpanKind.SERVER)!;
+    const insert = spans.find((s) => s.name === "INSERT notes")!;
+    const count = spans.find((s) => s.name === "COUNT notes")!;
+    assert.deepEqual(insert.attributes, { "db.system.name": "memory", "db.operation.name": "INSERT", "db.collection.name": "notes" });
+    assert.equal(insert.kind, otel.SpanKind.CLIENT);
+    assert.equal(insert.parentSpanId, server.context.spanId);
+    assert.ok(insert.ended && count.ended);
+    assert.ok(!JSON.stringify(insert.attributes).includes('"x"'), "values are never recorded");
+
+    spans.length = 0;
+    assert.equal(await app.db.notes.count(), 1);
+    assert.equal(spans.length, 0, "queries outside a traced request or job are not traced");
+  });
+
+  test("fallback records the model that answered; failed calls record the error", async () => {
+    spans.length = 0;
+    const app = aiApp();
+    assert.equal((await app.fetch(new Request("http://localhost/fallback"))).status, 200);
+    const fallback = spans.find((s) => s.name === "chat gpt-5-mini")!;
+    assert.equal(fallback.attributes["gen_ai.request.model"], "gpt-5-mini");
+    assert.equal(fallback.attributes["gen_ai.response.model"], "claude-haiku-4-5");
+    assert.equal(fallback.attributes["gen_ai.provider.name"], "anthropic");
+    assert.equal(fallback.status.code, otel.SpanStatusCode.UNSET);
+
+    spans.length = 0;
+    assert.equal((await app.fetch(new Request("http://localhost/ai-broken"))).status, 502);
+    const failed = spans.find((s) => s.name === "chat gpt-5-mini")!;
+    assert.equal(failed.status.code, otel.SpanStatusCode.ERROR);
+    assert.equal(failed.attributes["error.type"], "IL5003", "every model failed");
+    assert.equal(failed.exceptions.length, 1);
+    assert.ok(failed.ended);
+  });
+
+  test("streams get a span that ends when the stream does, with the usage", async () => {
+    spans.length = 0;
+    const res = await aiApp().fetch(new Request("http://localhost/chat"));
+    assert.match(await res.text(), /event: done/);
+    const stream = spans.find((s) => s.name === "chat claude-haiku-4-5")!;
+    assert.equal(stream.attributes["inferlo.ai.stream"], true);
+    assert.equal(stream.attributes["gen_ai.usage.output_tokens"], 4);
+    assert.ok(stream.ended);
+
+    spans.length = 0;
+    const cancelled = await aiApp().fetch(new Request("http://localhost/chat"));
+    const reader = cancelled.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const span = spans.find((s) => s.name === "chat claude-haiku-4-5")!;
+    assert.ok(span.ended, "a cancelled stream still ends its span");
+    assert.equal(span.attributes["inferlo.ai.cancelled"], true);
+  });
+
+  test("embeddings get an embeddings span", async () => {
+    spans.length = 0;
+    await aiApp().fetch(new Request("http://localhost/embed"));
+    const span = spans.find((s) => s.name === "embeddings embedder")!;
+    assert.equal(span.attributes["gen_ai.operation.name"], "embeddings");
+    assert.equal(span.attributes["gen_ai.usage.input_tokens"], 1);
+    assert.equal(span.attributes["gen_ai.response.model"], "embedder");
+  });
+
+  test("createAI({ tracing }) traces AI calls without an app; invalid options raise IL6030", async () => {
+    spans.length = 0;
+    const ai = createAI({ providers: { mock: mockProvider({ respond: () => "ok" }) }, models: { fast: "mock:m" }, tracing: { api: otel } });
+    await ai.generate({ model: "fast", prompt: "hi" });
+    assert.equal(spans.length, 1);
+    assert.equal(spans[0]!.name, "chat m");
+    assert.equal(spans[0]!.parentSpanId, undefined);
+    assert.throws(() => createAI({ providers: {}, tracing: {} as never }), (e: unknown) => e instanceof InferloError && e.code === "IL6030" && /createAI/.test(e.fix ?? ""));
+  });
+
+  test("raw SQL gets a span with the parameterised query, never the values", async () => {
+    const calls: unknown[][] = [];
+    const fake: Adapter = { ...memory(), dialect: "postgres", sql: async (text, params) => (calls.push([text, params]), []) };
+    const traced = traceAdapter(fake, clientTracing({ api: otel }, "test"));
+    spans.length = 0;
+    await traced.sql!("select 1");
+    assert.equal(spans.length, 0, "no span outside a trace");
+    const parent = tracer.startSpan("job");
+    await otel.context.with(otel.trace.setSpan(otel.context.active(), parent as unknown as otel.Span), () => traced.sql!("  update notes set title = $1 where id = $2", ["secret", 1]));
+    const span = spans.find((s) => s.name === "UPDATE")!;
+    assert.deepEqual(span.attributes, { "db.system.name": "postgresql", "db.operation.name": "UPDATE", "db.query.text": "  update notes set title = $1 where id = $2" });
+    assert.equal(span.parentSpanId, parent.context.spanId);
+    assert.deepEqual(calls.at(-1), ["  update notes set title = $1 where id = $2", ["secret", 1]]);
   });
 });

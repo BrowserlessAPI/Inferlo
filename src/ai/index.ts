@@ -14,6 +14,7 @@ import { type AnySchema, type Infer, toJSONSchema } from "../schema.ts";
 import type { RouteDef } from "../route.ts";
 import { functionToolSpec, isTool, runFunctionTool, type ToolDef } from "./tool.ts";
 import { createRedactor, secretsOf } from "../redact.ts";
+import { checkTracing, clientTracing, type OtelSpan, type TracingConfig } from "../tracing.ts";
 import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolSpec } from "./providers.ts";
 
 export * from "./providers.ts";
@@ -58,6 +59,12 @@ export interface AIConfig {
    * e.g. when a user has used up their credits. Blocked calls raise IL5004 (HTTP 402).
    */
   allow?: (info: { for: string; model: string }) => boolean | Promise<boolean>;
+  /**
+   * OpenTelemetry spans for AI calls: import * as otel from "@opentelemetry/api", then tracing: { api: otel }.
+   * Every generate, stream and embed call gets a client span ("chat claude-haiku-4-5") with the provider, the model
+   * that answered, tokens and cost. Prompts and answers are never recorded. In an app, createApp({ tracing }) sets it.
+   */
+  tracing?: TracingConfig;
 }
 
 export interface GenerateOptions<O extends AnySchema | undefined> {
@@ -236,6 +243,31 @@ export function createAI(config?: AIConfig): AI {
   const redactor = createRedactor(Object.values(providers).flatMap((p) => secretsOf(p)));
   const aliases: Record<string, string[]> = {};
   for (const [alias, ids] of Object.entries(config?.models ?? {})) aliases[alias] = Array.isArray(ids) ? ids : [ids];
+  const tracingConfig = checkTracing(config?.tracing, "createAI");
+  const spans = tracingConfig ? clientTracing(tracingConfig, "inferlo") : undefined;
+  /** Attributes of an AI span before the call (OpenTelemetry GenAI conventions, plus the alias asked for). */
+  const spanStart = (operation: "chat" | "embeddings", requested: string, targets: Target[], options: { maxTokens?: number; temperature?: number }) => {
+    const first = targets[0]!;
+    const attributes: Record<string, string | number | boolean> = {
+      "gen_ai.operation.name": operation,
+      "gen_ai.provider.name": first.provider.name,
+      "gen_ai.request.model": first.model,
+      "inferlo.ai.model": requested,
+    };
+    if (options.maxTokens !== undefined) attributes["gen_ai.request.max_tokens"] = options.maxTokens;
+    if (options.temperature !== undefined) attributes["gen_ai.request.temperature"] = options.temperature;
+    return { name: `${operation} ${first.model}`, attributes };
+  };
+  /** The model that answered, its tokens and cost, on the span. */
+  const spanUsage = (span: OtelSpan, usage: Usage) => {
+    const colon = usage.model.indexOf(":");
+    const provider = providers[usage.model.slice(0, colon)];
+    if (provider) span.setAttribute("gen_ai.provider.name", provider.name);
+    span.setAttribute("gen_ai.response.model", usage.model.slice(colon + 1));
+    span.setAttribute("gen_ai.usage.input_tokens", usage.inputTokens);
+    span.setAttribute("gen_ai.usage.output_tokens", usage.outputTokens);
+    span.setAttribute("inferlo.ai.cost_usd", usage.cost);
+  };
 
   const resolve = (requested: string | undefined): Target[] => {
     const name = requested ?? config?.defaultModel ?? (Object.keys(aliases)[0] as string | undefined);
@@ -347,7 +379,7 @@ export function createAI(config?: AIConfig): AI {
       // Once a tool has run, falling back to another model would run it again.
       let toolsRan = false;
 
-      return withFallback(targets, async (target) => {
+      const call = () => withFallback(targets, async (target) => {
         const total = { inputTokens: 0, outputTokens: 0 };
         const steps: Step[] = [];
         const convo = messages.map((m) => ({ ...m }));
@@ -462,6 +494,15 @@ export function createAI(config?: AIConfig): AI {
           fix: "Simplify the output schema, add .describe() hints to fields, or use a stronger model.",
         });
       });
+      if (!spans) return call();
+      const { name, attributes } = spanStart("chat", requested, targets, options);
+      // The span is active while the call runs, so route and function tools the model calls nest under it.
+      return spans.run(name, attributes, async (span) => {
+        const result = await call();
+        spanUsage(span, result.usage);
+        span.setAttribute("inferlo.ai.steps", result.steps.length);
+        return result;
+      });
     },
 
     stream(options) {
@@ -482,6 +523,9 @@ export function createAI(config?: AIConfig): AI {
         const messages = buildMessages(options);
         const started = Date.now();
         let full = "";
+        const start = spans && spanStart("chat", requested, targets, options);
+        const span = start ? spans!.start(start.name, { ...start.attributes, "inferlo.ai.stream": true }) : undefined;
+        let spanEnded = false;
         try {
           for (let i = 0; i < targets.length; i++) {
             const target = targets[i]!;
@@ -503,13 +547,28 @@ export function createAI(config?: AIConfig): AI {
             }
             const u: Usage = { requested, model: target.id, ...usage, cost: cost(target.id, usage), for: options.for, kind: "stream", durationMs: Date.now() - started };
             await record(u);
+            if (span) {
+              spanUsage(span, u);
+              span.end();
+              spanEnded = true;
+            }
             resolveUsage(u);
             resolveText(full);
             return;
           }
         } catch (error) {
+          if (span && !spanEnded) {
+            spans!.fail(span, error);
+            spanEnded = true;
+          }
           rejectText(error);
           throw error;
+        } finally {
+          // The reader stopped early (the browser went away): the span ends with what was sent.
+          if (span && !spanEnded) {
+            span.setAttribute("inferlo.ai.cancelled", true);
+            span.end();
+          }
         }
       }
 
@@ -562,12 +621,19 @@ export function createAI(config?: AIConfig): AI {
       await guard(options.for, requested);
       const input = Array.isArray(options.input) ? options.input : [options.input];
       const started = Date.now();
-      return withFallback(targets, async (target) => {
+      const call = () => withFallback(targets, async (target) => {
         if (!target.provider.embed) throw new InferloError("IL5005", `Provider "${target.providerName}" does not support embeddings.`);
         const result = await target.provider.embed({ model: target.model, input, signal: options.signal });
         const usage: Usage = { requested, model: target.id, ...result.usage, cost: cost(target.id, result.usage), for: options.for, kind: "embed", durationMs: Date.now() - started };
         await record(usage);
         return { embeddings: result.embeddings, usage };
+      });
+      if (!spans) return call();
+      const { name, attributes } = spanStart("embeddings", requested, targets, {});
+      return spans.run(name, attributes, async (span) => {
+        const result = await call();
+        spanUsage(span, result.usage);
+        return result;
       });
     },
   };
