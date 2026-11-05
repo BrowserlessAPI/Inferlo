@@ -52,6 +52,10 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] tRPC: helpers to expose `ai.generate` and `ai.stream` as typed procedures, and tRPC procedures as AI tools
 - [x] Encore.ts: mount an Inferlo app as a raw endpoint, and use `@browserlessapi/inferlo/ai` inside Encore services
 - [x] Express: middleware mount and `req.ai`
+- [x] Koa: `inferloAI()` middleware for `ctx.ai`, `toKoaMiddleware(app, { prefix, fallthrough })` and `sendResponse(ctx, response)`
+- [ ] Migration guides part 4: from Fastify to Inferlo (plugins, hooks, decorators, JSON schemas), with a mount that passes unmatched requests back to Fastify
+- [ ] Migration guides part 5: from Koa to Inferlo, route by route at the same URLs with `toKoaMiddleware(app, { fallthrough: true })`
+- [ ] Next.js route handlers: `export const { GET, POST } = toNextHandlers(app)` for the App Router, and `@browserlessapi/inferlo/ai` in server actions
 - [x] Migration guides part 1: from Express to Inferlo, route by route at the same URLs (docs/migrate-from-express.md, with a test of the setup it recommends)
 - [x] Migration guides part 2: from NestJS to Inferlo (modules, providers, guards, pipes and DTOs)
 - [x] Migration guides part 3: from Hono to Inferlo

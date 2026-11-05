@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Koa, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, and Koa uses `toKoaMiddleware(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -368,6 +368,39 @@ export class Server {
 ```
 
 The [with-tsed example](../examples/with-tsed) does both, and CI tests it with Ts.ED 8.0.1 (the oldest 8.x release that loads as native ES modules on Node.js) and the latest Ts.ED.
+
+## Koa
+
+Koa 2 and 3. `@browserlessapi/inferlo/koa` has no runtime dependency on Koa and never loads Inferlo's router, database or jobs code.
+
+```ts
+import Koa from "koa";
+import { anthropic, createAI, t } from "@browserlessapi/inferlo/ai";
+import { inferloAI, sendResponse, toKoaMiddleware } from "@browserlessapi/inferlo/koa";
+import { app as inferlo } from "./inferlo/app.ts";
+
+const ai = createAI({ providers: { anthropic: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+const koa = new Koa();
+koa.use(inferloAI(ai));                                   // ctx.ai in every middleware, typed
+koa.use(toKoaMiddleware(inferlo, { prefix: "/api" }));    // a whole Inferlo app under /api
+
+koa.use(async (ctx) => {
+  if (ctx.path === "/classify") {
+    const { object } = await ctx.ai.generate({ model: "fast", prompt: String(ctx.query.text), output: t.object({ label: t.enum(["bug", "feature"]) }) });
+    ctx.body = object;
+  } else if (ctx.path === "/chat") {
+    await sendResponse(ctx, ctx.ai.stream({ model: "fast", prompt: String(ctx.query.q) }).toResponse()); // server-sent events
+  }
+});
+```
+
+- `inferloAI(ai)` puts an AI client (`createAI(...)` or an Inferlo app's `app.ai`) on every context as `ctx.ai`. Importing the entry point adds `ai` to Koa's `DefaultContext` type. Anything that is not an AI client raises IL5014.
+- `toKoaMiddleware(app, { prefix, fallthrough })` takes the same options as `toNodeHandler`. With `prefix`, requests under it reach the app with the prefix removed (`/api/openapi.json`, `/api/mcp`) and everything else goes to the next middleware. With `fallthrough: true`, the app answers only the requests it has a route for and passes the rest on, so routes can move from Koa to Inferlo one at a time at the same URLs. Invalid options raise IL5019.
+- Put it after a body parser or before it: when `koa-bodyparser` or `@koa/bodyparser` already read the request, Inferlo uses `ctx.request.body`; otherwise it reads the stream itself.
+- `sendResponse(ctx, response)` writes a Web `Response` (status, every `Set-Cookie` header, streamed body), for AI streams.
+
+The [with-koa example](../examples/with-koa) does all three, and CI tests it with Koa 2 (newest 2.x, still maintained upstream) and the latest Koa.
 
 ## Encore.ts
 

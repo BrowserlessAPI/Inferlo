@@ -1,0 +1,8 @@
+{
+  "title": "Mount the app and AI inside a Koa server",
+  "prompt": "We are moving a Koa service to Inferlo step by step. Create src/koa.ts exporting `function createKoaServer(): Koa` (from the koa package). Requests whose path starts with /api must be handled by the Inferlo app from src/app.ts mounted under /api with Inferlo's Koa integration (GET /api/health reaches the app's GET /health route, /api/openapi.json serves its OpenAPI document). Every Koa middleware must have the app's AI client as ctx.ai. Every other request is answered by Koa: status 200 with the plain text body \"koa\".",
+  "packages": [
+    "koa",
+    "@types/koa"
+  ]
+}

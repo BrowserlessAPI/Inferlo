@@ -275,6 +275,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/adonisjs.test.ts "examples/with-adonisjs/test/*.test.ts"
 
+  koa:
+    name: Koa ${{ matrix.koa }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 2 = oldest supported (Koa 2 is still maintained upstream, so its newest 2.x release is tested),
+        # latest = newest release (Koa 3).
+        koa: ["2", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save koa@${{ matrix.koa }}
+      - run: node -p "'Koa ' + require('./node_modules/koa/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/koa.test.ts "examples/with-koa/test/*.test.ts"
+
   encore:
     name: Encore.ts ${{ matrix.encore }}
     runs-on: ubuntu-latest

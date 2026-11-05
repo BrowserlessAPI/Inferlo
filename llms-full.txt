@@ -53,7 +53,7 @@ That one model definition gives you the database table, insert and update valida
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
-- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` (see [Use with other frameworks](docs/integrations.md)).
+- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` (see [Use with other frameworks](docs/integrations.md)).
 - **Background jobs for slow AI work.** Queue a typed job from a route with `ctx.jobs.enqueue(...)` and it runs after the response, with retries, from a Postgres queue shared by every instance (`inferlo worker` runs them in their own process), and schedule jobs with `cron("0 3 * * *", job)`.
 
 ## Why Inferlo
@@ -1503,7 +1503,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Koa, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, and Koa uses `toKoaMiddleware(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -1866,6 +1866,39 @@ export class Server {
 ```
 
 The [with-tsed example](../examples/with-tsed) does both, and CI tests it with Ts.ED 8.0.1 (the oldest 8.x release that loads as native ES modules on Node.js) and the latest Ts.ED.
+
+## Koa
+
+Koa 2 and 3. `@browserlessapi/inferlo/koa` has no runtime dependency on Koa and never loads Inferlo's router, database or jobs code.
+
+```ts
+import Koa from "koa";
+import { anthropic, createAI, t } from "@browserlessapi/inferlo/ai";
+import { inferloAI, sendResponse, toKoaMiddleware } from "@browserlessapi/inferlo/koa";
+import { app as inferlo } from "./inferlo/app.ts";
+
+const ai = createAI({ providers: { anthropic: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+
+const koa = new Koa();
+koa.use(inferloAI(ai));                                   // ctx.ai in every middleware, typed
+koa.use(toKoaMiddleware(inferlo, { prefix: "/api" }));    // a whole Inferlo app under /api
+
+koa.use(async (ctx) => {
+  if (ctx.path === "/classify") {
+    const { object } = await ctx.ai.generate({ model: "fast", prompt: String(ctx.query.text), output: t.object({ label: t.enum(["bug", "feature"]) }) });
+    ctx.body = object;
+  } else if (ctx.path === "/chat") {
+    await sendResponse(ctx, ctx.ai.stream({ model: "fast", prompt: String(ctx.query.q) }).toResponse()); // server-sent events
+  }
+});
+```
+
+- `inferloAI(ai)` puts an AI client (`createAI(...)` or an Inferlo app's `app.ai`) on every context as `ctx.ai`. Importing the entry point adds `ai` to Koa's `DefaultContext` type. Anything that is not an AI client raises IL5014.
+- `toKoaMiddleware(app, { prefix, fallthrough })` takes the same options as `toNodeHandler`. With `prefix`, requests under it reach the app with the prefix removed (`/api/openapi.json`, `/api/mcp`) and everything else goes to the next middleware. With `fallthrough: true`, the app answers only the requests it has a route for and passes the rest on, so routes can move from Koa to Inferlo one at a time at the same URLs. Invalid options raise IL5019.
+- Put it after a body parser or before it: when `koa-bodyparser` or `@koa/bodyparser` already read the request, Inferlo uses `ctx.request.body`; otherwise it reads the stream itself.
+- `sendResponse(ctx, response)` writes a Web `Response` (status, every `Set-Cookie` header, streamed body), for AI streams.
+
+The [with-koa example](../examples/with-koa) does all three, and CI tests it with Koa 2 (newest 2.x, still maintained upstream) and the latest Koa.
 
 ## Encore.ts
 
@@ -3010,6 +3043,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | tRPC (`/trpc`) | 11.0.0 and newer |
 | AdonisJS (`/adonisjs`) | 6.2.0 and newer (AdonisJS 7 needs Node.js 24) |
 | Ts.ED (`/tsed`) | 8.0.1 and newer |
+| Koa (`/koa`) | 2 (newest 2.x) and 3 |
 | Encore.ts (`toNodeHandler` in a raw endpoint, `/ai` in services) | encore.dev 1.51.0 and newer |
 
 When a version reaches end of life upstream, the next Inferlo release stops supporting it: the minimum moves forward, `engines` and these docs change, and the changelog lists it under "Breaking". When a new major version is released upstream, it is added to CI and supported as soon as it passes.
@@ -3164,7 +3198,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid tool.** A `tool(name, { description, input }).handle(fn)` definition is not usable: the name must be letters, digits, `_` and `-`, starting with a letter, at most 64 characters (what providers accept); `description` must say what the tool does; `input` must be a `t.object({ ... })` schema; `handle` needs a function. Also raised when two tools in one `ai.generate` call have the same name.
 
 ### IL5014
-**inferloAI() needs an AI client.** The Hono middleware from `@browserlessapi/inferlo/hono`, the Express middleware from `@browserlessapi/inferlo/express`, `inferloPlugin` from `@browserlessapi/inferlo/fastify` , the Elysia plugin from `@browserlessapi/inferlo/elysia`, `InferloModule` from `@browserlessapi/inferlo/nestjs` the tRPC middleware from `@browserlessapi/inferlo/trpc` the AdonisJS provider from `@browserlessapi/inferlo/adonisjs` (the default export of `config/ai.ts`) or `inferloAI()` from `@browserlessapi/inferlo/tsed` was given something that is not an AI client. Pass `createAI({ providers, models })` from `@browserlessapi/inferlo/ai`, or an Inferlo app's `app.ai`: `hono.use(inferloAI(ai))`, `server.use(inferloAI(ai))`, `new Elysia().use(inferloAI(ai))` `trpc.procedure.use(inferloAI(ai))` or `@Configuration({ imports: [inferloAI(ai)] })`.
+**inferloAI() needs an AI client.** The Hono middleware from `@browserlessapi/inferlo/hono`, the Express middleware from `@browserlessapi/inferlo/express`, the Koa middleware from `@browserlessapi/inferlo/koa`, `inferloPlugin` from `@browserlessapi/inferlo/fastify`, the Elysia plugin from `@browserlessapi/inferlo/elysia`, `InferloModule` from `@browserlessapi/inferlo/nestjs`, the tRPC middleware from `@browserlessapi/inferlo/trpc`, the AdonisJS provider from `@browserlessapi/inferlo/adonisjs` (the default export of `config/ai.ts`) or `inferloAI()` from `@browserlessapi/inferlo/tsed` was given something that is not an AI client. Pass `createAI({ providers, models })` from `@browserlessapi/inferlo/ai`, or an Inferlo app's `app.ai`: `hono.use(inferloAI(ai))`, `server.use(inferloAI(ai))`, `koa.use(inferloAI(ai))`, `new Elysia().use(inferloAI(ai))`, `trpc.procedure.use(inferloAI(ai))` or `@Configuration({ imports: [inferloAI(ai)] })`.
 
 ### IL5015
 **Invalid inferloPlugin options.** `fastify.register(inferloPlugin, options)` from `@browserlessapi/inferlo/fastify` needs `ai` (for `fastify.ai` and `request.ai`), `app` (an Inferlo app from `createApp`) with a `prefix` such as `"/api"` (starting with `/`, not ending with `/`), or both: `fastify.register(inferloPlugin, { app, prefix: "/api" })`.
@@ -3179,7 +3213,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **No config/ai.ts for the AdonisJS provider.** The provider from `@browserlessapi/inferlo/adonisjs` (in `adonisrc.ts`) reads the AI client from `config/ai.ts` when the app boots, and that file is missing or has no default export. Create it with `export default createAI({ providers, models })` from `@browserlessapi/inferlo/ai`; see [Use with other frameworks](integrations.md#adonisjs).
 
 ### IL5019
-**Invalid `toNodeHandler` options.** `fallthrough` is `true` or `false`, and `toNodeHandler(app, { fallthrough: true })` needs an app returned by `createApp`, because it checks the app's routes to decide which requests to pass to the host framework's `next()`. A plain `{ fetch }` handler cannot be used with it. See [toNodeHandler](integrations.md#nodejs-frameworks-tonodehandler).
+**Invalid `toNodeHandler` or `toKoaMiddleware` options.** `fallthrough` is `true` or `false`, and `toNodeHandler(app, { fallthrough: true })` needs an app returned by `createApp`, because it checks the app's routes to decide which requests to pass to the host framework's `next()`. A plain `{ fetch }` handler cannot be used with it. See [toNodeHandler](integrations.md#nodejs-frameworks-tonodehandler).
 
 ## App configuration (6xxx)
 
