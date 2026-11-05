@@ -186,8 +186,12 @@ function readCookie(header: string | null, name: string): string | undefined {
 
 /** A field of a URL-encoded form body, read from a copy of the request (at most 64 KiB) so the route can still read it. */
 async function formField(req: Request, field: string): Promise<string | null> {
-  if (!req.body || !(req.headers.get("content-type") ?? "").toLowerCase().includes("application/x-www-form-urlencoded")) return null;
-  const reader = req.clone().body!.getReader();
+  if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/x-www-form-urlencoded")) return null;
+  if (Number(req.headers.get("content-length") ?? "0") > MAX_FORM_BYTES) return null;
+  // Cloned before req.body is touched: on Bun 1.3, a body stream read before clone() comes back empty.
+  const body = req.clone().body;
+  if (!body) return null;
+  const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {

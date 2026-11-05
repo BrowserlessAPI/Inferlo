@@ -75,6 +75,9 @@ describe("sessions", () => {
     assert.deepEqual(await form.json(), { name: "Desk", by: "u1" });
     const badForm = await post({ "content-type": "application/x-www-form-urlencoded" }, new URLSearchParams({ name: "Desk", _csrf: "nope" }).toString());
     assert.equal(badForm.status, 403);
+    // Form bodies over 64 KiB are not searched for the token (send X-CSRF-Token instead).
+    const big = await post({ "content-type": "application/x-www-form-urlencoded" }, new URLSearchParams({ name: "x".repeat(70_000), _csrf: csrfToken }).toString());
+    assert.equal(big.status, 403);
     const del = await app.fetch(new Request("https://app.example.com/things/7", { method: "DELETE", headers: { cookie } }));
     assert.equal(del.status, 403);
     const delOk = await app.fetch(new Request("https://app.example.com/things/7", { method: "DELETE", headers: { cookie, "x-csrf-token": csrfToken } }));
