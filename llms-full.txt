@@ -53,7 +53,7 @@ That one model definition gives you the database table, insert and update valida
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
-- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, `export const { GET, POST } = toNextHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/nextjs` serves a whole Inferlo app from a Next.js App Router route, `export default toH3Handler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/h3` serves it from a Nuxt or Nitro server route (with `event.context.ai` from a Nitro plugin), `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/sveltekit` serves it from a SvelteKit rest route (with `event.locals.ai` from a handle hook), `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/react-router` serves it from a React Router (Remix) resource route, and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` (see [Use with other frameworks](docs/integrations.md)).
+- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, `export const { GET, POST } = toNextHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/nextjs` serves a whole Inferlo app from a Next.js App Router route, `export default toH3Handler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/h3` serves it from a Nuxt or Nitro server route (with `event.context.ai` from a Nitro plugin), `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/sveltekit` serves it from a SvelteKit rest route (with `event.locals.ai` from a handle hook), `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/react-router` serves it from a React Router (Remix) resource route, `export const handler = toLambdaHandler(app)` from `@browserlessapi/inferlo/lambda` runs it on AWS Lambda (function URLs and API Gateway, with response streaming), and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` (see [Use with other frameworks](docs/integrations.md)).
 - **Background jobs for slow AI work.** Queue a typed job from a route with `ctx.jobs.enqueue(...)` and it runs after the response, with retries, from a Postgres queue shared by every instance (`inferlo worker` runs them in their own process), and schedule jobs with `cron("0 3 * * *", job)`.
 
 ## Why Inferlo
@@ -1728,7 +1728,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, and React Router resource routes use `toReactRouterHandlers(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, and AWS Lambda uses `toLambdaHandler(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -2317,6 +2317,42 @@ export async function action({ request }: Route.ActionArgs) {
 To stream text to the browser from a resource route, return `ai.stream({ model, prompt }).toResponse()` (server-sent events) from its loader.
 
 The [with-react-router example](../examples/with-react-router) does both, and CI tests it with React Router 7 (newest 7.x) and the latest React Router, using React Router's own data router.
+
+## AWS Lambda
+
+`@browserlessapi/inferlo/lambda` turns a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) into a Lambda handler. It has no dependency on the AWS SDK or any Lambda package.
+
+```ts
+// src/handler.ts
+import { toLambdaHandler } from "@browserlessapi/inferlo/lambda";
+import { app } from "./app.ts"; // export const app = createApp({ ... })
+
+export const handler = toLambdaHandler(app);
+```
+
+- It takes Lambda function URL events and API Gateway events with a Lambda proxy integration: HTTP API (payload format 2.0) and REST API (payload format 1.0). It answers in the format of the event it got, so one handler works behind any of them.
+- Query strings, headers (also multi-value), cookies (`event.cookies` on function URLs and HTTP APIs) and bodies (also base64 encoded) reach the app as a normal `Request`. Every `Set-Cookie` the app sends is returned on its own (`cookies` for payload 2.0, `multiValueHeaders` for 1.0). JSON, text, XML and form answers are sent as text, everything else (images, files) base64 encoded, so binary answers arrive unchanged; for binary bodies on a REST API, add `*/*` to its binary media types.
+- The caller's address (`requestContext.http.sourceIp`, or `requestContext.identity.sourceIp` on a REST API) is used for `rateLimit: { by: "ip" }`. Lambda instances do not share memory, so use `createApp({ rateLimit: { store: "database" } })` (and the database queue and cache) for limits across instances.
+- `prefix` removes a path before the app routes the request, for example `toLambdaHandler(app, { prefix: "/prod" })` for an HTTP API stage that is not `$default`. REST API stages are not part of `event.path`, so they need no prefix. Requests outside the prefix keep their path.
+- Create the app outside the handler (as above), so warm invocations reuse it, its database pool and its AI clients.
+
+### Streaming AI answers
+
+With `{ streaming: true }` the handler uses Lambda response streaming, so an AI answer (`ai.stream(...).toResponse()`) reaches the browser as it is generated instead of after the last token. It needs a function URL with the `RESPONSE_STREAM` invoke mode and a Node.js runtime:
+
+```ts
+// src/stream.ts
+import { toLambdaHandler } from "@browserlessapi/inferlo/lambda";
+import { app } from "./app.ts";
+
+export const handler = toLambdaHandler(app, { streaming: true });
+```
+
+The status, headers and cookies are sent first, then the body as the app writes it. `streaming: true` outside the Lambda Node.js runtime (where the `awslambda` global does not exist) raises IL5024; tests can pass `{ awslambda }` with a stand-in.
+
+Anything that is not an app, invalid options, or an event that is not from a function URL or API Gateway (SQS, S3 or schedule events need their own handler) raise IL5024.
+
+The [with-lambda example](../examples/with-lambda) has both handlers and an AWS SAM template (`sam build && sam deploy --guided`). The tests run the handlers with the event shapes AWS documents for function URLs, HTTP APIs and REST APIs. Lambda's Node.js runtimes (`nodejs22.x` and `nodejs24.x`) are covered by the Node.js 22 and 24 jobs in CI.
 
 ## Encore.ts
 
@@ -3841,6 +3877,18 @@ export default app;   // app.fetch is the Worker handler
 
 Use a Postgres driver that supports your edge runtime, or `memory()` for stateless services.
 
+## AWS Lambda
+
+```ts
+import { toLambdaHandler } from "@browserlessapi/inferlo/lambda";
+import { app } from "./app.ts";
+
+export const handler = toLambdaHandler(app);                       // function URLs and API Gateway
+// export const handler = toLambdaHandler(app, { streaming: true }); // function URLs with response streaming
+```
+
+See [AWS Lambda](integrations.md#aws-lambda) for event formats, cookies, binary bodies and streaming AI answers.
+
 ## Inside another framework
 
 To run an Inferlo app under a path of an existing Express, Fastify, NestJS or Hono app, see [Use with other frameworks](integrations.md) (`toNodeHandler(app, { prefix })`).
@@ -3926,6 +3974,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
+| AWS Lambda (`/lambda`): function URLs, API Gateway HTTP API and REST API | Node.js runtimes `nodejs22.x` and `nodejs24.x` (tested through the Node.js 22 and 24 jobs) |
 
 When a version reaches end of life upstream, the next Inferlo release stops supporting it: the minimum moves forward, `engines` and these docs change, and the changelog lists it under "Breaking". When a new major version is released upstream, it is added to CI and supported as soon as it passes.
 
@@ -4110,6 +4159,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5023
 **Invalid toReactRouterHandlers() arguments.** `toReactRouterHandlers(app, { prefix })` from `@browserlessapi/inferlo/react-router` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `route("api/*", "routes/api.ts")`: `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })`. The loader and action it returns must be exported from a route module, so React Router calls them with `{ request }`. See [React Router](integrations.md#react-router-remix).
+
+### IL5024
+**Invalid toLambdaHandler() arguments or event.** `toLambdaHandler(app, { prefix, streaming })` from `@browserlessapi/inferlo/lambda` needs the app returned by `createApp`; `prefix`, if given, starts with `/` (such as `"/prod"`), and `streaming` is `true` or `false`. `streaming: true` only works inside the AWS Lambda Node.js runtime, which provides the `awslambda` global. The handler only takes HTTP events from a Lambda function URL or API Gateway (HTTP API or REST API with a Lambda proxy integration); other event sources such as SQS, S3 or schedules need their own handler. See [AWS Lambda](integrations.md#aws-lambda).
 
 ## App configuration (6xxx)
 

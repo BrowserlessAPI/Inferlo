@@ -1,0 +1,4 @@
+{
+  "title": "Run the app on AWS Lambda",
+  "prompt": "We want to deploy this Inferlo app to AWS Lambda behind an API Gateway HTTP API and, separately, a REST API. Create src/lambda.ts exporting `handler`, the Lambda handler that runs the Inferlo app exported from src/app.ts for API Gateway events (HTTP API payload format 2.0 and REST API payload format 1.0): GET /health reaches the app's health endpoint, /openapi.json serves its OpenAPI document and POST /notes reaches POST /notes. Use Inferlo's AWS Lambda integration."
+}

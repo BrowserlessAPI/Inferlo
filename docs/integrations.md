@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, and React Router resource routes use `toReactRouterHandlers(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, and AWS Lambda uses `toLambdaHandler(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -594,6 +594,42 @@ export async function action({ request }: Route.ActionArgs) {
 To stream text to the browser from a resource route, return `ai.stream({ model, prompt }).toResponse()` (server-sent events) from its loader.
 
 The [with-react-router example](../examples/with-react-router) does both, and CI tests it with React Router 7 (newest 7.x) and the latest React Router, using React Router's own data router.
+
+## AWS Lambda
+
+`@browserlessapi/inferlo/lambda` turns a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) into a Lambda handler. It has no dependency on the AWS SDK or any Lambda package.
+
+```ts
+// src/handler.ts
+import { toLambdaHandler } from "@browserlessapi/inferlo/lambda";
+import { app } from "./app.ts"; // export const app = createApp({ ... })
+
+export const handler = toLambdaHandler(app);
+```
+
+- It takes Lambda function URL events and API Gateway events with a Lambda proxy integration: HTTP API (payload format 2.0) and REST API (payload format 1.0). It answers in the format of the event it got, so one handler works behind any of them.
+- Query strings, headers (also multi-value), cookies (`event.cookies` on function URLs and HTTP APIs) and bodies (also base64 encoded) reach the app as a normal `Request`. Every `Set-Cookie` the app sends is returned on its own (`cookies` for payload 2.0, `multiValueHeaders` for 1.0). JSON, text, XML and form answers are sent as text, everything else (images, files) base64 encoded, so binary answers arrive unchanged; for binary bodies on a REST API, add `*/*` to its binary media types.
+- The caller's address (`requestContext.http.sourceIp`, or `requestContext.identity.sourceIp` on a REST API) is used for `rateLimit: { by: "ip" }`. Lambda instances do not share memory, so use `createApp({ rateLimit: { store: "database" } })` (and the database queue and cache) for limits across instances.
+- `prefix` removes a path before the app routes the request, for example `toLambdaHandler(app, { prefix: "/prod" })` for an HTTP API stage that is not `$default`. REST API stages are not part of `event.path`, so they need no prefix. Requests outside the prefix keep their path.
+- Create the app outside the handler (as above), so warm invocations reuse it, its database pool and its AI clients.
+
+### Streaming AI answers
+
+With `{ streaming: true }` the handler uses Lambda response streaming, so an AI answer (`ai.stream(...).toResponse()`) reaches the browser as it is generated instead of after the last token. It needs a function URL with the `RESPONSE_STREAM` invoke mode and a Node.js runtime:
+
+```ts
+// src/stream.ts
+import { toLambdaHandler } from "@browserlessapi/inferlo/lambda";
+import { app } from "./app.ts";
+
+export const handler = toLambdaHandler(app, { streaming: true });
+```
+
+The status, headers and cookies are sent first, then the body as the app writes it. `streaming: true` outside the Lambda Node.js runtime (where the `awslambda` global does not exist) raises IL5024; tests can pass `{ awslambda }` with a stand-in.
+
+Anything that is not an app, invalid options, or an event that is not from a function URL or API Gateway (SQS, S3 or schedule events need their own handler) raise IL5024.
+
+The [with-lambda example](../examples/with-lambda) has both handlers and an AWS SAM template (`sam build && sam deploy --guided`). The tests run the handlers with the event shapes AWS documents for function URLs, HTTP APIs and REST APIs. Lambda's Node.js runtimes (`nodejs22.x` and `nodejs24.x`) are covered by the Node.js 22 and 24 jobs in CI.
 
 ## Encore.ts
 

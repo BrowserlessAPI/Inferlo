@@ -101,6 +101,18 @@ export default app;   // app.fetch is the Worker handler
 
 Use a Postgres driver that supports your edge runtime, or `memory()` for stateless services.
 
+## AWS Lambda
+
+```ts
+import { toLambdaHandler } from "@browserlessapi/inferlo/lambda";
+import { app } from "./app.ts";
+
+export const handler = toLambdaHandler(app);                       // function URLs and API Gateway
+// export const handler = toLambdaHandler(app, { streaming: true }); // function URLs with response streaming
+```
+
+See [AWS Lambda](integrations.md#aws-lambda) for event formats, cookies, binary bodies and streaming AI answers.
+
 ## Inside another framework
 
 To run an Inferlo app under a path of an existing Express, Fastify, NestJS or Hono app, see [Use with other frameworks](integrations.md) (`toNodeHandler(app, { prefix })`).

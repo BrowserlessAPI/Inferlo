@@ -1,0 +1,55 @@
+# AWS SAM template: `sam build && sam deploy --guided`. Both functions run the same Inferlo app.
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+
+Globals:
+  Function:
+    Runtime: nodejs24.x
+    Architectures: [arm64]
+    MemorySize: 512
+    Timeout: 30
+    Environment:
+      Variables:
+        ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+
+Resources:
+  # API Gateway HTTP API (payload format 2.0), answers buffered.
+  Api:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handler.handler
+      Events:
+        All:
+          Type: HttpApi
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: [".js=.mjs"]
+        EntryPoints: [src/handler.ts]
+
+  # Function URL with response streaming, for AI answers streamed to the browser.
+  Stream:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: stream.handler
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: [".js=.mjs"]
+        EntryPoints: [src/stream.ts]
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  StreamUrl:
+    Value: !GetAtt StreamUrl.FunctionUrl
