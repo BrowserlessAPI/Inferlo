@@ -73,7 +73,13 @@ function rpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
 }
 
-export async function handleMcp(app: App<any>, req: Request, headers: Headers, testUsers: WeakMap<Request, unknown>): Promise<Response> {
+export async function handleMcp(
+  app: App<any>,
+  req: Request,
+  headers: Headers,
+  testUsers: WeakMap<Request, unknown>,
+  visible: (route: RouteDef) => Promise<boolean> = async () => true,
+): Promise<Response> {
   headers.set("content-type", "application/json; charset=utf-8");
   if (req.method !== "POST") {
     headers.set("allow", "POST");
@@ -106,8 +112,12 @@ export async function handleMcp(app: App<any>, req: Request, headers: Headers, t
       }
       case "ping":
         return { jsonrpc: "2.0", id: msg.id, result: {} };
-      case "tools/list":
-        return { jsonrpc: "2.0", id: msg.id, result: { tools: tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) } };
+      case "tools/list": {
+        // Tools needing a role or permission the caller lacks are left out; tools/call still checks every call.
+        const shown = await Promise.all(tools.map((tool) => visible(tool.route)));
+        const listed = tools.filter((_, i) => shown[i]).map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+        return { jsonrpc: "2.0", id: msg.id, result: { tools: listed } };
+      }
       case "tools/call": {
         const name = String(msg.params?.name ?? "");
         const tool = tools.find((t) => t.name === name);

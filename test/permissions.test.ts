@@ -121,6 +121,33 @@ describe("permissions in an app", () => {
     assert.equal(ok.result.isError, false);
   });
 
+  test("MCP tools/list leaves out tools the caller's role or permission denies", async () => {
+    const throwing = permissions({ "broken.rule": ({ user }: { user: AppUser }) => { throw new Error(`no ${user.id}`); } });
+    const routes = {
+      viewReports: route.get("/reports", { permission: "reports.view", tool: true }).handle(() => ({ total: 3 })),
+      adminOnly: route.post("/admin", { auth: "admin", tool: true }).handle(() => ({})),
+      listOpen: route.get("/open", { tool: true }).handle(() => []),
+      publicInfo: route.get("/info", { auth: "public", tool: true }).handle(() => ({})),
+    };
+    const app = createApp({ routes: [routes], auth: bearer((token) => users.get(token) ?? null), permissions: access });
+    const list = async (token?: string) => {
+      const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
+      const res = await readJson(await app.request("/mcp", { method: "POST", headers, json: { jsonrpc: "2.0", id: 1, method: "tools/list" } }), 200);
+      return res.result.tools.map((x: { name: string }) => x.name).sort();
+    };
+    assert.deepEqual(await list("alice"), ["adminOnly", "listOpen", "publicInfo", "viewReports"]);
+    assert.deepEqual(await list("bob"), ["listOpen", "publicInfo", "viewReports"]);
+    assert.deepEqual(await list("carol"), ["listOpen", "publicInfo"]);
+    // Without a user, tools that only need sign-in stay listed (calling them answers IL3001).
+    assert.deepEqual(await list(), ["listOpen", "publicInfo"]);
+
+    // A rule that throws hides the tool instead of failing the whole list.
+    const broken = route.get("/broken", { permission: "broken.rule", tool: true }).handle(() => ({}));
+    const app2 = createApp({ routes: [broken], auth: bearer((token) => users.get(token) ?? null), permissions: throwing });
+    const res = await readJson(await app2.request("/mcp", { method: "POST", headers: { authorization: "Bearer alice" }, json: { jsonrpc: "2.0", id: 1, method: "tools/list" } }), 200);
+    assert.deepEqual(res.result.tools, []);
+  });
+
   test("the same rules work in a job", async () => {
     const exported: string[] = [];
     const exportTickets = job("export-tickets", { input: t.object({ userId: t.string() }) }).handle(async ({ input }) => {

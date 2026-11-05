@@ -1,5 +1,6 @@
 import { notFound, route, t } from "../../../../src/index.ts";
 import { Ticket } from "../models.ts";
+import { access } from "../permissions.ts";
 
 export const listTickets = route
   .get("/tickets", {
@@ -33,12 +34,12 @@ export const getTicket = route
   .get("/tickets/:id", { params: t.object({ id: t.uuid() }), summary: "Get one ticket", tool: true })
   .handle(async ({ params, user, db }) => {
     const ticket = await db.tickets.get(params.id);
-    if (ticket.ownerId !== user.id) throw notFound(`Ticket ${params.id} was not found.`);
+    if (!(await access.can("tickets.view", { user, ticket }))) throw notFound(`Ticket ${params.id} was not found.`);
     return ticket;
   });
 
 export const closeTicket = route
-  .post("/tickets/:id/close", { params: t.object({ id: t.uuid() }), auth: "agent", summary: "Close a ticket (agents only)" })
+  .post("/tickets/:id/close", { params: t.object({ id: t.uuid() }), permission: "tickets.close", summary: "Close a ticket (agents only)", tool: true })
   .handle(({ params, db }) => db.tickets.update(params.id, { status: "closed" }));
 
 const Triage = t.object({
@@ -47,7 +48,7 @@ const Triage = t.object({
 });
 
 export const triageTicket = route
-  .post("/tickets/:id/triage", { params: t.object({ id: t.uuid() }), auth: "agent", summary: "AI triage: set priority and summary" })
+  .post("/tickets/:id/triage", { params: t.object({ id: t.uuid() }), permission: "tickets.triage", summary: "AI triage: set priority and summary" })
   .handle(async ({ params, db, ai, user }) => {
     const ticket = await db.tickets.get(params.id);
     const { object } = await ai.generate({

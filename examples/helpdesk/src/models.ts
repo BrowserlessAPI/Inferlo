@@ -1,4 +1,5 @@
 import { model, t } from "../../../src/index.ts";
+import type { access } from "./permissions.ts";
 
 export const User = model("users", {
   email: t.email().unique(),
@@ -23,5 +24,6 @@ declare module "../../../src/index.ts" {
   interface Register {
     models: typeof models;
     user: AppUser;
+    permissions: typeof access;
   }
 }

@@ -15,6 +15,7 @@ export const createTicket = route
 - The tool name is the export name (`createTicket`), or `tool: { name, description }`.
 - The input schema merges path params, query and body.
 - Tool calls go through the normal router with the caller's `Authorization` header, so auth, roles and validation are exactly the same as over HTTP.
+- `tools/list` leaves out tools whose role (`auth: "admin"`) or route `permission` the caller does not have (see [Permissions](auth.md#permissions)), so agents only see tools they may call. Tools that need only a signed-in user stay listed for anonymous callers.
 
 Connect from an MCP client, e.g. Claude Code:
 

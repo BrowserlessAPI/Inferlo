@@ -13,6 +13,7 @@ import type { AI } from "./ai/index.ts";
 import type { Db } from "./db/table.ts";
 import type { Jobs } from "./jobs.ts";
 import type { AnyModel } from "./model.ts";
+import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
 import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
 
@@ -20,7 +21,7 @@ import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
  * Register your app's models and user type once, so every handler is fully typed:
  *
  *   declare module "@browserlessapi/inferlo" {
- *     interface Register { models: typeof models; user: User }
+ *     interface Register { models: typeof models; user: User; permissions: typeof access }
  *   }
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
@@ -30,6 +31,13 @@ type Registered<K extends string, Fallback> = Register extends { [P in K]: infer
 export type AppModels = Registered<"models", readonly AnyModel[]> extends infer M extends readonly AnyModel[] ? M : readonly AnyModel[];
 export type AppUser = Registered<"user", { id: string; roles?: string[] }>;
 export type AppDb = Db<AppModels>;
+/**
+ * The permission names a route's `permission` option accepts. With `permissions: typeof access` in Register, only the
+ * names whose rule needs nothing but { user } (roles rules and rules of the user alone), so a typo is a type error.
+ */
+export type AppPermission = Registered<"permissions", undefined> extends Permissions<infer R>
+  ? { [K in keyof R & string]: { user: AppUser } extends PermissionInput<R[K]> ? K : never }[keyof R & string]
+  : string;
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -49,9 +57,9 @@ export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectS
   /**
    * A permission from createApp({ permissions }) the signed-in user must have, checked with { user } before the
    * handler runs (also when the route is called as an AI tool). Denied: 403 IL3004. For rules that also need a
-   * resource, call access.authorize(name, { user, ticket }) in the handler instead.
+   * resource, call access.authorize(name, { user, ticket }) in the handler instead. Typed from Register's permissions.
    */
-  permission?: string;
+  permission?: AppPermission;
   /** Request body schema (JSON or form). */
   body?: B;
   /** Query string schema. Strings are converted to numbers and booleans automatically. */

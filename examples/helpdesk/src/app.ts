@@ -1,5 +1,6 @@
 import { anthropic, bearer, createApp, env, memory, openai } from "../../../src/index.ts";
 import { models } from "./models.ts";
+import { access } from "./permissions.ts";
 import * as tickets from "./routes/tickets.ts";
 
 const users = new Map([
@@ -14,6 +15,7 @@ export const app = createApp({
   routes: [tickets],
   db: memory(),
   auth: bearer((token) => users.get(token)),
+  permissions: access,
   ai: {
     providers: {
       anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY", { default: "" }) }),

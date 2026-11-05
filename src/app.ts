@@ -587,7 +587,19 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       }
       if (mcpPath && url.pathname === mcpPath) {
         seen.route = mcpPath;
-        return await handleMcp(app, req, headers, testUsers);
+        // tools/list leaves out tools that need a role or permission the caller does not have.
+        let caller: Promise<AppUser | null> | undefined;
+        const visible = async (def: RouteDef): Promise<boolean> => {
+          const level = def.options.auth ?? "user";
+          if (!def.options.permission && (level === "public" || level === "user")) return true;
+          caller ??= testUsers.has(req) ? Promise.resolve(testUsers.get(req) ?? null) : config.auth ? Promise.resolve(config.auth.resolve(req, { db: db as never, url })).then((u) => u ?? null) : Promise.resolve(null);
+          const user = await caller;
+          if (!user) return false;
+          if (level !== "public" && level !== "user" && !roles(user).includes(level)) return false;
+          if (!def.options.permission) return true;
+          return config.permissions!.can(def.options.permission, { user }).catch(() => false);
+        };
+        return await handleMcp(app, req, headers, testUsers, visible);
       }
 
       const lookup = method === "HEAD" ? "GET" : method;

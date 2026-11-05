@@ -855,8 +855,32 @@ export const updateTicket = route.patch("/tickets/:id", { body: Ticket.pick("tit
 - `permission` is checked with `{ user }` after sign-in and before rate limits, validation and the handler. It also applies when a model calls the route as a tool (`ai.generate({ tools })` and MCP), because tools run with the caller's user.
 - `createApp` checks at startup that every route's permission exists, that `createApp({ permissions })` is set when a route uses one, and that no route combines `permission` with `auth: "public"` (IL6026).
 - `describe()` lists the permissions and each route's `permission`, `inferlo describe` shows them, and OpenAPI marks the route with `x-inferlo-permission` and a 403 response.
+- MCP `tools/list` leaves out tools whose role (`auth: "admin"`) or `permission` the caller does not have, so AI agents only see what they may use. Tools that only need a signed-in user stay listed for anonymous callers (calling one answers IL3001), and `tools/call` checks every call as before. A rule that throws while listing hides its tool.
 - In jobs there is no signed-in user: pass the user's id in the job input, load the user, and call `access.authorize(name, { user, ... })` before doing the work.
 - In tests, call `access.can()` directly, or send requests as a user with `app.request(path, { as: user })`.
+
+### Typed permission names
+
+Add the permissions to `Register` next to your models and user, and the route option `permission` only accepts their names, so a typo is a type error instead of a startup error:
+
+```ts
+// src/models.ts
+import type { access } from "./permissions.ts";
+
+declare module "@browserlessapi/inferlo" {
+  interface Register {
+    models: typeof models;
+    user: AppUser;
+    permissions: typeof access;
+  }
+}
+
+route.get("/reports", { permission: "reports.view" });   // ok
+route.get("/reports", { permission: "report.view" });    // type error
+route.get("/tickets/:id", { permission: "tickets.update" }); // type error: the rule needs a ticket, call access.authorize in the handler
+```
+
+Only names whose rule needs nothing but `{ user }` (roles rules and functions of the user alone) are accepted, because the route passes only `{ user }`. Use `import type` so the models file does not load the permissions at runtime. Without `permissions` in `Register`, `permission` takes any string and `createApp` still checks it at startup. The type is exported as `AppPermission`.
 
 ## API keys with bearer()
 
@@ -1383,6 +1407,7 @@ export const createTicket = route
 - The tool name is the export name (`createTicket`), or `tool: { name, description }`.
 - The input schema merges path params, query and body.
 - Tool calls go through the normal router with the caller's `Authorization` header, so auth, roles and validation are exactly the same as over HTTP.
+- `tools/list` leaves out tools whose role (`auth: "admin"`) or route `permission` the caller does not have (see [Permissions](auth.md#permissions)), so agents only see tools they may call. Tools that need only a signed-in user stay listed for anonymous callers.
 
 Connect from an MCP client, e.g. Claude Code:
 

@@ -1,0 +1,4 @@
+{
+  "title": "Typed permission names and MCP tools",
+  "prompt": "src/permissions.ts already defines `access` with Inferlo's permissions(), and GET /notes/stats uses the route option `permission: \"notes.stats\"`. Register `access` in Inferlo's Register interface in src/models.ts, so the `permission` route option only accepts the permission names defined in src/permissions.ts and a misspelled name is a TypeScript error. Then expose `noteStats` (GET /notes/stats) as an MCP tool for AI agents. Admins must see it in the MCP tools list; users without the \"notes.stats\" permission must not."
+}
