@@ -64,6 +64,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Next.js (`@browserlessapi/inferlo/nextjs`, examples/with-nextjs) | 15 (newest 15.x, still maintained upstream with backports) | `latest` (16) |
 | Nuxt, Nitro and h3 (`@browserlessapi/inferlo/h3`, examples/with-nitro) | h3 1 (newest 1.x: used by Nitro 2, Nuxt 3 and Nuxt 4, and still maintained) | `latest` (2, Nitro 3) |
 | SvelteKit (`@browserlessapi/inferlo/sveltekit`, examples/with-sveltekit) | 2 (newest 2.x, the line before SvelteKit 3) | `latest` (3) |
+| React Router, framework mode (`@browserlessapi/inferlo/react-router`, examples/with-react-router) | 7 (newest 7.x, still maintained upstream) | `latest` (8) |
 | Encore.ts (`toNodeHandler` in a raw endpoint and `@browserlessapi/inferlo/ai` in services, examples/with-encore) | encore.dev 1.51.0 (Encore.ts has no long-term support releases and fixes only its newest release; 1.51.0, October 2025, is about a year of releases) | `latest` |
 
 Rules:

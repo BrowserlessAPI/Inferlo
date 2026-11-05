@@ -170,6 +170,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5022
 **Invalid toSvelteKitHandlers() arguments.** `toSvelteKitHandlers(app, { prefix })` from `@browserlessapi/inferlo/sveltekit` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `src/routes/api/[...path]/+server.ts`: `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })`. The handlers it returns must be exported from a `+server.ts` file, so SvelteKit calls them with a request event. See [SvelteKit](integrations.md#sveltekit).
 
+### IL5023
+**Invalid toReactRouterHandlers() arguments.** `toReactRouterHandlers(app, { prefix })` from `@browserlessapi/inferlo/react-router` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `route("api/*", "routes/api.ts")`: `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })`. The loader and action it returns must be exported from a route module, so React Router calls them with `{ request }`. See [React Router](integrations.md#react-router-remix).
+
 ## App configuration (6xxx)
 
 ### IL6001

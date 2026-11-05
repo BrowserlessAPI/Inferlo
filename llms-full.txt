@@ -53,7 +53,7 @@ That one model definition gives you the database table, insert and update valida
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
-- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, `export const { GET, POST } = toNextHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/nextjs` serves a whole Inferlo app from a Next.js App Router route, `export default toH3Handler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/h3` serves it from a Nuxt or Nitro server route (with `event.context.ai` from a Nitro plugin), `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/sveltekit` serves it from a SvelteKit rest route (with `event.locals.ai` from a handle hook), and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` (see [Use with other frameworks](docs/integrations.md)).
+- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, `export const { GET, POST } = toNextHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/nextjs` serves a whole Inferlo app from a Next.js App Router route, `export default toH3Handler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/h3` serves it from a Nuxt or Nitro server route (with `event.context.ai` from a Nitro plugin), `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/sveltekit` serves it from a SvelteKit rest route (with `event.locals.ai` from a handle hook), `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/react-router` serves it from a React Router (Remix) resource route, and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` (see [Use with other frameworks](docs/integrations.md)).
 - **Background jobs for slow AI work.** Queue a typed job from a route with `ctx.jobs.enqueue(...)` and it runs after the response, with retries, from a Postgres queue shared by every instance (`inferlo worker` runs them in their own process), and schedule jobs with `cron("0 3 * * *", job)`.
 
 ## Why Inferlo
@@ -1728,7 +1728,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, and SvelteKit rest routes use `toSvelteKitHandlers(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, and React Router resource routes use `toReactRouterHandlers(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -2263,6 +2263,60 @@ export const actions = {
 `event.locals.ai` is typed: importing `@browserlessapi/inferlo/sveltekit` adds `ai` to SvelteKit's `App.Locals`, so you do not need to declare it in `src/app.d.ts`. Return `locals.ai.stream({ model, prompt }).toResponse()` from a `+server.ts` file to stream text to the browser (server-sent events). Anything that is not an AI client raises IL5014. Create the client in `src/lib/server` so SvelteKit never bundles it, or your API keys, for the browser.
 
 The [with-sveltekit example](../examples/with-sveltekit) does both, and CI tests it with SvelteKit 2 (newest 2.x) and the latest SvelteKit, using SvelteKit's own types.
+
+## React Router (Remix)
+
+React Router 7 and 8 in framework mode (the successor of Remix). `@browserlessapi/inferlo/react-router` has no runtime dependency on React Router and never loads Inferlo's router, database or jobs code by itself.
+
+Serve a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one splat resource route:
+
+```ts
+// app/routes.ts
+import { type RouteConfig, index, route } from "@react-router/dev/routes";
+
+export default [index("routes/home.tsx"), route("api/*", "routes/api.ts")] satisfies RouteConfig;
+```
+
+```ts
+// app/routes/api.ts (a resource route: no default export)
+import { toReactRouterHandlers } from "@browserlessapi/inferlo/react-router";
+import { app } from "~/inferlo/app.server"; // export const app = createApp({ ... })
+
+export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" });
+```
+
+- React Router sends GET and HEAD requests to the `loader` and POST, PUT, PATCH, DELETE and OPTIONS to the `action`; both run the app, so the answer (status, headers, body and AI streams) is the app's own `Response`.
+- `prefix` is the URL path of the splat route (`"/api"` for `route("api/*", ...)`, including the app's `basename` if you set one). It is removed before the app routes the request, so the app's `/summaries` answers at `/api/summaries`, and OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. Requests outside the prefix keep their path. Without `prefix`, requests reach the app unchanged.
+- Keep React Router's own pages and resource routes in other files: React Router matches more specific routes before a splat. Behind a proxy, set `createApp({ trustProxy: true })` so rate limits by IP use `X-Forwarded-For`.
+- Anything that is not an app, or a `prefix` that does not start with `/`, raises IL5023.
+
+In other loaders and actions, use the AI module without an app. Create the client in a `.server.ts` module so React Router never bundles it, or your API keys, for the browser:
+
+```ts
+// app/lib/ai.server.ts
+import { createAI, anthropic, env } from "@browserlessapi/inferlo/ai";
+
+export const ai = createAI({ providers: { anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+```
+
+```ts
+// app/routes/classify.tsx
+import { data } from "react-router";
+import { t } from "@browserlessapi/inferlo/ai";
+import { ai } from "~/lib/ai.server";
+import type { Route } from "./+types/classify";
+
+export async function action({ request }: Route.ActionArgs) {
+  const text = String((await request.formData()).get("text") ?? "");
+  if (!text) return data({ error: "Enter a message." }, { status: 400 });
+  const { object } = await ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature", "question"]) }) });
+  return object;
+}
+```
+
+To stream text to the browser from a resource route, return `ai.stream({ model, prompt }).toResponse()` (server-sent events) from its loader.
+
+The [with-react-router example](../examples/with-react-router) does both, and CI tests it with React Router 7 (newest 7.x) and the latest React Router, using React Router's own data router.
 
 ## Encore.ts
 
@@ -3846,6 +3900,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
+| React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
 
 When a version reaches end of life upstream, the next Inferlo release stops supporting it: the minimum moves forward, `engines` and these docs change, and the changelog lists it under "Breaking". When a new major version is released upstream, it is added to CI and supported as soon as it passes.
 
@@ -4027,6 +4082,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5022
 **Invalid toSvelteKitHandlers() arguments.** `toSvelteKitHandlers(app, { prefix })` from `@browserlessapi/inferlo/sveltekit` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `src/routes/api/[...path]/+server.ts`: `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })`. The handlers it returns must be exported from a `+server.ts` file, so SvelteKit calls them with a request event. See [SvelteKit](integrations.md#sveltekit).
+
+### IL5023
+**Invalid toReactRouterHandlers() arguments.** `toReactRouterHandlers(app, { prefix })` from `@browserlessapi/inferlo/react-router` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `route("api/*", "routes/api.ts")`: `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })`. The loader and action it returns must be exported from a route module, so React Router calls them with `{ request }`. See [React Router](integrations.md#react-router-remix).
 
 ## App configuration (6xxx)
 

@@ -1,0 +1,5 @@
+{
+  "title": "Serve the app from a React Router resource route",
+  "prompt": "We are adding Inferlo to a React Router (framework mode, formerly Remix) project. Create the resource route module src/routes/api.ts, which app/routes.ts maps to route(\"api/*\", \"routes/api.ts\"), so that every request under /api is handled by the Inferlo app exported from src/app.ts with /api removed from the path: GET /api/health reaches the app's health endpoint, /api/openapi.json serves its OpenAPI document and POST /api/notes reaches POST /notes. It must export the loader and action React Router calls. Use Inferlo's React Router integration.",
+  "packages": ["react-router"]
+}

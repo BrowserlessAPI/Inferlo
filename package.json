@@ -75,6 +75,10 @@
       "types": "./dist/nestjs.d.ts",
       "default": "./dist/nestjs.js"
     },
+    "./react-router": {
+      "types": "./dist/react-router.d.ts",
+      "default": "./dist/react-router.js"
+    },
     "./sveltekit": {
       "types": "./dist/sveltekit.d.ts",
       "default": "./dist/sveltekit.js"
@@ -109,7 +113,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc && tsc --noEmit -p examples/with-adonisjs && tsc --noEmit -p examples/with-tsed && tsc --noEmit -p examples/with-encore && tsc --noEmit -p examples/with-koa && tsc --noEmit -p examples/with-nextjs && tsc --noEmit -p examples/with-nitro && tsc --noEmit -p examples/with-sveltekit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc && tsc --noEmit -p examples/with-adonisjs && tsc --noEmit -p examples/with-tsed && tsc --noEmit -p examples/with-encore && tsc --noEmit -p examples/with-koa && tsc --noEmit -p examples/with-nextjs && tsc --noEmit -p examples/with-nitro && tsc --noEmit -p examples/with-sveltekit && tsc --noEmit -p examples/with-react-router",
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\" \"examples/*/test/*.test.ts\"",
     "test:bun": "bun test test/",
     "llms": "node scripts/build-llms.ts",
@@ -150,6 +154,8 @@
     "koa": "^3.3.0",
     "next": "^16.4.5",
     "pg": "^8.16.0",
+    "react": "^19.3.1",
+    "react-router": "^8.5.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "typescript": "^5.9.3"

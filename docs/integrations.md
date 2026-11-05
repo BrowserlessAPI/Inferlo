@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, and SvelteKit rest routes use `toSvelteKitHandlers(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, and React Router resource routes use `toReactRouterHandlers(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -540,6 +540,60 @@ export const actions = {
 `event.locals.ai` is typed: importing `@browserlessapi/inferlo/sveltekit` adds `ai` to SvelteKit's `App.Locals`, so you do not need to declare it in `src/app.d.ts`. Return `locals.ai.stream({ model, prompt }).toResponse()` from a `+server.ts` file to stream text to the browser (server-sent events). Anything that is not an AI client raises IL5014. Create the client in `src/lib/server` so SvelteKit never bundles it, or your API keys, for the browser.
 
 The [with-sveltekit example](../examples/with-sveltekit) does both, and CI tests it with SvelteKit 2 (newest 2.x) and the latest SvelteKit, using SvelteKit's own types.
+
+## React Router (Remix)
+
+React Router 7 and 8 in framework mode (the successor of Remix). `@browserlessapi/inferlo/react-router` has no runtime dependency on React Router and never loads Inferlo's router, database or jobs code by itself.
+
+Serve a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one splat resource route:
+
+```ts
+// app/routes.ts
+import { type RouteConfig, index, route } from "@react-router/dev/routes";
+
+export default [index("routes/home.tsx"), route("api/*", "routes/api.ts")] satisfies RouteConfig;
+```
+
+```ts
+// app/routes/api.ts (a resource route: no default export)
+import { toReactRouterHandlers } from "@browserlessapi/inferlo/react-router";
+import { app } from "~/inferlo/app.server"; // export const app = createApp({ ... })
+
+export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" });
+```
+
+- React Router sends GET and HEAD requests to the `loader` and POST, PUT, PATCH, DELETE and OPTIONS to the `action`; both run the app, so the answer (status, headers, body and AI streams) is the app's own `Response`.
+- `prefix` is the URL path of the splat route (`"/api"` for `route("api/*", ...)`, including the app's `basename` if you set one). It is removed before the app routes the request, so the app's `/summaries` answers at `/api/summaries`, and OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. Requests outside the prefix keep their path. Without `prefix`, requests reach the app unchanged.
+- Keep React Router's own pages and resource routes in other files: React Router matches more specific routes before a splat. Behind a proxy, set `createApp({ trustProxy: true })` so rate limits by IP use `X-Forwarded-For`.
+- Anything that is not an app, or a `prefix` that does not start with `/`, raises IL5023.
+
+In other loaders and actions, use the AI module without an app. Create the client in a `.server.ts` module so React Router never bundles it, or your API keys, for the browser:
+
+```ts
+// app/lib/ai.server.ts
+import { createAI, anthropic, env } from "@browserlessapi/inferlo/ai";
+
+export const ai = createAI({ providers: { anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+```
+
+```ts
+// app/routes/classify.tsx
+import { data } from "react-router";
+import { t } from "@browserlessapi/inferlo/ai";
+import { ai } from "~/lib/ai.server";
+import type { Route } from "./+types/classify";
+
+export async function action({ request }: Route.ActionArgs) {
+  const text = String((await request.formData()).get("text") ?? "");
+  if (!text) return data({ error: "Enter a message." }, { status: 400 });
+  const { object } = await ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature", "question"]) }) });
+  return object;
+}
+```
+
+To stream text to the browser from a resource route, return `ai.stream({ model, prompt }).toResponse()` (server-sent events) from its loader.
+
+The [with-react-router example](../examples/with-react-router) does both, and CI tests it with React Router 7 (newest 7.x) and the latest React Router, using React Router's own data router.
 
 ## Encore.ts
 
