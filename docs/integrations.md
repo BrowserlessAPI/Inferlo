@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, and Next.js route handlers use `toNextHandlers(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, and Nitro, Nuxt and h3 server routes use `toH3Handler(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -445,6 +445,50 @@ export async function classify(formData: FormData) {
 Create the client once in a server-only module (`lib/ai.ts`) so API keys never reach the browser bundle. To stream text to the browser from your own route handler, return `ai.stream({ model, prompt }).toResponse()` (server-sent events).
 
 The [with-nextjs example](../examples/with-nextjs) does both, and CI tests it with Next.js 15 (newest 15.x, still maintained upstream) and the latest Next.js, using Next.js's own `NextRequest`.
+
+## Nuxt, Nitro and h3
+
+h3 1 (Nitro 2, Nuxt 3 and Nuxt 4) and h3 2 (Nitro 3). `@browserlessapi/inferlo/h3` has no runtime dependency on h3, Nitro or Nuxt and never loads Inferlo's router, database or jobs code by itself.
+
+Serve a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one catch-all server route:
+
+```ts
+// server/routes/api/[...path].ts (in Nuxt, server/routes/api/[...path].ts or server/api/[...path].ts)
+import { toH3Handler } from "@browserlessapi/inferlo/h3";
+import { app } from "../../inferlo/app";
+
+export default toH3Handler(app, { prefix: "/api" });
+```
+
+- `prefix` is the URL path of the route (`"/api"` for `server/routes/api/[...path].ts` and for Nuxt's `server/api/[...path].ts`). It is removed before the app routes the request, so the app's `/summaries` answers at `/api/summaries`, and OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. Requests outside the prefix keep their path. Leave it out when h3 already removed the path, as h3 1's `app.use("/api", handler)` does.
+- The handler works as it is in Nitro and Nuxt file routes and in h3 apps (`router.use("/api/**", handler)` in h3 1, `app.all("/api/**", handler)` in h3 2); you do not need `defineEventHandler` or `fromWebHandler`. Inferlo reads the request body itself, so do not call `readBody` before it.
+- Keep Nitro's own server routes in other files: Nitro matches more specific routes before a catch-all. Behind a proxy, set `createApp({ trustProxy: true })` so rate limits by IP use `X-Forwarded-For`.
+- Anything that is not an app, or a `prefix` that does not start with `/`, raises IL5021.
+
+To use the AI module in your own server routes, add a Nitro plugin that puts the client on every request as `event.context.ai`:
+
+```ts
+// server/plugins/ai.ts
+import { inferloAI } from "@browserlessapi/inferlo/h3";
+import { ai } from "../utils/ai"; // export const ai = createAI({ providers, models }) from "@browserlessapi/inferlo/ai", or app.ai
+
+export default defineNitroPlugin(inferloAI(ai));
+```
+
+```ts
+// server/routes/classify.post.ts
+import { t } from "@browserlessapi/inferlo/ai";
+
+export default defineEventHandler(async (event) => {
+  const { text } = await readBody<{ text: string }>(event);
+  const { object } = await event.context.ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature"]) }) });
+  return object;
+});
+```
+
+`event.context.ai` is typed: importing `@browserlessapi/inferlo/h3` adds `ai` to h3's `H3EventContext`. Return `event.context.ai.stream({ model, prompt }).toResponse()` to stream text to the browser (server-sent events). Anything that is not an AI client raises IL5014. Create the client in server code only, so API keys never reach the browser bundle.
+
+The [with-nitro example](../examples/with-nitro) does both, and CI tests it with h3 1 (newest 1.x, used by Nitro 2 and Nuxt) and the latest h3.
 
 ## Encore.ts
 

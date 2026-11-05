@@ -62,6 +62,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Ts.ED (`@browserlessapi/inferlo/tsed`, examples/with-tsed) | 8.0.1 (8.0.0 cannot be imported as native ES modules; Ts.ED 7 has had no release since December 2025) | `latest` |
 | Koa (`@browserlessapi/inferlo/koa`, examples/with-koa) | 2 (newest 2.x, still maintained upstream) | `latest` (3) |
 | Next.js (`@browserlessapi/inferlo/nextjs`, examples/with-nextjs) | 15 (newest 15.x, still maintained upstream with backports) | `latest` (16) |
+| Nuxt, Nitro and h3 (`@browserlessapi/inferlo/h3`, examples/with-nitro) | h3 1 (newest 1.x: used by Nitro 2, Nuxt 3 and Nuxt 4, and still maintained) | `latest` (2, Nitro 3) |
 | Encore.ts (`toNodeHandler` in a raw endpoint and `@browserlessapi/inferlo/ai` in services, examples/with-encore) | encore.dev 1.51.0 (Encore.ts has no long-term support releases and fixes only its newest release; 1.51.0, October 2025, is about a year of releases) | `latest` |
 
 Rules:

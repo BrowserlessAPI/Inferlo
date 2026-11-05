@@ -72,13 +72,13 @@ export interface FromNodeRequestOptions extends NodeHandlerOptions {
 
 export type NodeHandler = (req: NodeRequest, res: NodeResponse, next?: (error?: unknown) => void) => Promise<void>;
 
-function normalizePrefix(prefix: string | undefined): string {
+export function normalizePrefix(prefix: string | undefined): string {
   if (!prefix || prefix === "/") return "";
   return ("/" + prefix.replace(/^\/+|\/+$/g, "")).replace(/\/+/g, "/");
 }
 
 /** The path and query of a Node request with the prefix removed, or null when it is outside the prefix. */
-function stripPrefix(rawUrl: string, prefix: string): string | null {
+export function stripPrefix(rawUrl: string, prefix: string): string | null {
   const url = rawUrl.startsWith("/") ? rawUrl : "/" + rawUrl;
   if (!prefix) return url;
   if (!url.startsWith(prefix)) return null;
@@ -138,7 +138,7 @@ function isParsedBody(body: unknown): boolean {
   return proto === Object.prototype || proto === null;
 }
 
-function buildRequest(req: NodeRequest, path: string, signal?: AbortSignal): Request {
+export function buildRequest(req: NodeRequest, path: string, signal?: AbortSignal): Request {
   const host = [req.headers.host].flat()[0] ?? "localhost";
   const url = new URL(path, `${req.socket?.encrypted ? "https" : "http"}://${host}`);
   const headers = new Headers();

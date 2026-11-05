@@ -1,0 +1,5 @@
+{
+  "title": "Serve the app and AI from Nitro server routes",
+  "prompt": "We are adding Inferlo to a Nitro (Nuxt) server. Create src/nitro.ts with two exports. `apiRoute` is the default export we will put in the server route file server/routes/api/[...path].ts: it must serve the Inferlo app from src/app.ts with Inferlo's h3 integration, with /api removed from the path (GET /api/health reaches the app's health endpoint, GET /api/openapi.json its OpenAPI document). `aiPlugin` is a Nitro plugin (the function we export from server/plugins/ai.ts) that gives every Nitro server route the app's AI client as event.context.ai.",
+  "packages": ["h3"]
+}

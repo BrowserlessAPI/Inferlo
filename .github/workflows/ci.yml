@@ -317,6 +317,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/nextjs.test.ts "examples/with-nextjs/test/*.test.ts"
 
+  h3:
+    name: h3 ${{ matrix.h3 }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1 = oldest supported (h3 1 is used by Nitro 2, Nuxt 3 and Nuxt 4 and still maintained, so its newest 1.x is
+        # tested), latest = newest release (h3 2, Nitro 3).
+        h3: ["1", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save h3@${{ matrix.h3 }}
+      - run: node -p "'h3 ' + require('./node_modules/h3/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/h3.test.ts "examples/with-nitro/test/*.test.ts"
+
   encore:
     name: Encore.ts ${{ matrix.encore }}
     runs-on: ubuntu-latest
