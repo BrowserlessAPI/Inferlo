@@ -125,6 +125,7 @@ npm install @browserlessapi/inferlo
 - [Auth](docs/auth.md)
 - [AI](docs/ai.md)
 - [Modules](docs/modules.md)
+- [Caching](docs/caching.md)
 - [MCP, OpenAPI and describe](docs/mcp.md)
 - [CLI](docs/cli.md)
 - [Testing](docs/testing.md)
@@ -732,6 +733,8 @@ export const app = createApp({
 | `user` | The signed-in user (`null` only on public routes without a session) |
 | `db` | Typed tables |
 | `ai` | `generate`, `stream`, `embed` |
+| `jobs` | `enqueue` background jobs (see [Jobs](jobs.md)) |
+| `cache` | `getOrSet`, `get`, `set`, `delete`, `invalidate` (see [Caching](caching.md)) |
 | `req`, `url`, `headers` | The raw request |
 | `status(code)` | Set the status code |
 | `header(name, value)` | Set a response header |
@@ -1218,7 +1221,7 @@ Anywhere else, with `app.jobs.enqueue(job, input)`.
 
 ## Handlers
 
-The handler receives `{ input, db, ai, jobs, id, attempt }`. `attempt` is 1 on the first run. `jobs.enqueue` inside a job queues follow-up jobs. There is no signed-in user: pass the user id in the input and use `for: userId` on AI calls. `ai.generate({ tools })` only works in route handlers (IL5009).
+The handler receives `{ input, db, ai, jobs, cache, audit, id, attempt }` (`cache` is the app cache, see [Caching](caching.md)). `attempt` is 1 on the first run. `jobs.enqueue` inside a job queues follow-up jobs. There is no signed-in user: pass the user id in the input and use `for: userId` on AI calls. `ai.generate({ tools })` only works in route handlers (IL5009).
 
 Throw to fail an attempt. A failed job runs again after 10 seconds, then 20, 40, and so on (at most one hour between attempts), until its retries are used up; then its status is `"failed"` and the error is logged. `lastError` holds the last error message. Make handlers safe to run twice: a retry runs the whole handler again.
 
@@ -1290,6 +1293,72 @@ assert.deepEqual(await app.jobs.runDue(), { done: 1, retried: 0, failed: 0 });
 `runDue({ now })` runs the jobs that are due at that time, to test retries and `runAt` without waiting.
 
 `inferlo describe` lists jobs with their retries and input schema, and crons with their schedule.
+
+---
+
+# Caching
+
+Every app has a cache for results that are slow or expensive to compute: reports, counts, responses from other services, AI answers that do not change often. It is `ctx.cache` in routes and jobs and `app.cache` everywhere else (scripts, tests, server startup), all the same cache.
+
+```ts
+import { route } from "@browserlessapi/inferlo";
+
+export const ticketStats = route.get("/tickets/stats", { summary: "Ticket counts by status" }).handle(({ db, cache }) =>
+  cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, async () => {
+    const all = await db.tickets.findMany({});
+    return { open: all.filter((t) => t.status === "open").length, total: all.length };
+  }),
+);
+
+export const closeTicket = route.post("/tickets/:id/close", { params: IdParams }).handle(async ({ db, cache, params }) => {
+  const ticket = await db.tickets.update(params.id, { status: "closed" });
+  await cache.invalidate("tickets"); // every entry tagged "tickets" is removed
+  return ticket;
+});
+```
+
+## The API
+
+| Call | What it does |
+|---|---|
+| `await cache.getOrSet(key, { ttlMs, tags }, compute)` | The cached value, or else the result of `compute()`, stored for `ttlMs`. Concurrent calls for the same key in one process share one `compute()` call. When `compute()` throws, nothing is stored and the error is thrown. |
+| `await cache.get(key)` | The cached value, or `undefined` when there is none or it expired. `cache.get<Stats>(key)` types the result. |
+| `await cache.set(key, value, { ttlMs, tags })` | Store a value for `ttlMs` milliseconds, replacing any entry with the same key. |
+| `await cache.delete(key)` | Remove one entry. |
+| `await cache.invalidate("tickets")` or `invalidate(["tickets", "users"])` | Remove every entry stored with any of these tags. |
+| `await cache.clear()` | Remove every entry. |
+| `cache.store` | `"memory"` or `"database"`. |
+
+Prefer `getOrSet`: it is one call, and it cannot forget to store the result.
+
+- **Every entry has a time to live.** `ttlMs` is required, a whole number of milliseconds from 1 to 365 days. There is no entry that lives forever, so stale data always goes away on its own.
+- **Tags invalidate groups of entries.** Tag entries with what they depend on (`"tickets"`, `` `user:${user.id}` ``) and call `invalidate` with that tag after a change. This is how to keep cached data correct when the data changes before the time to live is over.
+- **Values are stored as JSON.** Plain objects, arrays, strings, numbers, booleans and `null`. Dates come back as ISO strings, also from `getOrSet` on the first call, so a hit and a miss return the same thing. `undefined`, functions and `BigInt` cannot be cached (IL6028); cache `null` for "nothing". The memory store keeps JSON too, so changing an object you stored or got never changes the cached entry.
+- **Keys** are strings of 1 to 512 characters. Build them from what the value depends on: `` `tickets:stats` ``, `` `user:${user.id}:dashboard` ``. A value that differs per user must have the user in its key, so one user never sees another user's data.
+
+## Stores
+
+```ts
+createApp({ cache: { store: "memory" } });   // default
+createApp({ cache: { store: "database" }, db: postgres({ url: settings.DATABASE_URL }) });
+```
+
+- `"memory"` (default): entries live in the process. Fast and fine for one instance and for tests, but each instance has its own entries, and `invalidate` only reaches the instance that calls it. It keeps at most `maxEntries` entries (default 10000; `{ store: "memory", maxEntries: 50_000 }`) and removes the least recently used first.
+- `"database"`: entries live in the `inferlo_cache` table of the app's Postgres database (created on first use), so every instance shares them and `invalidate` and `delete` reach all of them. Expired entries are never returned and are removed from time to time. Apps that share one database share this table, so give their keys and tags a prefix. It needs `postgres()` as the database; with another adapter `createApp` raises IL6028.
+
+`inferlo describe` and `app.describe().cache` show which store an app uses.
+
+A Redis store is planned (see the roadmap). Until then, apps with several instances that need a shared cache use `"database"`.
+
+## In jobs and tests
+
+```ts
+export const refreshStats = job("refresh-stats", { input: t.object({}) }).handle(async ({ cache }) => {
+  await cache.invalidate("tickets");
+});
+```
+
+In tests, `app.cache` is the same cache the routes use: check what a route stored with `await app.cache.get(key)`, or start from a clean cache with `await app.cache.clear()`.
 
 ---
 
@@ -3843,6 +3912,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6027
 **Audit log not available or used wrongly.** `ctx.audit(action, entry)` in a route or job needs the built-in `AuditLog` model in `createApp({ models: [...models, AuditLog] })` (run `inferlo db migrate` to create the `audit_log` table), an action name such as `"tickets.update"`, and an object as `entry`. See [Audit log](auth.md#audit-log).
+
+### IL6028
+**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1) or `{ store: "database" }`, which needs `postgres()` as the database. Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. See [Caching](caching.md).
 
 ## Environment (7xxx)
 

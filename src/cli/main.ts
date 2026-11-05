@@ -141,6 +141,7 @@ async function cmdDescribe(args: Args) {
     if (d.endpoints.openapi) lines.push(`OpenAPI: ${d.endpoints.openapi}${d.versions?.some((v: { name: string; openapi: string | false }) => v.openapi) ? ` (per version: ${d.versions.map((v: { name: string; openapi: string | false }) => v.openapi).filter(Boolean).join(", ")})` : ""}`);
     if (d.permissions?.length) lines.push(`Permissions: ${d.permissions.map((p: { name: string; roles?: string[] }) => (p.roles ? `${p.name} (${p.roles.join(", ")})` : p.name)).join(", ")}`);
     if (d.versions?.length) lines.push(`API versions: ${d.versions.map((v: { name: string; openapi: string | false }) => v.name).join(", ")}`);
+    if (d.cache) lines.push(`Cache: ${d.cache}`);
     if (d.endpoints.mcp) lines.push(`MCP: ${d.endpoints.mcp}`);
     if (d.endpoints.health) lines.push(`Health: ${d.endpoints.health} (liveness), ${d.endpoints.ready} (readiness)`);
     if (d.endpoints.metrics) lines.push(`Metrics: ${d.endpoints.metrics} (Prometheus)`);

@@ -1,0 +1,4 @@
+{
+  "title": "Cache a per-user count and invalidate it on change",
+  "prompt": "Add GET /notes/stats, which returns { \"count\": <number of the signed-in user's notes> }. Counting is slow in production, so cache each user's result for 5 minutes with Inferlo's built-in cache (not a Map of your own), tagged \"notes\". Creating or deleting a note through the API must invalidate that tag, so the next GET /notes/stats is correct. Users must never see another user's count."
+}

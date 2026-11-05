@@ -72,6 +72,8 @@ export interface AppDescription {
   crons: { schedule: string; job: string }[];
   /** Where queued jobs are kept. */
   jobQueue: "memory" | "database";
+  /** Where ctx.cache and app.cache keep entries. */
+  cache: "memory" | "database";
 }
 
 export const INFERLO_VERSION = "0.5.0";
@@ -147,6 +149,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     }),
     ai: { configured: app.ai.configured, aliases: app.ai.aliases },
     jobQueue: app.jobs.queue,
+    cache: app.cache.store,
     crons: app.jobs.crons.map((c) => ({ schedule: c.schedule, job: c.job.name })),
     jobs: app.jobs.list.map((j) => ({ name: j.name, ...(info.jobModule.has(j.name) ? { module: info.jobModule.get(j.name) } : {}), ...(j.options.summary ? { summary: j.options.summary } : {}), retries: j.options.retries ?? 3, input: j.options.input.toJSONSchema() })),
   };

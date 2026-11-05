@@ -14,6 +14,7 @@ import type { Db } from "./db/table.ts";
 import type { Jobs } from "./jobs.ts";
 import type { AnyModel } from "./model.ts";
 import type { Audit } from "./audit.ts";
+import type { Cache } from "./cache.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
 import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
@@ -107,6 +108,8 @@ export interface Context<Body, Query, Params, User> {
   ai: AI;
   /** Queue background jobs: await jobs.enqueue(sendEmail, { to }). */
   jobs: Jobs;
+  /** The app cache: await cache.getOrSet(key, { ttlMs: 60_000, tags: ["tickets"] }, compute), cache.invalidate("tickets"). */
+  cache: Cache;
   req: Request;
   url: URL;
   headers: Headers;

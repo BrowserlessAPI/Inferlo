@@ -5,6 +5,7 @@
 import { bindTools, createAI, type AI, type AIConfig } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
+import { createCache, databaseCacheStore, memoryCacheStore, resolveCacheConfig, type Cache, type CacheConfig } from "./cache.ts";
 import { bindDb, createDb, guardAdapter, type Db } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { describeApp, type AppDescription } from "./describe.ts";
@@ -117,6 +118,8 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   jobs?: JobSource[];
   /** Where queued jobs are kept: { store: "memory" } (default) or { store: "database" } (Postgres table inferlo_jobs, shared by every instance). */
   jobQueue?: JobQueueConfig;
+  /** Where ctx.cache and app.cache keep entries: { store: "memory" } (default) or { store: "database" } (Postgres table inferlo_cache, shared by every instance). */
+  cache?: CacheConfig;
   /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/inferlo/postgres" in production. */
   db?: Adapter;
   auth?: AuthConfig;
@@ -208,6 +211,8 @@ export interface App<Models extends readonly AnyModel[]> {
   readonly ai: AI;
   /** Background jobs: app.jobs.enqueue(job, input), app.jobs.start() to run them, app.jobs.runDue() in tests. */
   readonly jobs: AppJobs;
+  /** The app cache, the same as ctx.cache: await app.cache.getOrSet(key, { ttlMs, tags }, compute), app.cache.invalidate(tag). */
+  readonly cache: Cache;
   /** Standard fetch handler: export default app works on Bun, Deno and Cloudflare Workers. */
   fetch(req: Request, ...rest: unknown[]): Promise<Response>;
   /** In-process request for tests: await app.request("/tickets", { method: "POST", json: {...}, as: user }). */
@@ -431,6 +436,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const adapter = config.db ?? memory();
   const db = createDb(models, adapter);
   const rateLimits: RateLimitStore = storeName === "database" ? databaseRateLimitStore(adapter) : memoryRateLimitStore();
+  const cacheConfig = resolveCacheConfig(config.cache);
+  const cache = createCache(cacheConfig.store === "database" ? databaseCacheStore(adapter) : memoryCacheStore(cacheConfig.maxEntries), cacheConfig.store);
   const metrics: AppMetrics | undefined = metricsConfig
     ? createMetrics({ app: config.name ?? "inferlo-app", version: config.version ?? "0.0.0", inferlo: INFERLO_VERSION }, metricsConfig.buckets)
     : undefined;
@@ -448,6 +455,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     {
       db: db as never,
       ai,
+      cache,
       audit: (run) => createAudit(models, redactor, () => db as never, { userId: null, source: `job ${run.name}` }),
       store: jobStoreFor(config.jobQueue, adapter),
       queue: config.jobQueue?.store ?? "memory",
@@ -696,6 +704,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           signal,
           requestId,
           jobs,
+          cache,
           req,
           url,
           headers: req.headers,
@@ -836,6 +845,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     db,
     ai,
     jobs,
+    cache,
 
     get closing() {
       return closing;

@@ -49,7 +49,7 @@ Anywhere else, with `app.jobs.enqueue(job, input)`.
 
 ## Handlers
 
-The handler receives `{ input, db, ai, jobs, id, attempt }`. `attempt` is 1 on the first run. `jobs.enqueue` inside a job queues follow-up jobs. There is no signed-in user: pass the user id in the input and use `for: userId` on AI calls. `ai.generate({ tools })` only works in route handlers (IL5009).
+The handler receives `{ input, db, ai, jobs, cache, audit, id, attempt }` (`cache` is the app cache, see [Caching](caching.md)). `attempt` is 1 on the first run. `jobs.enqueue` inside a job queues follow-up jobs. There is no signed-in user: pass the user id in the input and use `for: userId` on AI calls. `ai.generate({ tools })` only works in route handlers (IL5009).
 
 Throw to fail an attempt. A failed job runs again after 10 seconds, then 20, 40, and so on (at most one hour between attempts), until its retries are used up; then its status is `"failed"` and the error is logged. `lastError` holds the last error message. Make handlers safe to run twice: a retry runs the whole handler again.
 

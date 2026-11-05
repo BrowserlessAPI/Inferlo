@@ -110,6 +110,8 @@ export const app = createApp({
 | `user` | The signed-in user (`null` only on public routes without a session) |
 | `db` | Typed tables |
 | `ai` | `generate`, `stream`, `embed` |
+| `jobs` | `enqueue` background jobs (see [Jobs](jobs.md)) |
+| `cache` | `getOrSet`, `get`, `set`, `delete`, `invalidate` (see [Caching](caching.md)) |
 | `req`, `url`, `headers` | The raw request |
 | `status(code)` | Set the status code |
 | `header(name, value)` | Set a response header |

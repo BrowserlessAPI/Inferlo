@@ -29,7 +29,9 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [ ] Security hardening part 5: `SECURITY.md` with the supported versions and a vulnerability reporting process (needs the owner: enable private vulnerability reporting on GitHub or choose a contact address)
 - [x] API versioning part 1: `deprecated: { since, sunset, link }` on routes sends the Deprecation (RFC 9745), Sunset (RFC 8594) and `Link rel="deprecation"` headers, and marks the route in OpenAPI, describe and MCP
 - [x] API versioning part 2: `/v1` and `/v2` route groups, and an OpenAPI document per version
-- [ ] Caching: `cache` with memory and Redis stores, per-route response caching and cache invalidation
+- [x] Caching part 1: `ctx.cache` and `app.cache` with `getOrSet`, `get`, `set`, `delete`, tag invalidation and required time to live, in memory or in Postgres (`createApp({ cache: { store } })`)
+- [ ] Caching part 2: per-route response caching, `route.get(path, { cache: { ttlMs, by: "user" | "public", tags } })` with `Cache-Control` and `Vary` headers, invalidated with `ctx.cache.invalidate(tag)`
+- [ ] Caching part 3: Redis cache store (together with the Redis item)
 - [ ] Redis support for rate limits, job queues and cache, tested on the oldest supported and latest Redis versions
 - [ ] Performance: published, reproducible throughput and latency benchmarks against Fastify, Hono, Express and NestJS, and a performance regression check in CI
 - [ ] Microservices: service-to-service calls with typed clients, and message transports (NATS, RabbitMQ, Kafka) for events between services

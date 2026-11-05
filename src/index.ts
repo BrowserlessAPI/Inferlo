@@ -70,6 +70,7 @@ export type { CronDef } from "./cron.ts";
 export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, JobQueueConfig, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";
 export { AuditLog, auditChanges } from "./audit.ts";
 export type { Audit, AuditEntry, AuditChange } from "./audit.ts";
+export type { Cache, CacheConfig, CacheSetOptions } from "./cache.ts";
 export { permissions, isPermissions } from "./permissions.ts";
 export type { Permissions, PermissionRule, PermissionInput } from "./permissions.ts";
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";

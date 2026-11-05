@@ -12,6 +12,7 @@
  */
 import type { AI } from "./ai/index.ts";
 import type { Audit } from "./audit.ts";
+import type { Cache } from "./cache.ts";
 import { cronTickId, isCron, type CronDef } from "./cron.ts";
 import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
@@ -34,6 +35,8 @@ export interface JobContext<Input> {
   ai: AI;
   /** Enqueue follow-up jobs. */
   jobs: Jobs;
+  /** The app cache, the same as ctx.cache in routes and app.cache. */
+  cache: Cache;
   /** Job id. */
   id: string;
   /** 1 on the first run, 2 on the first retry, and so on. */
@@ -381,6 +384,7 @@ export function jobStoreFor(config: JobQueueConfig | undefined, adapter: Adapter
 export interface JobRuntime {
   db: AppDb;
   ai: AI;
+  cache: Cache;
   /** Builds ctx.audit for one run. */
   audit(job: { name: string; id: string }): Audit;
   store: JobStore;
@@ -529,7 +533,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
     const heartbeat = touch ? setInterval(() => void touch(record.id).catch(() => {}), runtime.heartbeatMs ?? HEARTBEAT_MS) : undefined;
     try {
       if (!def) throw new InferloError("IL6010", `"${record.name}" is not a registered job.`, { fix: "Add the job to createApp({ jobs: [...] }) in the process that runs jobs." });
-      await def.handler({ input: parse(def, record.input), db: runtime.db, ai: runtime.ai, jobs, id: record.id, attempt: record.attempts, audit: runtime.audit({ name: record.name, id: record.id }) });
+      await def.handler({ input: parse(def, record.input), db: runtime.db, ai: runtime.ai, jobs, cache: runtime.cache, id: record.id, attempt: record.attempts, audit: runtime.audit({ name: record.name, id: record.id }) });
       await runtime.store.update(record.id, { status: "done" });
       return "done";
     } catch (error) {
