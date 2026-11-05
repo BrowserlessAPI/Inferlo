@@ -565,7 +565,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       const method = req.method.toUpperCase();
       if (method === "OPTIONS" && cors) {
         headers.set("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-        headers.set("access-control-allow-headers", (cors.headers ?? ["content-type", "authorization"]).join(", "));
+        headers.set("access-control-allow-headers", (cors.headers ?? ["content-type", "authorization", "x-csrf-token"]).join(", "));
         headers.set("access-control-max-age", String(cors.maxAge ?? 600));
         return new Response(null, { status: 204, headers });
       }
@@ -679,7 +679,12 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           const type = req.headers.get("content-type") ?? "";
           let raw: unknown = undefined;
           if (text) {
-            if (type.includes("application/x-www-form-urlencoded")) raw = Object.fromEntries(new URLSearchParams(text));
+            if (type.includes("application/x-www-form-urlencoded")) {
+              // _csrf is the sessions() CSRF field of HTML forms, checked before the handler and not part of the body.
+              const form = new URLSearchParams(text);
+              form.delete("_csrf");
+              raw = Object.fromEntries(form);
+            }
             else {
               try {
                 raw = JSON.parse(text);
@@ -737,7 +742,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           state,
           status: (code: number) => void (status = code),
           header: (name: string, value: string) => {
-            headers.set(name, value);
+            // Set-Cookie is added, not replaced, so a handler can set several cookies.
+            if (name.toLowerCase() === "set-cookie") headers.append(name, value);
+            else headers.set(name, value);
             handlerHeaders.push([name.toLowerCase(), value]);
           },
           waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e, { requestId }))),
@@ -746,8 +753,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         const result = await def.handler(ctx);
         if (result instanceof Response) {
           headers.forEach((v, k) => {
-            if (!result.headers.has(k)) result.headers.set(k, v);
+            if (k !== "set-cookie" && !result.headers.has(k)) result.headers.set(k, v);
           });
+          for (const cookie of headers.getSetCookie()) result.headers.append("set-cookie", cookie);
           return result;
         }
         if (result === undefined) return new Response(null, { status: status || 204, headers });

@@ -25,7 +25,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Security hardening part 1: secure response headers by default (`createApp({ secureHeaders })`, CSP, HSTS over HTTPS, nosniff, frame and referrer policies), and docs/security.md listing the secure defaults
 - [x] Security hardening part 2: request timeouts (`createApp({ requestTimeoutMs })` and per-route `timeoutMs`, with an abort `signal` in the handler context passed on to AI and database calls)
 - [x] Security hardening part 3: secret redaction in logs and errors (authorization headers, cookies, `config` secrets and provider API keys never appear in logged errors)
-- [ ] Security hardening part 4: CSRF protection for cookie sessions (together with the cookie sessions item)
+- [x] Security hardening part 4: CSRF protection for cookie sessions (together with the cookie sessions item)
 - [ ] Security hardening part 5: `SECURITY.md` with the supported versions and a vulnerability reporting process (needs the owner: enable private vulnerability reporting on GitHub or choose a contact address)
 - [x] API versioning part 1: `deprecated: { since, sunset, link }` on routes sends the Deprecation (RFC 9745), Sunset (RFC 8594) and `Link rel="deprecation"` headers, and marks the route in OpenAPI, describe and MCP
 - [x] API versioning part 2: `/v1` and `/v2` route groups, and an OpenAPI document per version
@@ -78,7 +78,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Cron: `cron("0 * * * *", job)` running in `inferlo worker` (and `app.jobs.start()`), queued once per tick across instances
 - [x] Fix: `--json` CLI errors leave out `fix` for errors with a 500 status (for example IL8007 and IL8008 from `inferlo worker`), because `InferloError.toJSON()` hides it for server errors; the CLI should always include `fix`
 - [x] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`
-- [ ] Cookie sessions: `sessions({ secret })` auth helper with signed, HttpOnly cookies and CSRF protection for forms
+- [x] Cookie sessions: `sessions({ secret })` auth helper with signed, HttpOnly cookies and CSRF protection for forms
 - [x] Structured request logging with request ids and timing, JSON output option (done as Observability part 1)
 - [ ] Deno support: run the test suite on Deno in CI (oldest supported and latest), fix anything that fails
 

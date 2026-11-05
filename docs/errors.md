@@ -61,6 +61,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL3004
 **Permission denied (403).** The signed-in user does not have the permission a route requires (`permission: "reports.view"`), or a handler called `access.authorize(name, { user, ... })` and the rule returned `false`. Sign in as a user the rule allows, or change the rule in `permissions({ ... })`. See [Permissions](auth.md#permissions).
 
+### IL3005
+**Missing or invalid CSRF token (403).** The request has a valid `sessions()` cookie and changes data (POST, PUT, PATCH or DELETE), but it did not send the session's CSRF token, or sent another one. Send it in an `X-CSRF-Token` header (the value returned by `session.signIn(ctx, userId)`, also in the readable `inferlo_session_csrf` cookie) or, from an HTML form, in a hidden `_csrf` field (the value of `await session.csrfToken(req)`). This is what stops other sites from making a signed-in browser change data. See [Cookie sessions](auth.md#cookie-sessions).
+
 ## Database (4xxx)
 
 ### IL4001
@@ -250,6 +253,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6028
 **Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1) or `{ store: "database" }`, which needs `postgres()` as the database. Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. The route option `cache` only works on GET routes and takes `{ ttlMs, by: "user" | "public", tags }`: `route.get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })`. See [Caching](caching.md).
+
+### IL6029
+**Invalid sessions() options or call.** `sessions({ secret, user })` needs a `secret` of at least 32 characters (or a list of them for rotation, newest first; generate one with `openssl rand -base64 32` and keep it in `config({ secrets })`) and a `user({ userId, issuedAt }, { db })` function that loads the signed-in user. `maxAgeMs` is a whole number of milliseconds from 1 minute to 400 days, `cookie.name` a valid cookie name, `cookie.sameSite` `"lax"` or `"strict"`, and `cookie.domain` and `cookie.path` strings without spaces, commas or semicolons. `session.signIn(ctx, userId)` and `session.signOut(ctx)` need the route's context and a non-empty user id. See [Cookie sessions](auth.md#cookie-sessions).
 
 ## Environment (7xxx)
 

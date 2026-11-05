@@ -74,6 +74,8 @@ export type { Cache, CacheConfig, CacheSetOptions, RouteCache } from "./cache.ts
 export { permissions, isPermissions } from "./permissions.ts";
 export type { Permissions, PermissionRule, PermissionInput } from "./permissions.ts";
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
+export { sessions } from "./sessions.ts";
+export type { Sessions, SessionsOptions, SessionData, SessionCookieOptions, SessionResponseContext } from "./sessions.ts";
 export { env, setEnv } from "./env.ts";
 export { config } from "./config.ts";
 export type { Config, ConfigOptions } from "./config.ts";

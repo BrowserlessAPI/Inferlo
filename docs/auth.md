@@ -129,6 +129,71 @@ Each entry has:
 - Read it like any table: `db.audit_log.findMany({ where: { model: "tickets", recordId: id }, orderBy: { createdAt: "desc" } })`. Protect routes that show it with a permission such as `"audit.view"`.
 - Without `AuditLog` in the models, `audit` raises IL6027, as do an empty action name or an entry that is not an object. `auditChanges(before, after)` is exported to compute the same `changes` yourself.
 
+## Cookie sessions
+
+For browser apps, `sessions()` signs users in with a cookie: signed with HMAC-SHA256, `HttpOnly`, `Secure` and `SameSite=Lax` by default, with no session table and no runtime dependency. Requests that change data must carry a CSRF token, so other sites cannot act for a signed-in browser.
+
+```ts
+// src/session.ts
+import { sessions } from "@browserlessapi/inferlo";
+import { settings } from "./config.ts"; // SESSION_SECRET: t.string().min(32), listed in secrets
+
+export const session = sessions({
+  secret: settings.SESSION_SECRET,
+  async user({ userId }, { db }) {
+    const user = await db.users.find(userId);
+    return user ? { id: user.id, email: user.email, name: user.name, roles: [user.role] } : null;
+  },
+});
+
+// src/app.ts
+createApp({ auth: session, ... });
+```
+
+Sign in and out in routes:
+
+```ts
+import { route, t, verifyPassword } from "@browserlessapi/inferlo";
+import { session } from "../session.ts";
+
+export const login = route
+  .post("/login", { auth: "public", body: t.object({ email: t.string(), password: t.string() }), rateLimit: { max: 10, per: "minute", by: "ip" } })
+  .handle(async (ctx) => {
+    const user = await ctx.db.users.findOne({ email: ctx.body.email });
+    if (!user?.passwordHash || !(await verifyPassword(ctx.body.password, user.passwordHash))) {
+      return Response.json({ error: { code: "INVALID_LOGIN", message: "Wrong email or password." } }, { status: 401 });
+    }
+    return session.signIn(ctx, user.id); // { csrfToken }
+  });
+
+export const logout = route.post("/logout").handle((ctx) => {
+  session.signOut(ctx);
+  ctx.status(204);
+  return undefined;
+});
+```
+
+- `session.signIn(ctx, userId)` sets two cookies: `inferlo_session` (the signed session: user id, issue time and expiry; `HttpOnly`) and `inferlo_session_csrf` (the CSRF token, readable by your frontend's JavaScript). It returns `{ csrfToken }`. `session.signOut(ctx)` clears both.
+- **CSRF protection.** A POST, PUT, PATCH or DELETE request with a session cookie must send the session's token in an `X-CSRF-Token` header (frontends read it from the `inferlo_session_csrf` cookie or the login answer) or, from an HTML form, a hidden `_csrf` field: `<input type="hidden" name="_csrf" value="...">` with the value of `await session.csrfToken(req)`. Otherwise the request is refused with 403 IL3005 before the handler runs, also on public routes. The `_csrf` field is removed from form bodies before validation. GET, HEAD and OPTIONS never change data, so they need no token.
+- `user({ userId, issuedAt }, { db })` runs on every request. Return `null` to end a session: for a deleted or disabled user, or to sign a user out everywhere (store a `sessionsValidAfter` time on the user and return `null` when `issuedAt` is older).
+- Options: `maxAgeMs` (default 7 days), `cookie: { name, sameSite: "lax" | "strict", secure, domain, path }`. `Secure` is on except for plain `http://localhost` during development. Rotate the secret with `secret: [newSecret, oldSecret]`: new sessions use the first, existing ones stay valid until they expire.
+- Cross-origin frontends need `cors: { origin: "https://app.example.com", credentials: true }`; the `X-CSRF-Token` header is allowed in CORS preflights by default.
+- Invalid options raise IL6029 at startup. Tampered, expired or foreign cookies are ignored (the request is signed out).
+
+To accept a session cookie or an API key, try the session first:
+
+```ts
+const apiKeys = bearer(async (token, { db }) => { /* as below */ });
+
+createApp({
+  auth: {
+    async resolve(req, ctx) {
+      return (await session.resolve(req, ctx)) ?? apiKeys.resolve(req, ctx);
+    },
+  },
+});
+```
+
 ## API keys with bearer()
 
 ```ts

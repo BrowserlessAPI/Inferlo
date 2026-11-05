@@ -1,0 +1,4 @@
+{
+  "title": "Browser sign-in with cookie sessions",
+  "prompt": "Our new web frontend signs users in with a password and a cookie instead of API keys. Use Inferlo's cookie sessions. Add an optional passwordHash string field to the users model. Add a SESSION_SECRET setting to src/config.ts (a secret string of at least 32 characters) and create src/session.ts that exports `session`, signed with it, which loads the signed-in user from the users table as { id, email, name, roles: [role] }. Add src/routes/session.ts with POST /login (public, body { email, password }: check the password against passwordHash with Inferlo's verifyPassword, answer 401 when it does not match, otherwise start the session and return { csrfToken }) and POST /logout (ends the session, returns 204), and add it to the app's routes. The app must accept a session cookie or, as before, an API key in Authorization: Bearer."
+}
