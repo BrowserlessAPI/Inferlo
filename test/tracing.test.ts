@@ -3,7 +3,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { after, before, describe, test } from "node:test";
 import * as otel from "@opentelemetry/api";
 import { createAI, mockProvider, ProviderError } from "../src/ai/public.ts";
-import { bearer, createApp, InferloError, memory, model, route, t, type Adapter } from "../src/index.ts";
+import { bearer, createApp, InferloError, job, memory, model, route, t, type Adapter } from "../src/index.ts";
+import { postgres } from "../src/db/postgres.ts";
 import { clientTracing, traceAdapter } from "../src/tracing.ts";
 
 // A minimal OpenTelemetry SDK for the test: an AsyncLocalStorage context manager, the W3C traceparent propagator and
@@ -56,7 +57,10 @@ const contextManager: otel.ContextManager = {
   disable() { return this; },
 };
 const propagator: otel.TextMapPropagator = {
-  inject() {},
+  inject(ctx, carrier, setter) {
+    const span = otel.trace.getSpanContext(ctx);
+    if (span) setter.set(carrier, "traceparent", `00-${span.traceId}-${span.spanId}-0${span.traceFlags}`);
+  },
   extract(ctx, carrier, getter) {
     const value = getter.get(carrier, "traceparent");
     const match = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/.exec(String(Array.isArray(value) ? value[0] : value ?? ""));
@@ -358,4 +362,96 @@ describe("tracing AI calls and database queries", () => {
     assert.equal(span.parentSpanId, parent.context.spanId);
     assert.deepEqual(calls.at(-1), ["  update notes set title = $1 where id = $2", ["secret", 1]]);
   });
+});
+
+describe("tracing jobs", () => {
+  const quiet = { info: () => {}, error: () => {} };
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+  function jobApp(db: Adapter = memory(), store: "memory" | "database" = "memory") {
+    const sendEmail = job(`send-email-${suffix}`, { input: t.object({ to: t.string() }), retries: 1 }).handle(async ({ input, db }) => {
+      await (db as any).notes.insert({ title: `mail to ${input.to}` });
+      if (input.to === "broken") throw new InferloError("IL9999", "mail server down");
+    });
+    const routes = {
+      signup: route.post("/signup", { auth: "public", body: t.object({ to: t.string() }) }).handle(async ({ body, jobs }) => {
+        const queued = await jobs.enqueue(sendEmail, { to: body.to });
+        return { id: queued.id };
+      }),
+    };
+    const app = createApp({ name: "traced-jobs", models: [Note], db, routes: [routes], jobs: [sendEmail], jobQueue: { store }, tracing: { api: otel }, logger: quiet });
+    return { app, sendEmail };
+  }
+  const signup = (app: ReturnType<typeof jobApp>["app"], to: string) =>
+    app.fetch(new Request("http://localhost/signup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to }) }));
+
+  test("a job runs in a span that continues the trace of the request that enqueued it", async () => {
+    spans.length = 0;
+    const { app } = jobApp();
+    const { id } = await (await signup(app, "ada@example.com")).json();
+    const server = spans.find((s) => s.kind === otel.SpanKind.SERVER)!;
+    const stored = await app.jobs.get(id);
+    assert.equal(stored!.trace!.traceparent, `00-${server.context.traceId}-${server.context.spanId}-01`);
+
+    spans.length = 0;
+    assert.deepEqual(await app.jobs.runDue(), { done: 1, retried: 0, failed: 0 });
+    const run = spans.find((s) => s.name === `process send-email-${suffix}`)!;
+    assert.equal(run.kind, otel.SpanKind.CONSUMER);
+    assert.equal(run.context.traceId, server.context.traceId);
+    assert.equal(run.parentSpanId, server.context.spanId);
+    assert.deepEqual(run.attributes, {
+      "messaging.system": "inferlo",
+      "messaging.operation.type": "process",
+      "messaging.destination.name": `send-email-${suffix}`,
+      "messaging.message.id": id,
+      "inferlo.job.attempt": 1,
+      "inferlo.job.outcome": "done",
+    });
+    assert.ok(run.ended);
+    const insert = spans.find((s) => s.name === "INSERT notes")!;
+    assert.equal(insert.parentSpanId, run.context.spanId, "the job's queries nest under its span");
+  });
+
+  test("failed attempts set the error status and record the exception", async () => {
+    const { app } = jobApp();
+    await signup(app, "broken");
+    spans.length = 0;
+    assert.deepEqual(await app.jobs.runDue(), { done: 0, retried: 1, failed: 0 });
+    const run = spans.find((s) => s.name.startsWith("process send-email"))!;
+    assert.equal(run.status.code, otel.SpanStatusCode.ERROR);
+    assert.equal(run.attributes["inferlo.job.outcome"], "retried");
+    assert.equal(run.attributes["error.type"], "IL9999");
+    assert.equal((run.exceptions[0] as Error).message, "mail server down");
+  });
+
+  test("jobs enqueued outside a trace start their own", async () => {
+    const { app, sendEmail } = jobApp();
+    const queued = await app.jobs.enqueue(sendEmail, { to: "grace@example.com" });
+    assert.equal(queued.trace, undefined);
+    spans.length = 0;
+    await app.jobs.runDue();
+    const run = spans.find((s) => s.name.startsWith("process send-email"))!;
+    assert.equal(run.parentSpanId, undefined);
+  });
+
+  if (process.env.INFERLO_TEST_DATABASE_URL) {
+    test("the database queue stores the trace with the job", async () => {
+      const db = postgres({ url: process.env.INFERLO_TEST_DATABASE_URL! });
+      try {
+        const { app } = jobApp(db, "database");
+        await app.db.$sync();
+        spans.length = 0;
+        const { id } = await (await signup(app, "lin@example.com")).json();
+        const server = spans.find((s) => s.kind === otel.SpanKind.SERVER)!;
+        assert.equal((await app.jobs.get(id))!.trace!.traceparent, `00-${server.context.traceId}-${server.context.spanId}-01`);
+        spans.length = 0;
+        assert.equal((await app.jobs.runDue()).done, 1);
+        const run = spans.find((s) => s.name.startsWith("process send-email"))!;
+        assert.equal(run.parentSpanId, server.context.spanId);
+        assert.ok(spans.some((s) => s.name === "UPDATE" && s.parentSpanId === run.context.spanId), "the queue's own queries in the job's trace");
+      } finally {
+        await db.close?.();
+      }
+    });
+  }
 });

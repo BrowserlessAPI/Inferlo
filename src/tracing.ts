@@ -34,8 +34,12 @@ export interface OtelApi {
     getSpan?(context: unknown): OtelSpan | undefined;
   };
   context: { active(): unknown; with<T>(context: unknown, fn: () => T): T };
-  propagation: { extract(context: unknown, carrier: unknown, getter?: unknown): unknown };
-  SpanKind: { SERVER: number; CLIENT?: number };
+  propagation: {
+    extract(context: unknown, carrier: unknown, getter?: unknown): unknown;
+    /** Writes the trace of a context into a carrier (traceparent), so a queued job continues it. */
+    inject?(context: unknown, carrier: unknown, setter?: unknown): void;
+  };
+  SpanKind: { SERVER: number; CLIENT?: number; CONSUMER?: number };
   SpanStatusCode: { ERROR: number };
 }
 
@@ -48,8 +52,9 @@ export interface TracingConfig {
 
 type Attributes = Record<string, string | number | boolean>;
 
-/** CLIENT in @opentelemetry/api's SpanKind (the same in every 1.x release). */
+/** CLIENT and CONSUMER in @opentelemetry/api's SpanKind (the same in every 1.x release). */
 const CLIENT_KIND = 2;
+const CONSUMER_KIND = 4;
 
 /** Reads incoming trace headers (traceparent, tracestate, baggage) for the propagator. */
 const headerGetter = {
@@ -201,4 +206,80 @@ export function traceFields(span: OtelSpan | undefined): { traceId?: string; spa
   const context = span?.spanContext();
   if (!context || context.traceId === INVALID_TRACE) return {};
   return { traceId: context.traceId, spanId: context.spanId };
+}
+
+/** The trace a queued job carries from where it was enqueued (W3C trace context). */
+export interface JobTraceContext {
+  traceparent?: string;
+  tracestate?: string;
+}
+
+const carrierGetter = {
+  get(carrier: JobTraceContext, key: string): string | undefined {
+    return key === "traceparent" || key === "tracestate" ? carrier[key] : undefined;
+  },
+  keys(carrier: JobTraceContext): string[] {
+    return Object.keys(carrier);
+  },
+};
+
+const TRACEPARENT = /^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
+
+export interface JobTracing {
+  /** The trace of the active span, to store with a job that is enqueued now. Empty outside a trace. */
+  capture(): JobTraceContext;
+  /** Runs one attempt of a job in a span that continues the trace it was enqueued in (cron jobs start a new trace). */
+  run<T extends string>(job: { id: string; name: string; attempts: number; trace?: JobTraceContext }, fn: (fail: (error: unknown) => void) => Promise<T>): Promise<T>;
+}
+
+export function jobTracing(config: TracingConfig, defaultName: string, version?: string): JobTracing {
+  const api = config.api;
+  const tracer = api.trace.getTracer(config.tracerName ?? defaultName, version);
+  const kind = api.SpanKind.CONSUMER ?? CONSUMER_KIND;
+  return {
+    capture() {
+      if (!api.propagation.inject) return {};
+      const carrier: Record<string, string> = {};
+      api.propagation.inject(api.context.active(), carrier);
+      const trace: JobTraceContext = {};
+      if (typeof carrier.traceparent === "string" && TRACEPARENT.test(carrier.traceparent)) {
+        trace.traceparent = carrier.traceparent;
+        if (typeof carrier.tracestate === "string" && carrier.tracestate.length <= 512) trace.tracestate = carrier.tracestate;
+      }
+      return trace;
+    },
+    async run(job, fn) {
+      const parent = job.trace?.traceparent ? api.propagation.extract(api.context.active(), job.trace, carrierGetter) : api.context.active();
+      const span = tracer.startSpan(
+        `process ${job.name}`,
+        {
+          kind,
+          attributes: {
+            "messaging.system": "inferlo",
+            "messaging.operation.type": "process",
+            "messaging.destination.name": job.name,
+            "messaging.message.id": job.id,
+            "inferlo.job.attempt": job.attempts,
+          },
+        },
+        parent,
+      );
+      const fail = (error: unknown) => {
+        span.recordException(error instanceof Error ? error : String(error));
+        const code = (error as { code?: unknown })?.code;
+        span.setAttribute("error.type", typeof code === "string" ? code : error instanceof Error ? error.name : "Error");
+        span.setStatus({ code: api.SpanStatusCode.ERROR });
+      };
+      try {
+        const outcome = await api.context.with(api.trace.setSpan(parent, span), () => fn(fail));
+        span.setAttribute("inferlo.job.outcome", outcome);
+        return outcome;
+      } catch (error) {
+        fail(error);
+        throw error;
+      } finally {
+        span.end();
+      }
+    },
+  };
 }

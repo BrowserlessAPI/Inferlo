@@ -18,6 +18,7 @@ import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
 import type { AppDb } from "./route.ts";
 import { ValidationError, type AnySchema, type Infer, type InferInput } from "./schema.ts";
+import type { JobTraceContext, JobTracing } from "./tracing.ts";
 
 export interface JobOptions<I extends AnySchema> {
   /** Schema of the job's input. Checked when the job is enqueued and again when it runs. */
@@ -81,6 +82,8 @@ export interface JobRecord {
   runAt: Date;
   /** Message of the last failure. */
   lastError?: string;
+  /** With createApp({ tracing }): the trace (W3C traceparent and tracestate) of the request or job that enqueued it, which its runs continue. */
+  trace?: JobTraceContext;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -268,7 +271,7 @@ export const STALE_AFTER_MS = 5 * 60_000;
 export const HEARTBEAT_MS = 30_000;
 export const STOPPED_MESSAGE = "The worker stopped while running this job (the process exited or lost its database connection).";
 
-const JOB_COLUMNS = `"id", "name", "input", "status", "attempts", "max_attempts", "run_at", "last_error", "created_at", "updated_at"`;
+const JOB_COLUMNS = `"id", "name", "input", "status", "attempts", "max_attempts", "run_at", "last_error", "created_at", "updated_at", "traceparent", "tracestate"`;
 
 function fromRow(row: Record<string, unknown>): JobRecord {
   const record: JobRecord = {
@@ -283,6 +286,10 @@ function fromRow(row: Record<string, unknown>): JobRecord {
     updatedAt: new Date(row.updated_at as string),
   };
   if (row.last_error !== null && row.last_error !== undefined) record.lastError = String(row.last_error);
+  if (typeof row.traceparent === "string") {
+    record.trace = { traceparent: row.traceparent };
+    if (typeof row.tracestate === "string") record.trace.tracestate = row.tracestate;
+  }
   return record;
 }
 
@@ -306,8 +313,11 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
         `CREATE TABLE IF NOT EXISTS "inferlo_jobs" (
           "id" uuid PRIMARY KEY, "name" text NOT NULL, "input" jsonb NOT NULL, "status" text NOT NULL,
           "attempts" integer NOT NULL, "max_attempts" integer NOT NULL, "run_at" timestamptz NOT NULL,
-          "last_error" text, "created_at" timestamptz NOT NULL, "updated_at" timestamptz NOT NULL)`,
+          "last_error" text, "created_at" timestamptz NOT NULL, "updated_at" timestamptz NOT NULL,
+          "traceparent" text, "tracestate" text)`,
       );
+      // Tables created by Inferlo 0.5 and earlier get the trace columns.
+      await sql('ALTER TABLE "inferlo_jobs" ADD COLUMN IF NOT EXISTS "traceparent" text, ADD COLUMN IF NOT EXISTS "tracestate" text');
       await sql('CREATE INDEX IF NOT EXISTS "inferlo_jobs_due_idx" ON "inferlo_jobs" ("status", "run_at")');
     } catch {
       // Two instances creating the table at the same moment: the other one won.
@@ -324,8 +334,8 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
   return {
     async add(r) {
       await table();
-      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT ("id") DO NOTHING`, [
-        r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt,
+      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT ("id") DO NOTHING`, [
+        r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt, r.trace?.traceparent ?? null, r.trace?.tracestate ?? null,
       ]);
     },
     async claim(now, limit, names) {
@@ -395,6 +405,8 @@ export interface JobRuntime {
   logger: { info(message: string, data?: unknown): void; error(message: string, data?: unknown): void };
   /** Called after each attempt with its outcome and duration (metrics). */
   onRun?(name: string, outcome: keyof RunResult, durationMs: number): void;
+  /** With createApp({ tracing }): a span per attempt that continues the trace the job was enqueued in. */
+  tracing?: JobTracing;
 }
 
 /** app.jobs plus what the framework tests reach directly. */
@@ -463,6 +475,8 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
         throw new InferloError("IL6009", `runAt for job "${def.name}" must be a valid Date.`, { fix: "Pass runAt: new Date(Date.now() + 60_000) or leave it out to run now." });
       }
       const queued = record(def, input, options.runAt, crypto.randomUUID());
+      const trace = runtime.tracing?.capture();
+      if (trace?.traceparent) queued.trace = trace;
       await runtime.store.add(queued);
       return queued;
     },
@@ -522,12 +536,12 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
 
   async function run(record: JobRecord, now: Date): Promise<keyof RunResult> {
     const started = performance.now();
-    const outcome = await attempt(record, now);
+    const outcome = runtime.tracing ? await runtime.tracing.run(record, (fail) => attempt(record, now, fail)) : await attempt(record, now);
     runtime.onRun?.(record.name, outcome, performance.now() - started);
     return outcome;
   }
 
-  async function attempt(record: JobRecord, now: Date): Promise<keyof RunResult> {
+  async function attempt(record: JobRecord, now: Date, fail?: (error: unknown) => void): Promise<keyof RunResult> {
     const def = byName.get(record.name);
     const touch = runtime.store.touch?.bind(runtime.store);
     const heartbeat = touch ? setInterval(() => void touch(record.id).catch(() => {}), runtime.heartbeatMs ?? HEARTBEAT_MS) : undefined;
@@ -537,6 +551,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
       await runtime.store.update(record.id, { status: "done" });
       return "done";
     } catch (error) {
+      fail?.(error);
       const message = error instanceof Error ? error.message : String(error);
       if (record.attempts < record.maxAttempts) {
         await runtime.store.update(record.id, { status: "pending", lastError: message, runAt: new Date(now.getTime() + retryDelayMs(record.attempts)) });

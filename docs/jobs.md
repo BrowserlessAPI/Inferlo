@@ -102,7 +102,7 @@ export const app = createApp({
 });
 ```
 
-- Jobs are stored in the table `inferlo_jobs`, created on first use (no migration needed). They survive restarts and deploys.
+- Jobs are stored in the table `inferlo_jobs`, created on first use (no migration needed). They survive restarts and deploys. With `createApp({ tracing })`, a job also stores the trace it was enqueued in, so its run shows up in the same trace (see [Observability, "Jobs"](observability.md#jobs)).
 - Every instance shares the queue. Due jobs are claimed with `FOR UPDATE SKIP LOCKED`, so each attempt runs on exactly one instance, however many run `app.jobs.start()`.
 - An instance only claims jobs it has registered, so during a rolling deploy an old instance never picks up a job that only the new code knows.
 - While a job runs, its worker reports every 30 seconds that it is still alive. A job still `"running"` without a report for 5 minutes (its process crashed or was killed) is picked up again as its next attempt, with `lastError` saying the worker stopped. If it has no attempts left, it is marked `"failed"` instead. This is why handlers must be safe to run twice.

@@ -21,7 +21,7 @@ import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
-import { clientTracing, requestTracing, traceAdapter, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
+import { clientTracing, jobTracing, requestTracing, traceAdapter, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
 import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
 import { INFERLO_VERSION } from "./describe.ts";
@@ -480,6 +480,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       queue: config.jobQueue?.store ?? "memory",
       logger,
       onRun: metrics ? (name, outcome, ms) => metrics.job(name, outcome, ms / 1000) : undefined,
+      tracing: appTracing ? jobTracing(appTracing, "inferlo-app", config.version ?? "0.0.0") : undefined,
     },
     collectCrons(jobSources),
   );

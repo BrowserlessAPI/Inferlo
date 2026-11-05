@@ -20,7 +20,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Observability part 2: Prometheus metrics endpoint (request counts and durations by route and status, job runs, AI calls, tokens and cost per alias)
 - [x] Observability part 3: OpenTelemetry tracing for requests, `createApp({ tracing: { api } })` with a server span per request that continues the caller's trace and runs the handler inside it, and trace ids in logs (optional peer dependency)
 - [x] Observability part 4a: OpenTelemetry spans for AI calls (model, tokens and cost as attributes, also with `createAI({ tracing })` on its own) and database queries made inside a traced request or job
-- [ ] Observability part 4b: OpenTelemetry spans for jobs, with the trace carried from the request that queued them (stored with the job, also in the database queue) and cron runs as new traces
+- [x] Observability part 4b: OpenTelemetry spans for jobs, with the trace carried from the request that queued them (stored with the job, also in the database queue) and cron runs as new traces
 - [x] Permissions part 1: role- and policy-based access control, `permissions({ "tickets.update": ({ user, ticket }) => ... })` with `access.can(name, { user, ticket })` and `access.authorize(...)` usable in routes, tools and jobs, and the route option `permission`
 - [x] Permissions part 2: audit log of who changed what (`audit` table, written from routes and jobs with the user, action, record and changes; secrets redacted)
 - [x] Permissions part 3: permission names typed through `Register` (a typo in `permission: "..."` is a type error), and MCP `tools/list` leaves out tools the caller's permissions deny

@@ -1,0 +1,5 @@
+{
+  "title": "Trace background jobs back to the request",
+  "prompt": "Our platform team collects traces with OpenTelemetry (the platform starts the SDK). When the send-digest job from src/jobs.ts runs, its span must belong to the same trace as the request that enqueued it, and the job's database queries must show up inside it. Make the change in src/app.ts with Inferlo's built-in tracing and the @opentelemetry/api package. Do not add an OpenTelemetry SDK.",
+  "packages": ["@opentelemetry/api"]
+}

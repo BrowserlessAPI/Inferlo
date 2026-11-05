@@ -181,5 +181,17 @@ Every `ai.generate`, `ai.stream` and `ai.embed` call gets a client span under th
 
 Queries made while a request or job is traced get a client span named after the operation and table (`SELECT tickets`, `INSERT audit_log`) with `db.system.name` (`postgresql`), `db.operation.name` and `db.collection.name`. Raw SQL (`db.$sql`) and Inferlo's own queries (rate limits, cache, job queue) get a span named after the statement (`UPDATE`) with the parameterised SQL in `db.query.text`. Values are never recorded. Queries outside a trace, such as startup or the worker polling for jobs, are not traced, so idle instances send no spans. If you also use the `pg` instrumentation, its spans appear as children of these.
 
-Spans for jobs, with the trace carried from the request that queued them, come next (see the [roadmap](../ROADMAP.md)).
+### Jobs
+
+A job continues the trace it was enqueued in. `ctx.jobs.enqueue(...)` in a traced request (or job) stores the trace with the job (W3C `traceparent` and `tracestate`, in the `trace` field of the job record and in the `inferlo_jobs` table with the database queue), and every attempt runs in a consumer span `process send-email` whose parent is that request's span, even when another instance runs it hours later. The span is active while the handler runs, so the job's database queries and AI calls are its children.
+
+| Attribute | Example |
+|---|---|
+| `messaging.system`, `messaging.operation.type` | `inferlo`, `process` |
+| `messaging.destination.name` | the job name |
+| `messaging.message.id` | the job id (`app.jobs.get(id)`) |
+| `inferlo.job.attempt` | 1 for the first run, 2 for the first retry |
+| `inferlo.job.outcome` | `done`, `retried` or `failed` |
+
+A failed attempt sets the error status, records the exception and sets `error.type` (the Inferlo error code, or the error's name). Jobs enqueued outside a trace, such as cron ticks or `app.jobs.enqueue` in a script, start a new trace. The database queue adds the `traceparent` and `tracestate` columns to an existing `inferlo_jobs` table by itself.
 
