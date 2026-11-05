@@ -1,0 +1,7 @@
+{
+  "title": "Serve the app from a Next.js App Router route",
+  "prompt": "We are adding Inferlo to a Next.js App Router project whose app directory is src/app. Create the optional catch-all route handler file src/app/api/[[...path]]/route.ts so that every request under /api, for every HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD and OPTIONS), is handled by the Inferlo app exported from src/app.ts with /api removed from the path: GET /api/health reaches the app's GET /health, /api/openapi.json serves its OpenAPI document and POST /api/notes reaches POST /notes. Use Inferlo's Next.js integration.",
+  "packages": [
+    "next"
+  ]
+}

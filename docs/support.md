@@ -72,6 +72,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Ts.ED (`/tsed`) | 8.0.1 and newer |
 | Koa (`/koa`) | 2 (newest 2.x) and 3 |
 | Encore.ts (`toNodeHandler` in a raw endpoint, `/ai` in services) | encore.dev 1.51.0 and newer |
+| Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 
 When a version reaches end of life upstream, the next Inferlo release stops supporting it: the minimum moves forward, `engines` and these docs change, and the changelog lists it under "Breaking". When a new major version is released upstream, it is added to CI and supported as soon as it passes.
 

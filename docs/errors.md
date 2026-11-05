@@ -158,6 +158,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5019
 **Invalid `toNodeHandler` or `toKoaMiddleware` options.** `fallthrough` is `true` or `false`, and `toNodeHandler(app, { fallthrough: true })` needs an app returned by `createApp`, because it checks the app's routes to decide which requests to pass to the host framework's `next()`. A plain `{ fetch }` handler cannot be used with it. See [toNodeHandler](integrations.md#nodejs-frameworks-tonodehandler).
 
+### IL5020
+**Invalid `toNextHandlers` arguments.** `toNextHandlers(app, { prefix })` from `@browserlessapi/inferlo/nextjs` takes the app returned by `createApp` (anything with a `fetch` function) and an optional `prefix` that starts with `/`, such as `"/api"` for `app/api/[[...path]]/route.ts`. See [Next.js](integrations.md#nextjs).
+
 ## App configuration (6xxx)
 
 ### IL6001

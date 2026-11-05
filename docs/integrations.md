@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, and Koa uses `toKoaMiddleware(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, Koa uses `toKoaMiddleware(app)`, and Next.js route handlers use `toNextHandlers(app)`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -401,6 +401,48 @@ koa.use(async (ctx) => {
 - `sendResponse(ctx, response)` writes a Web `Response` (status, every `Set-Cookie` header, streamed body), for AI streams.
 
 The [with-koa example](../examples/with-koa) does all three, and CI tests it with Koa 2 (newest 2.x, still maintained upstream) and the latest Koa.
+
+## Next.js
+
+Next.js 15 and 16, App Router. `@browserlessapi/inferlo/nextjs` has no runtime dependency on Next.js and never loads Inferlo's router, database or jobs code by itself.
+
+Serve a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one optional catch-all route:
+
+```ts
+// app/api/[[...path]]/route.ts
+import { toNextHandlers } from "@browserlessapi/inferlo/nextjs";
+import { app } from "@/inferlo/app";
+
+export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS } = toNextHandlers(app, { prefix: "/api" });
+```
+
+- `toNextHandlers(app, { prefix })` returns a route handler for every HTTP method. Export all of them so CORS preflights (`OPTIONS`) and `HEAD` reach Inferlo too.
+- `prefix` is the URL path of the route's folder (`"/api"` for `app/api/[[...path]]/route.ts`, including Next.js's `basePath` if you set one). It is removed before the app routes the request, so the app's `/summaries` answers at `/api/summaries`, and OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. Requests outside the prefix keep their path. Without `prefix`, requests reach the app unchanged.
+- Use `[[...path]]` (optional catch-all) so `/api` itself reaches the app too, and keep Next.js's own route handlers in other folders: Next.js matches more specific folders first.
+- Route handlers run on the Node.js runtime by default. Behind a proxy such as Vercel's, set `createApp({ trustProxy: true })` so rate limits by IP use `X-Forwarded-For`.
+- Anything that is not an app, or a `prefix` that does not start with `/`, raises IL5020.
+
+In server actions, server components and your own route handlers, use the AI module without an app:
+
+```ts
+// app/actions.ts
+"use server";
+import { t } from "@browserlessapi/inferlo/ai";
+import { ai } from "@/lib/ai"; // export const ai = createAI({ providers, models }) from "@browserlessapi/inferlo/ai"
+
+export async function classify(formData: FormData) {
+  const { object } = await ai.generate({
+    model: "fast",
+    prompt: String(formData.get("text") ?? ""),
+    output: t.object({ label: t.enum(["bug", "feature", "question"]) }),
+  });
+  return object;
+}
+```
+
+Create the client once in a server-only module (`lib/ai.ts`) so API keys never reach the browser bundle. To stream text to the browser from your own route handler, return `ai.stream({ model, prompt }).toResponse()` (server-sent events).
+
+The [with-nextjs example](../examples/with-nextjs) does both, and CI tests it with Next.js 15 (newest 15.x, still maintained upstream) and the latest Next.js, using Next.js's own `NextRequest`.
 
 ## Encore.ts
 
