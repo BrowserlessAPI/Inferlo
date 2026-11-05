@@ -62,6 +62,8 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Nuxt and Nitro (h3): mount an Inferlo app in a server route with `toH3Handler(app, { prefix })` (h3 1 and 2), and `event.context.ai` from a Nitro plugin
 - [x] SvelteKit and React Router part 1: SvelteKit 2 and 3, a rest route `+server.ts` that serves an Inferlo app with `toSvelteKitHandlers(app, { prefix })`, and `event.locals.ai` from an `inferloAI(ai)` handle hook for load functions and actions
 - [x] SvelteKit and React Router part 2: React Router 7 and 8 (Remix) resource routes, a splat route whose `loader` and `action` serve an Inferlo app, and `@browserlessapi/inferlo/ai` in loaders and actions
+- [ ] AWS Lambda: `toLambdaHandler(app)` for Lambda function URLs and API Gateway (HTTP API v2 and REST API v1 events), with response streaming for AI answers, tested against the AWS event shapes
+- [ ] hapi: a plugin that serves an Inferlo app under a path and decorates requests with `request.ai`, tested on the oldest supported and latest hapi
 - [x] Migration guides part 1: from Express to Inferlo, route by route at the same URLs (docs/migrate-from-express.md, with a test of the setup it recommends)
 - [x] Migration guides part 2: from NestJS to Inferlo (modules, providers, guards, pipes and DTOs)
 - [x] Migration guides part 3: from Hono to Inferlo
