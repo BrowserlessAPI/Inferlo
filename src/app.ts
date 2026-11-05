@@ -17,6 +17,7 @@ import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, 
 import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps } from "./client-ip.ts";
+import { redisJobStore } from "./redis-jobs.ts";
 import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
 import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
@@ -495,7 +496,10 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       ai,
       cache,
       audit: (run) => createAudit(models, redactor, () => db as never, { userId: null, source: `job ${run.name}` }),
-      store: jobStoreFor(config.jobQueue, adapter),
+      store: jobStoreFor(config.jobQueue, adapter, () => {
+        if (!redis) throw redisMissing("jobQueue");
+        return redisJobStore(redis, redisPrefix(config.name));
+      }),
       queue: config.jobQueue?.store ?? "memory",
       logger,
       onRun: metrics ? (name, outcome, ms) => metrics.job(name, outcome, ms / 1000) : undefined,

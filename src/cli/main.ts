@@ -332,9 +332,9 @@ async function cmdWorker(args: Args) {
       fix: 'Define jobs with job("name", { input }).handle(fn) in src/jobs.ts and register them: createApp({ jobs: [jobs] }).',
     });
   }
-  if (app.jobs.queue !== "database") {
-    throw new InferloError("IL8008", `inferlo worker needs the database job queue, but the app keeps jobs in ${app.jobs.queue}, where a separate process cannot see them.`, {
-      fix: 'Use createApp({ jobQueue: { store: "database" }, db: postgres({ url }) }), or run jobs in the server process with app.jobs.start().',
+  if (app.jobs.queue !== "database" && app.jobs.queue !== "redis") {
+    throw new InferloError("IL8008", `inferlo worker needs a shared job queue (database or Redis), but the app keeps jobs in ${app.jobs.queue}, where a separate process cannot see them.`, {
+      fix: 'Use createApp({ jobQueue: { store: "database" }, db: postgres({ url }) }) or createApp({ redis, jobQueue: { store: "redis" } }), or run jobs in the server process with app.jobs.start().',
     });
   }
   const say = (event: string, text: string) => console.log(json ? JSON.stringify({ ok: true, event, jobs: names, queue: app.jobs.queue }) : text);

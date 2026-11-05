@@ -213,7 +213,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Job is not registered.** The job passed to `jobs.enqueue` (or a queued job's name) is not in `createApp({ jobs: [...] })`. Pass a value made with `job(...).handle(...)` and register it, or its module.
 
 ### IL6011
-**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default) or `"database"`.
+**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default), `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
 
 ### IL6012
 **Job queue store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
@@ -273,7 +273,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid tracing options.** `createApp({ tracing })` and `createAI({ tracing })` take `{ api }` with the OpenTelemetry API (`import * as otel from "@opentelemetry/api"`, then `tracing: { api: otel }`) and an optional non-empty `tracerName`. Install `@opentelemetry/api` 1.3 or newer, and start an OpenTelemetry SDK so the spans are exported. See [Tracing](observability.md#tracing-opentelemetry).
 
 ### IL6031
-**Redis client missing or invalid.** `createApp({ redis })` takes a connected Redis client with a `sendCommand` method: `const redis = await createClient({ url: process.env.REDIS_URL }).connect()` from the `redis` package (node-redis 5 or newer), or an ioredis client wrapped as `{ sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }`. `rateLimit: { store: "redis" }` and `cache: { store: "redis" }` need `createApp({ redis })`. See [Redis](redis.md).
+**Redis client missing or invalid.** `createApp({ redis })` takes a connected Redis client with a `sendCommand` method: `const redis = await createClient({ url: process.env.REDIS_URL }).connect()` from the `redis` package (node-redis 5 or newer), or an ioredis client wrapped as `{ sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }`. `rateLimit: { store: "redis" }`, `cache: { store: "redis" }` and `jobQueue: { store: "redis" }` need `createApp({ redis })`. See [Redis](redis.md).
 
 ## Environment (7xxx)
 
@@ -355,7 +355,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **No background jobs to run.** `inferlo worker` found no jobs in the app. Define them with `job(...).handle(...)` and register them with `createApp({ jobs: [jobs] })`.
 
 ### IL8008
-**`inferlo worker` needs the database job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres adapter, or run jobs in the server process with `app.jobs.start()`.
+**`inferlo worker` needs a shared job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres adapter or `createApp({ redis, jobQueue: { store: "redis" } })`, or run jobs in the server process with `app.jobs.start()`.
 
 ## Internal (9xxx)
 

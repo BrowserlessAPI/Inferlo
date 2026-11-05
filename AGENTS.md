@@ -52,7 +52,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Bun | 1.3.0 | `latest` |
 | PostgreSQL | oldest major still supported upstream (14 until 2026-11-12, then 15) and every major after it | `latest` |
 | TypeScript | 5.9 | `latest` |
-| Redis (`createApp({ redis })`, test/redis.test.ts) | Redis 6.2 (oldest version still supported upstream, until 2027-04-01; 7.2 is tested too), `redis` package 5.0.0 (node-redis 4 gets no more releases) | `latest` (server and package) |
+| Redis (`createApp({ redis })`: rate limits, cache and job queue) | Redis 6.2 (oldest version still supported upstream, until 2027-04-01; 7.2 is tested too), `redis` package 5.0.0 (node-redis 4 gets no more releases) | `latest` (server and package) |
 | Hono (`@browserlessapi/inferlo/hono`, examples/with-hono) | 4.0.0 | `latest` |
 | Express (`@browserlessapi/inferlo/express`, examples/with-express) | 4 (newest 4.x, maintained upstream) | `latest` (5) |
 | Fastify (`@browserlessapi/inferlo/fastify`, examples/with-fastify) | 5.0.0 (Fastify 4 reached end of life 2025-06-30) | `latest` |

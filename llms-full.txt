@@ -1335,7 +1335,7 @@ export const nightly = cron("0 3 * * *", deleteOldSessions);   // every day at 0
 
 By default the queue is kept in memory in the process that enqueues, so jobs are lost on restart and every instance runs its own. That is right for development and tests.
 
-In production, keep jobs in Postgres:
+In production, keep jobs in Postgres or Redis. In Postgres:
 
 ```ts
 export const app = createApp({
@@ -1351,6 +1351,23 @@ export const app = createApp({
 - While a job runs, its worker reports every 30 seconds that it is still alive. A job still `"running"` without a report for 5 minutes (its process crashed or was killed) is picked up again as its next attempt, with `lastError` saying the worker stopped. If it has no attempts left, it is marked `"failed"` instead. This is why handlers must be safe to run twice.
 - `{ store: "database" }` needs the Postgres adapter (IL6012). Any other store name raises IL6011.
 - `app.jobs.get(id)` reads the record from the table, so any instance can check a job's status.
+
+Or keep them in Redis, with the same guarantees:
+
+```ts
+const redis = await createClient({ url: settings.REDIS_URL }).connect();   // from the redis package
+
+export const app = createApp({
+  redis,
+  jobs: [jobs],
+  jobQueue: { store: "redis" },
+});
+```
+
+- Each due job is claimed by one atomic Lua script, so each attempt runs on exactly one instance. Retries, backoff, the registered-jobs rule, the 30-second reports and the 5-minute stuck-job rule work as with the database queue; whether a job is stuck is decided with the Redis server's clock, so instances whose clocks differ agree.
+- Pending and running jobs never expire. Finished jobs (`"done"` or `"failed"`) are kept for 7 days, so `app.jobs.get(id)` can report them, then Redis removes them.
+- Cron ticks are queued once across instances, as with the database queue.
+- `{ store: "redis" }` without `createApp({ redis })` raises IL6031. Keys and other details are in [Redis](redis.md#job-queue).
 
 ## Testing
 
@@ -1473,6 +1490,8 @@ export const app = createApp({
   // ...
   redis,
   rateLimit: { store: "redis" },   // route rateLimit counts, shared by every instance
+  cache: { store: "redis" },       // ctx.cache, app.cache and cached routes
+  jobQueue: { store: "redis" },    // background jobs and cron ticks
   health: true,                    // GET /ready also checks that Redis answers
 });
 ```
@@ -1497,15 +1516,25 @@ export const app = createApp({
 
 `cache: { store: "redis" }` without `createApp({ redis })` raises IL6031, and `maxEntries` (memory only) raises IL6028.
 
+## Job queue
+
+`createApp({ redis, jobQueue: { store: "redis" } })` keeps background jobs (see [Background jobs](jobs.md)) in Redis, shared by every instance and by `inferlo worker`:
+
+- Each job is a hash (`inferlo:<app name>:jobs:job:<id>`). Pending jobs are in one sorted set per job name (`jobs:due:<name>`), scored by `runAt`, and running jobs in `jobs:running`, scored by the last report from their worker.
+- Claiming, finishing, retrying and reporting are each one atomic Lua script, so a due job is claimed by exactly one instance however many run `app.jobs.start()` or `inferlo worker`. An instance only claims the jobs it has registered.
+- A running job whose worker has not reported for 5 minutes (it crashed or lost Redis) is claimed again with `lastError` saying the worker stopped, or marked `"failed"` without attempts left. The time comes from the Redis server (`TIME`), so instances with different clocks agree.
+- Pending and running jobs never expire. Finished jobs are kept for 7 days for `app.jobs.get(id)`, then Redis removes them.
+- Cron ticks use fixed job ids, so every instance can run the schedule and each tick is queued once.
+
+Use a Redis that keeps its data (AOF or RDB persistence, or a managed Redis with persistence), or queued jobs are lost when Redis restarts. `jobQueue: { store: "redis" }` without `createApp({ redis })` raises IL6031.
+
 ## Readiness
 
 With `createApp({ redis, health: true })`, `GET /ready` has a built-in `redis` check that sends `PING`, next to `database` and `ai` (see [Health and readiness](deploy.md#health-and-readiness)). A down or slow Redis makes the instance not ready instead of failing requests. Your own check cannot also be called `redis` (IL6014).
 
 ## Supported versions
 
-CI runs the Redis tests (rate limits, cache and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
-
-The Redis job queue (`jobQueue: { store: "redis" }`) is next on the [roadmap](../ROADMAP.md).
+CI runs the Redis tests (rate limits, cache, job queue with cron ticks, and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
 
 ---
 
@@ -1738,7 +1767,7 @@ Agents should run this after every change and not stop until `ok` is `true`.
 
 Runs the app's background jobs in their own process, for deployments where web servers and job workers scale separately. It loads the app (reading `.env` first, like `inferlo dev`; variables already set win), calls `app.jobs.start()`, and on SIGTERM or Ctrl+C stops taking new jobs, waits for the running one to finish, closes the database and exits 0. A second signal exits at once.
 
-It needs jobs (IL8007) and `createApp({ jobQueue: { store: "database" } })` (IL8008), because a separate process cannot see an in-memory queue. Run as many workers as you like: each job attempt runs on one of them. With `--json` it prints `{ "ok": true, "event": "started", "jobs": ["send-email"], "queue": "database" }` and a `"stopped"` event. See [Background jobs](jobs.md).
+It needs jobs (IL8007) and a shared queue, `createApp({ jobQueue: { store: "database" } })` or `{ store: "redis" }` (IL8008), because a separate process cannot see an in-memory queue. Run as many workers as you like: each job attempt runs on one of them. With `--json` it prints `{ "ok": true, "event": "started", "jobs": ["send-email"], "queue": "database" }` and a `"stopped"` event. See [Background jobs](jobs.md).
 
 ## inferlo add resource invoices
 
@@ -3985,7 +4014,7 @@ location / {
 }
 ```
 
-Behind a proxy like this, set `createApp({ trustProxy: true })` so routes with `rateLimit: { by: "ip" }` see the client's address instead of the proxy's. With more than one instance, use `rateLimit: { store: "database" }` (or `"redis"`, see [Redis](redis.md)) so the counts are shared, and `jobQueue: { store: "database" }` so background jobs are too (see [jobs](jobs.md)).
+Behind a proxy like this, set `createApp({ trustProxy: true })` so routes with `rateLimit: { by: "ip" }` see the client's address instead of the proxy's. With more than one instance, use `rateLimit: { store: "database" }` (or `"redis"`, see [Redis](redis.md)) so the counts are shared, and `jobQueue: { store: "database" }` (or `"redis"`) so background jobs are too (see [jobs](jobs.md)).
 
 ## Health and readiness
 
@@ -4423,7 +4452,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Job is not registered.** The job passed to `jobs.enqueue` (or a queued job's name) is not in `createApp({ jobs: [...] })`. Pass a value made with `job(...).handle(...)` and register it, or its module.
 
 ### IL6011
-**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default) or `"database"`.
+**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default), `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
 
 ### IL6012
 **Job queue store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
@@ -4483,7 +4512,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid tracing options.** `createApp({ tracing })` and `createAI({ tracing })` take `{ api }` with the OpenTelemetry API (`import * as otel from "@opentelemetry/api"`, then `tracing: { api: otel }`) and an optional non-empty `tracerName`. Install `@opentelemetry/api` 1.3 or newer, and start an OpenTelemetry SDK so the spans are exported. See [Tracing](observability.md#tracing-opentelemetry).
 
 ### IL6031
-**Redis client missing or invalid.** `createApp({ redis })` takes a connected Redis client with a `sendCommand` method: `const redis = await createClient({ url: process.env.REDIS_URL }).connect()` from the `redis` package (node-redis 5 or newer), or an ioredis client wrapped as `{ sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }`. `rateLimit: { store: "redis" }` and `cache: { store: "redis" }` need `createApp({ redis })`. See [Redis](redis.md).
+**Redis client missing or invalid.** `createApp({ redis })` takes a connected Redis client with a `sendCommand` method: `const redis = await createClient({ url: process.env.REDIS_URL }).connect()` from the `redis` package (node-redis 5 or newer), or an ioredis client wrapped as `{ sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }`. `rateLimit: { store: "redis" }`, `cache: { store: "redis" }` and `jobQueue: { store: "redis" }` need `createApp({ redis })`. See [Redis](redis.md).
 
 ## Environment (7xxx)
 
@@ -4565,7 +4594,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **No background jobs to run.** `inferlo worker` found no jobs in the app. Define them with `job(...).handle(...)` and register them with `createApp({ jobs: [jobs] })`.
 
 ### IL8008
-**`inferlo worker` needs the database job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres adapter, or run jobs in the server process with `app.jobs.start()`.
+**`inferlo worker` needs a shared job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres adapter or `createApp({ redis, jobQueue: { store: "redis" } })`, or run jobs in the server process with `app.jobs.start()`.
 
 ## Internal (9xxx)
 

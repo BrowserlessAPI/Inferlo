@@ -52,8 +52,8 @@ describe("inferlo worker", () => {
     assert.equal(r.status, 1);
     const out = JSON.parse(r.stdout);
     assert.equal(out.error.code, "IL8008");
-    assert.match(out.message, /database job queue/);
-    assert.match(out.error.message, /database job queue/);
+    assert.match(out.message, /shared job queue/);
+    assert.match(out.error.message, /shared job queue/);
     assert.match(out.error.fix, /store: "database"/);
   });
 

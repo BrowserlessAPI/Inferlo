@@ -73,7 +73,7 @@ export interface AppDescription {
   /** Schedules from cron(schedule, job), in UTC. */
   crons: { schedule: string; job: string }[];
   /** Where queued jobs are kept. */
-  jobQueue: "memory" | "database";
+  jobQueue: "memory" | "database" | "redis";
   /** Where ctx.cache and app.cache keep entries. */
   cache: "memory" | "database" | "redis";
 }

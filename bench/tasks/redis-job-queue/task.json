@@ -1,0 +1,5 @@
+{
+  "title": "Job queue shared through Redis",
+  "prompt": "The app will run on several servers that share a Redis. Create src/jobs.ts with a job named \"count-notes\" whose input is an empty object and that logs how many notes exist with console.log, and register the jobs module in src/app.ts. When the REDIS_URL environment variable is set, connect to it with the redis package (add REDIS_URL to the app's config as an optional secret) and keep the background job queue in Redis so every instance shares it. Without REDIS_URL, keep the default in-memory queue. Use Inferlo's built-in Redis job queue; do not write your own.",
+  "packages": ["redis"]
+}

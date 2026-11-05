@@ -97,8 +97,9 @@ export interface JobQueueConfig {
   /**
    * Where queued jobs are kept. "memory" (default): in this process, for development and tests.
    * "database": in the inferlo_jobs table of the app's Postgres database, shared by every instance.
+   * "redis": in the Redis of createApp({ redis }), shared by every instance.
    */
-  store?: "memory" | "database";
+  store?: "memory" | "database" | "redis";
 }
 
 /** Where queued jobs are kept. */
@@ -109,7 +110,7 @@ export interface JobStore {
   claim(now: Date, limit: number, names: readonly string[]): Promise<JobRecord[]>;
   update(id: string, patch: Partial<Pick<JobRecord, "status" | "runAt" | "lastError">>): Promise<void>;
   get(id: string): Promise<JobRecord | null>;
-  /** Record that a running job is still alive (database store), so it is not picked up again as stuck. */
+  /** Record that a running job is still alive (database and Redis stores), so it is not picked up again as stuck. */
   touch?(id: string): Promise<void>;
 }
 
@@ -134,7 +135,7 @@ export interface AppJobs extends Jobs {
   /** The registered crons: cron(schedule, job) values in createApp({ jobs }). */
   readonly crons: readonly CronDef[];
   /** Where queued jobs are kept (createApp({ jobQueue: { store } })). */
-  readonly queue: "memory" | "database";
+  readonly queue: "memory" | "database" | "redis";
   /** A queued job by id, or null. */
   get(id: string): Promise<JobRecord | null>;
   /** Run every job that is due now (or at options.now), one after another, including follow-ups they enqueue, then return. For tests and scripts. */
@@ -383,12 +384,16 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
   };
 }
 
-/** Pick the job store for createApp({ jobQueue }). Raises IL6011 for an unknown store, IL6012 for "database" without Postgres. */
-export function jobStoreFor(config: JobQueueConfig | undefined, adapter: Adapter): JobStore {
+/**
+ * Pick the job store for createApp({ jobQueue }). Raises IL6011 for an unknown store, IL6012 for "database" without
+ * Postgres. "redis" uses the redis option, a function that returns the Redis store (or throws IL6031 without a client).
+ */
+export function jobStoreFor(config: JobQueueConfig | undefined, adapter: Adapter, redis?: () => JobStore): JobStore {
   const store = config?.store ?? "memory";
   if (store === "memory") return memoryJobStore();
   if (store === "database") return databaseJobStore(adapter);
-  throw new InferloError("IL6011", `Invalid jobQueue store "${String(store)}".`, { fix: 'Use createApp({ jobQueue: { store: "memory" } }) (the default) or { store: "database" }.' });
+  if (store === "redis" && redis) return redis();
+  throw new InferloError("IL6011", `Invalid jobQueue store "${String(store)}".`, { fix: 'Use createApp({ jobQueue: { store: "memory" } }) (the default), { store: "database" } or { store: "redis" } with createApp({ redis }).' });
 }
 
 export interface JobRuntime {
@@ -399,7 +404,7 @@ export interface JobRuntime {
   audit(job: { name: string; id: string }): Audit;
   store: JobStore;
   /** Name of the store, shown as app.jobs.queue. Default "memory". */
-  queue?: "memory" | "database";
+  queue?: "memory" | "database" | "redis";
   /** How often a running job is reported alive to stores that support it. Default HEARTBEAT_MS. */
   heartbeatMs?: number;
   logger: { info(message: string, data?: unknown): void; error(message: string, data?: unknown): void };

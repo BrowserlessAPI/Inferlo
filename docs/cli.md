@@ -51,7 +51,7 @@ Agents should run this after every change and not stop until `ok` is `true`.
 
 Runs the app's background jobs in their own process, for deployments where web servers and job workers scale separately. It loads the app (reading `.env` first, like `inferlo dev`; variables already set win), calls `app.jobs.start()`, and on SIGTERM or Ctrl+C stops taking new jobs, waits for the running one to finish, closes the database and exits 0. A second signal exits at once.
 
-It needs jobs (IL8007) and `createApp({ jobQueue: { store: "database" } })` (IL8008), because a separate process cannot see an in-memory queue. Run as many workers as you like: each job attempt runs on one of them. With `--json` it prints `{ "ok": true, "event": "started", "jobs": ["send-email"], "queue": "database" }` and a `"stopped"` event. See [Background jobs](jobs.md).
+It needs jobs (IL8007) and a shared queue, `createApp({ jobQueue: { store: "database" } })` or `{ store: "redis" }` (IL8008), because a separate process cannot see an in-memory queue. Run as many workers as you like: each job attempt runs on one of them. With `--json` it prints `{ "ok": true, "event": "started", "jobs": ["send-email"], "queue": "database" }` and a `"stopped"` event. See [Background jobs](jobs.md).
 
 ## inferlo add resource invoices
 

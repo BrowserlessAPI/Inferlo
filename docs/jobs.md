@@ -92,7 +92,7 @@ export const nightly = cron("0 3 * * *", deleteOldSessions);   // every day at 0
 
 By default the queue is kept in memory in the process that enqueues, so jobs are lost on restart and every instance runs its own. That is right for development and tests.
 
-In production, keep jobs in Postgres:
+In production, keep jobs in Postgres or Redis. In Postgres:
 
 ```ts
 export const app = createApp({
@@ -108,6 +108,23 @@ export const app = createApp({
 - While a job runs, its worker reports every 30 seconds that it is still alive. A job still `"running"` without a report for 5 minutes (its process crashed or was killed) is picked up again as its next attempt, with `lastError` saying the worker stopped. If it has no attempts left, it is marked `"failed"` instead. This is why handlers must be safe to run twice.
 - `{ store: "database" }` needs the Postgres adapter (IL6012). Any other store name raises IL6011.
 - `app.jobs.get(id)` reads the record from the table, so any instance can check a job's status.
+
+Or keep them in Redis, with the same guarantees:
+
+```ts
+const redis = await createClient({ url: settings.REDIS_URL }).connect();   // from the redis package
+
+export const app = createApp({
+  redis,
+  jobs: [jobs],
+  jobQueue: { store: "redis" },
+});
+```
+
+- Each due job is claimed by one atomic Lua script, so each attempt runs on exactly one instance. Retries, backoff, the registered-jobs rule, the 30-second reports and the 5-minute stuck-job rule work as with the database queue; whether a job is stuck is decided with the Redis server's clock, so instances whose clocks differ agree.
+- Pending and running jobs never expire. Finished jobs (`"done"` or `"failed"`) are kept for 7 days, so `app.jobs.get(id)` can report them, then Redis removes them.
+- Cron ticks are queued once across instances, as with the database queue.
+- `{ store: "redis" }` without `createApp({ redis })` raises IL6031. Keys and other details are in [Redis](redis.md#job-queue).
 
 ## Testing
 

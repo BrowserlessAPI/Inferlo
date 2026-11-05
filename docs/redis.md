@@ -14,6 +14,8 @@ export const app = createApp({
   // ...
   redis,
   rateLimit: { store: "redis" },   // route rateLimit counts, shared by every instance
+  cache: { store: "redis" },       // ctx.cache, app.cache and cached routes
+  jobQueue: { store: "redis" },    // background jobs and cron ticks
   health: true,                    // GET /ready also checks that Redis answers
 });
 ```
@@ -38,12 +40,22 @@ export const app = createApp({
 
 `cache: { store: "redis" }` without `createApp({ redis })` raises IL6031, and `maxEntries` (memory only) raises IL6028.
 
+## Job queue
+
+`createApp({ redis, jobQueue: { store: "redis" } })` keeps background jobs (see [Background jobs](jobs.md)) in Redis, shared by every instance and by `inferlo worker`:
+
+- Each job is a hash (`inferlo:<app name>:jobs:job:<id>`). Pending jobs are in one sorted set per job name (`jobs:due:<name>`), scored by `runAt`, and running jobs in `jobs:running`, scored by the last report from their worker.
+- Claiming, finishing, retrying and reporting are each one atomic Lua script, so a due job is claimed by exactly one instance however many run `app.jobs.start()` or `inferlo worker`. An instance only claims the jobs it has registered.
+- A running job whose worker has not reported for 5 minutes (it crashed or lost Redis) is claimed again with `lastError` saying the worker stopped, or marked `"failed"` without attempts left. The time comes from the Redis server (`TIME`), so instances with different clocks agree.
+- Pending and running jobs never expire. Finished jobs are kept for 7 days for `app.jobs.get(id)`, then Redis removes them.
+- Cron ticks use fixed job ids, so every instance can run the schedule and each tick is queued once.
+
+Use a Redis that keeps its data (AOF or RDB persistence, or a managed Redis with persistence), or queued jobs are lost when Redis restarts. `jobQueue: { store: "redis" }` without `createApp({ redis })` raises IL6031.
+
 ## Readiness
 
 With `createApp({ redis, health: true })`, `GET /ready` has a built-in `redis` check that sends `PING`, next to `database` and `ai` (see [Health and readiness](deploy.md#health-and-readiness)). A down or slow Redis makes the instance not ready instead of failing requests. Your own check cannot also be called `redis` (IL6014).
 
 ## Supported versions
 
-CI runs the Redis tests (rate limits, cache and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
-
-The Redis job queue (`jobQueue: { store: "redis" }`) is next on the [roadmap](../ROADMAP.md).
+CI runs the Redis tests (rate limits, cache, job queue with cron ticks, and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
