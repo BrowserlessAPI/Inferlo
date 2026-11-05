@@ -24,6 +24,18 @@ function makeApp() {
 }
 
 const code = (expected: string) => (e: unknown) => e instanceof InferloError && e.code === expected;
+const json = { "content-type": "application/json" };
+
+/**
+ * A request over a real connection (the server is started on first use). hapi's server.inject is not used:
+ * it gives empty answers on Bun 1.3.0, and a real connection is what apps get.
+ */
+async function call(server: Hapi.Server, path: string, init?: RequestInit): Promise<{ status: number; body: any; headers: Headers }> {
+  if (!server.info.started) await server.start();
+  const res = await fetch(`${server.info.uri}${path}`, init);
+  const text = await res.text();
+  return { status: res.status, body: text ? JSON.parse(text) : undefined, headers: res.headers };
+}
 
 describe("hapi inferloPlugin", () => {
   const servers: Hapi.Server[] = [];
@@ -42,9 +54,9 @@ describe("hapi inferloPlugin", () => {
     await s.register({ plugin: inferloPlugin, options: { ai: client } });
     assert.equal(s.ai, client);
     s.route({ method: "GET", path: "/hello", handler: async (request) => ({ text: (await request.ai.generate({ model: "fast", prompt: "hi" })).text, same: request.ai === client }) });
-    const res = await s.inject("/hello");
-    assert.equal(res.statusCode, 200);
-    assert.deepEqual(JSON.parse(res.payload), { text: "Hello from AI.", same: true });
+    const res = await call(s, "/hello");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { text: "Hello from AI.", same: true });
   });
 
   test("{ app } with routes.prefix serves the whole app under the prefix next to hapi's routes", async () => {
@@ -52,32 +64,33 @@ describe("hapi inferloPlugin", () => {
     await s.register({ plugin: inferloPlugin, options: { app: makeApp() }, routes: { prefix: "/api" } });
     s.route({ method: "GET", path: "/hapi", handler: () => ({ hapi: true }) });
     assert.ok(s.ai, "server.ai defaults to the app's AI client");
-    const list = await s.inject("/api/items?q=lamp");
-    assert.equal(list.statusCode, 200);
-    assert.deepEqual(JSON.parse(list.payload), { items: [], q: "lamp" });
-    assert.deepEqual(JSON.parse((await s.inject("/api")).payload), { root: true });
-    assert.ok(JSON.parse((await s.inject("/api/openapi.json")).payload).paths["/items"]);
-    assert.deepEqual(JSON.parse((await s.inject("/hapi")).payload), { hapi: true });
-    assert.equal((await s.inject("/elsewhere")).statusCode, 404, "hapi answers outside the prefix");
+    const list = await call(s, "/api/items?q=lamp");
+    assert.equal(list.status, 200);
+    assert.deepEqual(list.body, { items: [], q: "lamp" });
+    assert.deepEqual((await call(s, "/api")).body, { root: true });
+    assert.ok((await call(s, "/api/openapi.json")).body.paths["/items"]);
+    assert.deepEqual((await call(s, "/hapi")).body, { hapi: true });
+    assert.equal((await call(s, "/elsewhere")).status, 404, "hapi answers outside the prefix");
 
-    const anon = await s.inject({ method: "POST", url: "/api/items", payload: { name: "x" } });
-    assert.equal(anon.statusCode, 401);
-    assert.equal(JSON.parse(anon.payload).error.code, "IL3001");
-    const created = await s.inject({ method: "POST", url: "/api/items", payload: { name: "Lamp" }, headers: { authorization: "Bearer demo" } });
-    assert.equal(created.statusCode, 201);
-    assert.deepEqual(JSON.parse(created.payload), { name: "Lamp", ownerId: "00000000-0000-4000-8000-000000000001" });
-    assert.deepEqual(created.headers["set-cookie"], ["a=1; Path=/", "b=2; Path=/"]);
-    const invalid = await s.inject({ method: "POST", url: "/api/items", payload: { name: "" }, headers: { authorization: "Bearer demo" } });
-    assert.equal(invalid.statusCode, 422);
+    const anon = await call(s, "/api/items", { method: "POST", headers: json, body: JSON.stringify({ name: "x" }) });
+    assert.equal(anon.status, 401);
+    assert.equal(anon.body.error.code, "IL3001");
+    const signedIn = { ...json, authorization: "Bearer demo" };
+    const created = await call(s, "/api/items", { method: "POST", headers: signedIn, body: JSON.stringify({ name: "Lamp" }) });
+    assert.equal(created.status, 201);
+    assert.deepEqual(created.body, { name: "Lamp", ownerId: "00000000-0000-4000-8000-000000000001" });
+    assert.deepEqual(created.headers.getSetCookie(), ["a=1; Path=/", "b=2; Path=/"]);
+    const invalid = await call(s, "/api/items", { method: "POST", headers: signedIn, body: JSON.stringify({ name: "" }) });
+    assert.equal(invalid.status, 422);
   });
 
   test("without a prefix the app answers every path hapi has no route for", async () => {
     const s = server();
     s.route({ method: "GET", path: "/items", handler: () => ({ fromHapi: true }) });
     await s.register({ plugin: inferloPlugin, options: { app: makeApp() } });
-    assert.deepEqual(JSON.parse((await s.inject("/items")).payload), { fromHapi: true }, "hapi's own route is more specific");
-    assert.deepEqual(JSON.parse((await s.inject("/")).payload), { root: true });
-    assert.equal((await s.inject({ method: "POST", url: "/items", payload: { name: "x" } })).statusCode, 401, "other methods reach the app");
+    assert.deepEqual((await call(s, "/items")).body, { fromHapi: true }, "hapi's own route is more specific");
+    assert.deepEqual((await call(s, "/")).body, { root: true });
+    assert.equal((await call(s, "/items", { method: "POST", headers: json, body: JSON.stringify({ name: "x" }) })).status, 401, "other methods reach the app");
   });
 
   test("streams AI answers over a real connection", async () => {
@@ -98,7 +111,7 @@ describe("hapi inferloPlugin", () => {
     await s.register({ plugin: inferloPlugin, options: { ai: client } });
     await s.register({ plugin: inferloPlugin, options: { app: makeApp() }, routes: { prefix: "/api" } });
     assert.equal(s.ai, client, "the earlier { ai } stays");
-    assert.equal((await s.inject("/api/items")).statusCode, 200);
+    assert.equal((await call(s, "/api/items")).status, 200);
   });
 
   test("invalid options raise IL5025", async () => {

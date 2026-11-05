@@ -7,25 +7,36 @@ const mock = () => ({
   providers: { anthropic: mockProvider({ respond: (request) => (JSON.stringify(request).includes("JSON Schema") ? '{"label":"question"}' : "A short summary.") }) },
   models: { fast: "anthropic:claude-haiku-4-5" },
 });
+const json = { "content-type": "application/json" };
+
+/** Starts the example server on a free port and returns its base URL. */
+async function start() {
+  const server = await makeServer(mock(), 0);
+  await server.start();
+  return { server, url: `http://127.0.0.1:${server.info.port}` };
+}
 
 test("the Inferlo app is served under /api with auth, validation and OpenAPI", async () => {
-  const server = await makeServer(mock(), 0);
-  const doc = JSON.parse((await server.inject("/api/openapi.json")).payload);
-  assert.ok(doc.paths["/summaries"].post);
-  assert.equal((await server.inject({ method: "POST", url: "/api/summaries", payload: { text: "x" } })).statusCode, 401);
-  const headers = { authorization: "Bearer demo-token" };
-  assert.equal((await server.inject({ method: "POST", url: "/api/summaries", payload: { text: "" }, headers })).statusCode, 422);
-  const ok = await server.inject({ method: "POST", url: "/api/summaries", payload: { text: "Long text" }, headers });
-  assert.deepEqual(JSON.parse(ok.payload), { summary: "A short summary." });
+  const { server, url } = await start();
+  try {
+    const doc = await (await fetch(`${url}/api/openapi.json`)).json();
+    assert.ok(doc.paths["/summaries"].post);
+    assert.equal((await fetch(`${url}/api/summaries`, { method: "POST", headers: json, body: JSON.stringify({ text: "x" }) })).status, 401);
+    const signedIn = { ...json, authorization: "Bearer demo-token" };
+    assert.equal((await fetch(`${url}/api/summaries`, { method: "POST", headers: signedIn, body: JSON.stringify({ text: "" }) })).status, 422);
+    const ok = await fetch(`${url}/api/summaries`, { method: "POST", headers: signedIn, body: JSON.stringify({ text: "Long text" }) });
+    assert.deepEqual(await ok.json(), { summary: "A short summary." });
+  } finally {
+    await server.stop();
+  }
 });
 
 test("hapi routes use request.ai, and AI answers stream", async () => {
-  const server = await makeServer(mock(), 0);
-  const classified = await server.inject({ method: "POST", url: "/classify", payload: { text: "How do I export?" } });
-  assert.deepEqual(JSON.parse(classified.payload), { label: "question" });
-  await server.start();
+  const { server, url } = await start();
   try {
-    const res = await fetch(`${server.info.uri.replace("0.0.0.0", "127.0.0.1")}/api/chat?q=hi`);
+    const classified = await fetch(`${url}/classify`, { method: "POST", headers: json, body: JSON.stringify({ text: "How do I export?" }) });
+    assert.deepEqual(await classified.json(), { label: "question" });
+    const res = await fetch(`${url}/api/chat?q=hi`);
     const text = [...(await res.text()).matchAll(/event: text\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]!)).join("");
     assert.equal(text, "A short summary.");
   } finally {
