@@ -239,6 +239,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6026
 **Invalid permissions.** `permissions({ ... })` takes an object of named rules: each name like `"tickets.update"`, each rule a function that returns `true` or `false` or `{ roles: ["admin"] }` with at least one role. A function rule that returns anything other than `true` or `false` raises it when checked, as does `can()` or `authorize()` with an unknown name. `createApp` raises it when a route's `permission` is not defined, when a route has a `permission` but the app has no `createApp({ permissions })`, when a route combines `permission` with `auth: "public"`, or when `permissions` is not the result of `permissions()`. See [Permissions](auth.md#permissions).
 
+### IL6027
+**Audit log not available or used wrongly.** `ctx.audit(action, entry)` in a route or job needs the built-in `AuditLog` model in `createApp({ models: [...models, AuditLog] })` (run `inferlo db migrate` to create the `audit_log` table), an action name such as `"tickets.update"`, and an object as `entry`. See [Audit log](auth.md#audit-log).
+
 ## Environment (7xxx)
 
 ### IL7001

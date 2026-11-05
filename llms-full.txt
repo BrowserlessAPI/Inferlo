@@ -882,6 +882,46 @@ route.get("/tickets/:id", { permission: "tickets.update" }); // type error: the 
 
 Only names whose rule needs nothing but `{ user }` (roles rules and functions of the user alone) are accepted, because the route passes only `{ user }`. Use `import type` so the models file does not load the permissions at runtime. Without `permissions` in `Register`, `permission` takes any string and `createApp` still checks it at startup. The type is exported as `AppPermission`.
 
+## Audit log
+
+Record who changed what, from routes and jobs. Add the built-in `AuditLog` model to the app (and to `Register`) and run `inferlo db migrate`, which creates the `audit_log` table:
+
+```ts
+import { AuditLog } from "@browserlessapi/inferlo";
+
+export const models = [User, Ticket, AuditLog] as const;   // in Register too, so ctx.db.audit_log is typed
+```
+
+Then write an entry with `audit` after each change you want on record:
+
+```ts
+export const updateTicket = route.patch("/tickets/:id", { body: Ticket.pick("title", "status").partial() }).handle(async ({ params, body, user, db, audit }) => {
+  const ticket = await db.tickets.get(params.id);
+  await access.authorize("tickets.update", { user, ticket });
+  const updated = await db.tickets.update(ticket.id, body);
+  await audit("tickets.update", { model: "tickets", before: ticket, after: updated });
+  return updated;
+});
+```
+
+Each entry has:
+
+| Field | Value |
+|---|---|
+| `action` | The name you pass, such as `"tickets.update"` (use your permission names) |
+| `userId` | The signed-in user. In jobs there is none: pass `userId` (the user who asked for the work), or leave it out for work the system does on its own (`null`) |
+| `model`, `recordId` | The changed record's model and id (`recordId` defaults to `after.id`, then `before.id`) |
+| `changes` | The fields that differ between `before` and `after`, as `{ field: { from, to } }`; leave out `before` for creates and `after` for deletes (missing values are `null`). `id`, `createdAt` and `updatedAt` are skipped and dates are ISO strings |
+| `data` | Anything else you pass as `data` |
+| `source` | Where it was written: `"PATCH /tickets/:id"` or `"job export-tickets"` |
+| `requestId` | The request's id, also in its `X-Request-Id` header and log lines |
+| `createdAt` | When |
+
+- Secrets never reach the table: changed fields named like `password`, `token`, `secret`, `apiKey`, `*Hash`, `session` or `cookie` are stored as `"[redacted]"` without their values, the same names in `data` are redacted, and values from `createApp({ redact })` and AI provider keys are replaced inside any string.
+- Writing is explicit: nothing is recorded unless you call `audit`, so you choose which actions matter. Call it after the change succeeded. It writes with the request's (or job's) `db`, outside any `db.$transaction`; when the entry must be part of a transaction, insert it with the transaction's client: `tx.audit_log.insert({ action, userId: user.id, model: "tickets", recordId, changes: auditChanges(before, after) })`.
+- Read it like any table: `db.audit_log.findMany({ where: { model: "tickets", recordId: id }, orderBy: { createdAt: "desc" } })`. Protect routes that show it with a permission such as `"audit.view"`.
+- Without `AuditLog` in the models, `audit` raises IL6027, as do an empty action name or an entry that is not an object. `auditChanges(before, after)` is exported to compute the same `changes` yourself.
+
 ## API keys with bearer()
 
 ```ts
@@ -3363,6 +3403,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6026
 **Invalid permissions.** `permissions({ ... })` takes an object of named rules: each name like `"tickets.update"`, each rule a function that returns `true` or `false` or `{ roles: ["admin"] }` with at least one role. A function rule that returns anything other than `true` or `false` raises it when checked, as does `can()` or `authorize()` with an unknown name. `createApp` raises it when a route's `permission` is not defined, when a route has a `permission` but the app has no `createApp({ permissions })`, when a route combines `permission` with `auth: "public"`, or when `permissions` is not the result of `permissions()`. See [Permissions](auth.md#permissions).
+
+### IL6027
+**Audit log not available or used wrongly.** `ctx.audit(action, entry)` in a route or job needs the built-in `AuditLog` model in `createApp({ models: [...models, AuditLog] })` (run `inferlo db migrate` to create the `audit_log` table), an action name such as `"tickets.update"`, and an object as `entry`. See [Audit log](auth.md#audit-log).
 
 ## Environment (7xxx)
 

@@ -1,0 +1,4 @@
+{
+  "title": "Audit log for note changes",
+  "prompt": "Compliance needs a record of who changed what. Use Inferlo's built-in audit log: add its model to the app's models in src/models.ts, and record an audit log entry after a note is updated (PATCH /notes/:id, action \"notes.update\") and after a note is deleted (DELETE /notes/:id, action \"notes.delete\"). Each entry must have the signed-in user, the model \"notes\", the note's id as the record id, and the changed fields with their old and new values."
+}

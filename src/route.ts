@@ -13,6 +13,7 @@ import type { AI } from "./ai/index.ts";
 import type { Db } from "./db/table.ts";
 import type { Jobs } from "./jobs.ts";
 import type { AnyModel } from "./model.ts";
+import type { Audit } from "./audit.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
 import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
@@ -124,6 +125,11 @@ export interface Context<Body, Query, Params, User> {
   requestId: string;
   /** Run work after the response is sent (logging, webhooks). Errors are logged, not thrown. */
   waitUntil(promise: Promise<unknown>): void;
+  /**
+   * Write an audit log entry with the signed-in user and this request's id (needs AuditLog in createApp({ models })):
+   * await audit("tickets.update", { model: "tickets", before: ticket, after: updated }).
+   */
+  audit: Audit;
 }
 
 export type AnyContext = Context<any, any, any, any>;

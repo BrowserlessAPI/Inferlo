@@ -4,6 +4,7 @@
  */
 import { bindTools, createAI, type AI, type AIConfig } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
+import { createAudit } from "./audit.ts";
 import { bindDb, createDb, guardAdapter, type Db } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { describeApp, type AppDescription } from "./describe.ts";
@@ -447,6 +448,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     {
       db: db as never,
       ai,
+      audit: (run) => createAudit(models, redactor, () => db as never, { userId: null, source: `job ${run.name}` }),
       store: jobStoreFor(config.jobQueue, adapter),
       queue: config.jobQueue?.store ?? "memory",
       logger,
@@ -701,6 +703,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           status: (code: number) => void (status = code),
           header: (name: string, value: string) => headers.set(name, value),
           waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e, { requestId }))),
+          audit: createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, source: `${def.method} ${def.path}`, requestId }),
         };
         const result = await def.handler(ctx);
         if (result instanceof Response) {

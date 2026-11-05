@@ -68,6 +68,8 @@ export { job, isJob, retryDelayMs } from "./jobs.ts";
 export { cron, isCron } from "./cron.ts";
 export type { CronDef } from "./cron.ts";
 export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, JobQueueConfig, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";
+export { AuditLog, auditChanges } from "./audit.ts";
+export type { Audit, AuditEntry, AuditChange } from "./audit.ts";
 export { permissions, isPermissions } from "./permissions.ts";
 export type { Permissions, PermissionRule, PermissionInput } from "./permissions.ts";
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
