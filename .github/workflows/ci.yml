@@ -180,6 +180,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/hapi.test.ts "examples/with-hapi/test/*.test.ts"
 
+  azure:
+    name: Azure Functions ${{ matrix.azure }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 4.3.0 = oldest supported (@azure/functions 4 is the supported Node.js programming model, and 4.3.0 is its
+        # first release with HTTP streams), latest = newest release.
+        azure: ["4.3.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save @azure/functions@${{ matrix.azure }}
+      - run: node -p "'@azure/functions ' + require('./node_modules/@azure/functions/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/azure.test.ts "examples/with-azure/test/*.test.ts"
+
   elysia:
     name: Elysia ${{ matrix.elysia }} on ${{ matrix.runtime }}
     runs-on: ubuntu-latest

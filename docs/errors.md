@@ -179,6 +179,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5025
 **Invalid hapi inferloPlugin options.** `server.register({ plugin: inferloPlugin, options })` from `@browserlessapi/inferlo/hapi` needs `options` with `ai` (an AI client, for `server.ai` and `request.ai`), `app` (an Inferlo app from `createApp`) or both. The path prefix comes from hapi, not from the options: `server.register({ plugin: inferloPlugin, options: { app }, routes: { prefix: "/api" } })`. `server.ai` can only be set once, so register the plugin with `{ ai }` once and with `{ app }` for each app you serve. See [hapi](integrations.md#hapi).
 
+### IL5026
+**Invalid toAzureHandler() arguments or request.** `toAzureHandler(app, { prefix })` from `@browserlessapi/inferlo/azure` needs the app returned by `createApp`; the only option is `prefix`, which starts with `/` (such as `"/api"`, Azure's default route prefix). The handler only takes HTTP trigger requests: register it with `azure.http(name, { route: "{*path}", handler })`. Other triggers such as queues, timers or blobs need their own handler. See [Azure Functions](integrations.md#azure-functions).
+
 ## App configuration (6xxx)
 
 ### IL6001

@@ -1,0 +1,5 @@
+{
+  "title": "Run the app on Azure Functions",
+  "prompt": "We want to deploy this Inferlo app to Azure Functions (Node.js programming model v4, default host.json, so every HTTP function is under /api). Create src/functions/inferlo.ts that registers one HTTP-triggered function with @azure/functions serving the whole Inferlo app exported from src/app.ts for every path and method, with anonymous function auth and HTTP streaming enabled, and also export its handler as `handler`: GET /api/health reaches the app's health endpoint, /api/openapi.json serves its OpenAPI document and POST /api/notes reaches POST /notes. Use Inferlo's Azure Functions integration.",
+  "packages": ["@azure/functions"]
+}

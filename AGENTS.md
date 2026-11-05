@@ -67,6 +67,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | SvelteKit (`@browserlessapi/inferlo/sveltekit`, examples/with-sveltekit) | 2 (newest 2.x, the line before SvelteKit 3) | `latest` (3) |
 | React Router, framework mode (`@browserlessapi/inferlo/react-router`, examples/with-react-router) | 7 (newest 7.x, still maintained upstream) | `latest` (8) |
 | AWS Lambda (`@browserlessapi/inferlo/lambda`, examples/with-lambda) | Lambda runtime `nodejs22.x` (oldest Node.js runtime Lambda supports that meets `engines`), covered by the Node.js 22 jobs; event payload formats 1.0 and 2.0 | `nodejs24.x`, covered by the Node.js 24 job |
+| Azure Functions (`@browserlessapi/inferlo/azure`, examples/with-azure) | `@azure/functions` 4.3.0 (the v4 programming model is the supported one; 4.3.0 is its first release with HTTP streams), on the Node.js 22 and 24 jobs | `latest` |
 | OpenTelemetry API (`createApp({ tracing: { api } })`, optional peer dependency) | 1.3.0 (the oldest the OpenTelemetry JS SDK 2.x accepts) | `latest` |
 | Encore.ts (`toNodeHandler` in a raw endpoint and `@browserlessapi/inferlo/ai` in services, examples/with-encore) | encore.dev 1.51.0 (Encore.ts has no long-term support releases and fixes only its newest release; 1.51.0, October 2025, is about a year of releases) | `latest` |
 

@@ -668,6 +668,37 @@ Anything that is not an app, invalid options, or an event that is not from a fun
 
 The [with-lambda example](../examples/with-lambda) has both handlers and an AWS SAM template (`sam build && sam deploy --guided`). The tests run the handlers with the event shapes AWS documents for function URLs, HTTP APIs and REST APIs. Lambda's Node.js runtimes (`nodejs22.x` and `nodejs24.x`) are covered by the Node.js 22 and 24 jobs in CI.
 
+## Azure Functions
+
+`@browserlessapi/inferlo/azure` turns a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) into an HTTP trigger handler for Azure Functions (Node.js programming model v4, `@azure/functions` 4.3.0 and newer). Inferlo has no runtime dependency on `@azure/functions`; your function app already has it.
+
+```ts
+// src/functions/inferlo.ts
+import { app as azure } from "@azure/functions";
+import { toAzureHandler } from "@browserlessapi/inferlo/azure";
+import { app } from "../app.ts"; // export const app = createApp({ ... })
+
+azure.setup({ enableHttpStream: true }); // stream answers, AI streams included
+
+azure.http("inferlo", {
+  route: "{*path}", // every path
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+  authLevel: "anonymous", // Inferlo checks auth itself (routes are private unless auth: "public")
+  handler: toAzureHandler(app, { prefix: "/api" }),
+});
+```
+
+- Azure Functions serves HTTP functions under `/api` unless `host.json` sets `extensions.http.routePrefix`. `prefix: "/api"` removes it, so the app's `/status` route answers at `/api/status`. With `"routePrefix": ""` in `host.json`, leave `prefix` out. Requests outside the prefix keep their path.
+- The app sees the caller's scheme and host (`X-Forwarded-Proto` and `Host`), query strings, headers, cookies and bodies (also binary) as a normal `Request`.
+- Azure Functions keeps only one `Set-Cookie` header, so every cookie the app sets is returned in the response's `cookies` list instead, with its `Path`, `Domain`, `Expires`, `Max-Age`, `Secure`, `HttpOnly` and `SameSite` attributes (attributes Azure has no field for, such as `Partitioned`, are left out).
+- `rateLimit: { by: "ip" }` uses the last `X-Forwarded-For` address, the one the Azure front end adds (without its port), so a client cannot pick its own address. Function instances do not share memory, so use `createApp({ rateLimit: { store: "database" } })` (and the database queue and cache) for limits across instances.
+- `azure.setup({ enableHttpStream: true })` makes Azure send the answer as the app writes it, so an AI answer (`ai.stream(...).toResponse()`) reaches the browser token by token. Without it, Azure sends the answer when it is complete; the handler is the same in both cases.
+- Create the app outside the handler (as above), so warm invocations reuse it, its database pool and its AI clients.
+
+Anything that is not an app, an unknown option, a prefix that does not start with `/`, or a call with something other than an HTTP trigger request raise IL5026.
+
+`@azure/functions` is a bundled CommonJS package: `import { app } from "@azure/functions"` works in ES modules, while the test helpers `HttpRequest` and `HttpResponse` come from the default export (`import azureFunctions from "@azure/functions"; const { HttpRequest } = azureFunctions`). The [with-azure example](../examples/with-azure) has the function, its `host.json`, and tests that call the handler with `HttpRequest` objects the way the Functions host does. CI tests `@azure/functions` 4.3.0 and the latest release.
+
 ## Encore.ts
 
 Encore.ts needs no Inferlo entry point: an Encore raw endpoint is called with Node.js-style request and response objects, so `toNodeHandler` serves a whole Inferlo app from it, and `@browserlessapi/inferlo/ai` works in any Encore service. Nothing Encore-specific is loaded by Inferlo.

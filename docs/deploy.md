@@ -113,6 +113,25 @@ export const handler = toLambdaHandler(app);                       // function U
 
 See [AWS Lambda](integrations.md#aws-lambda) for event formats, cookies, binary bodies and streaming AI answers.
 
+## Azure Functions
+
+```ts
+// src/functions/inferlo.ts
+import { app as azure } from "@azure/functions";
+import { toAzureHandler } from "@browserlessapi/inferlo/azure";
+import { app } from "../app.ts";
+
+azure.setup({ enableHttpStream: true });
+azure.http("inferlo", {
+  route: "{*path}",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: toAzureHandler(app, { prefix: "/api" }),
+});
+```
+
+See [Azure Functions](integrations.md#azure-functions) for the route prefix, cookies, client addresses and streaming AI answers.
+
 ## Inside another framework
 
 To run an Inferlo app under a path of an existing Express, Fastify, NestJS or Hono app, see [Use with other frameworks](integrations.md) (`toNodeHandler(app, { prefix })`).
