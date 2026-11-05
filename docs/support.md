@@ -59,7 +59,8 @@ Every version range below is tested in CI on its oldest supported and its latest
 |---|---|
 | Node.js | 22.18 and newer (`engines` in package.json), every LTS line still maintained upstream and the current release |
 | Bun | 1.3.0 and newer |
-| Deno, Cloudflare Workers and other runtimes with Web APIs | Work through `app.fetch`; not yet tested in CI (Deno is on the [roadmap](../ROADMAP.md)) |
+| Cloudflare Workers (`export default app`) | Compatibility date 2025-04-01 and later with `nodejs_compat`, tested in workerd through Miniflare 4.20250405.0 (the first Miniflare 4 release) and the latest Miniflare |
+| Deno and other runtimes with Web APIs | Work through `app.fetch`; not yet tested in CI (Deno is on the [roadmap](../ROADMAP.md)) |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
 | Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |
 | TypeScript | 5.9 and newer |

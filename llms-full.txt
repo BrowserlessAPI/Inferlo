@@ -1815,7 +1815,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, hapi uses `inferloPlugin` from `@browserlessapi/inferlo/hapi`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, and AWS Lambda uses `toLambdaHandler(app)`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, hapi uses `inferloPlugin` from `@browserlessapi/inferlo/hapi`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, AWS Lambda uses `toLambdaHandler(app)`, and Cloudflare Workers take `export default app`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -2531,6 +2531,46 @@ Deploy it with `gcloud run deploy my-api --source . --function inferlo --base-im
 - Create the app at module level (as above), so warm requests reuse it, its database pool and its AI clients.
 
 To test the function as the Functions Framework runs it, use `getTestServer("inferlo")` from `@google-cloud/functions-framework/testing` after importing `src/index.ts`. The [with-cloud-run-functions example](../examples/with-cloud-run-functions) does that. CI tests Functions Framework 4.0.0 and the latest release.
+
+## Cloudflare Workers
+
+An Inferlo app is a Worker as it is: `export default app` makes `app.fetch` the Worker's fetch handler, with routes, auth, validation, rate limits, OpenAPI, MCP and the AI module. No adapter and no extra entry point.
+
+```ts
+// src/index.ts (wrangler.jsonc "main")
+import { app } from "./app.ts"; // export const app = createApp({ ... })
+
+export default app;
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",          // or later
+  "compatibility_flags": ["nodejs_compat"]
+}
+```
+
+- **Bindings.** With the `nodejs_compat` flag and a compatibility date of 2025-04-01 or later, Workers put string bindings (`vars` and secrets from `wrangler secret put`) in the environment when the Worker starts, so `config({ schema })` and `env("NAME")` read them at module level like on any other runtime, and `config` secrets stay redacted. Without the flag there is no environment, and `env()` raises IL7001. Other bindings (KV, D1, R2, Durable Objects) are not strings; read them from the `env` argument of your own fetch handler (below).
+- **AI.** Providers call their APIs with `fetch`, so `ctx.ai`, `app.ai` and `createAI` from `@browserlessapi/inferlo/ai` work on Workers, including streaming with `ai.stream(...).toResponse()`, tool calls and fallback between aliases. Put provider keys in Worker secrets.
+- **Client address.** `rateLimit: { by: "ip" }` uses the `CF-Connecting-IP` header, which Cloudflare sets to the caller's address (a value sent by the client is replaced). With `createApp({ trustProxy: true })` the first `X-Forwarded-For` address wins instead.
+- **Background work.** `ctx.waitUntil(promise)` hands the promise to the Worker's `ctx.waitUntil`, so it finishes after the response is sent.
+- **State.** Each Worker isolate has its own memory, so the default memory stores for rate limits, the cache and jobs are per isolate. The Postgres adapter and the Redis stores are not yet tested on Workers.
+
+To use other bindings or `scheduled` events next to the app, write the handler object yourself and pass the call on:
+
+```ts
+export default {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(app.jobs.runDue());
+  },
+};
+```
+
+The [with-cloudflare-workers example](../examples/with-cloudflare-workers) has the Worker, its `wrangler.jsonc`, and tests that run it in workerd (the open-source Workers runtime) through Miniflare, with Anthropic answered by a stand-in. CI runs the Workers tests on Miniflare 4.20250405.0 (the first Miniflare 4 release, with workerd from April 2025) and the latest Miniflare.
 
 ## Encore.ts
 
@@ -4091,7 +4131,7 @@ import { app } from "./app.ts";
 export default app;   // app.fetch is the Worker handler
 ```
 
-Use a Postgres driver that supports your edge runtime, or `memory()` for stateless services.
+On Cloudflare Workers, set `"compatibility_flags": ["nodejs_compat"]` and a `compatibility_date` of 2025-04-01 or later in `wrangler.jsonc`, so vars and secrets reach `config()` and `env()`. Deploy with `npx wrangler deploy`. Bindings, the client address, `waitUntil` and AI on Workers are in [Cloudflare Workers](integrations.md#cloudflare-workers). Use `memory()` for stateless services; the Postgres adapter is not yet tested on Workers.
 
 ## AWS Lambda
 
@@ -4204,7 +4244,8 @@ Every version range below is tested in CI on its oldest supported and its latest
 |---|---|
 | Node.js | 22.18 and newer (`engines` in package.json), every LTS line still maintained upstream and the current release |
 | Bun | 1.3.0 and newer |
-| Deno, Cloudflare Workers and other runtimes with Web APIs | Work through `app.fetch`; not yet tested in CI (Deno is on the [roadmap](../ROADMAP.md)) |
+| Cloudflare Workers (`export default app`) | Compatibility date 2025-04-01 and later with `nodejs_compat`, tested in workerd through Miniflare 4.20250405.0 (the first Miniflare 4 release) and the latest Miniflare |
+| Deno and other runtimes with Web APIs | Work through `app.fetch`; not yet tested in CI (Deno is on the [roadmap](../ROADMAP.md)) |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
 | Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |
 | TypeScript | 5.9 and newer |

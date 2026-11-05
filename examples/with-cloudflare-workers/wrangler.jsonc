@@ -1,0 +1,10 @@
+{
+  "name": "with-cloudflare-workers",
+  "main": "src/index.ts",
+  // nodejs_compat with a compatibility date of 2025-04-01 or later puts vars and secrets in process.env,
+  // where config() and env() read them.
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true }
+  // Secrets: wrangler secret put API_TOKEN, wrangler secret put ANTHROPIC_API_KEY
+}

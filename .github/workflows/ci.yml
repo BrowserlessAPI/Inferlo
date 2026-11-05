@@ -245,6 +245,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/azure.test.ts "examples/with-azure/test/*.test.ts"
 
+  cloudflare-workers:
+    name: Cloudflare Workers (Miniflare ${{ matrix.miniflare }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 4.20250405.0 = oldest supported (the first Miniflare 4 release, with workerd from April 2025; Miniflare 3
+        # gets no more releases), latest = newest Miniflare with the newest workerd.
+        miniflare: ["4.20250405.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save miniflare@${{ matrix.miniflare }}
+      - run: node -p "'miniflare ' + require('./node_modules/miniflare/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/cloudflare-workers.test.ts "examples/with-cloudflare-workers/test/*.test.ts"
+
   cloud-run-functions:
     name: Cloud Run functions (Functions Framework ${{ matrix.framework }})
     runs-on: ubuntu-latest

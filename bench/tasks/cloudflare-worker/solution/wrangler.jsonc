@@ -1,0 +1,8 @@
+{
+  "name": "notes-api",
+  "main": "src/worker.ts",
+  // nodejs_compat with a compatibility date of 2025-04-01 or later puts vars and secrets in the environment,
+  // where config() reads them.
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"]
+}

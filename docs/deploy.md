@@ -99,7 +99,7 @@ import { app } from "./app.ts";
 export default app;   // app.fetch is the Worker handler
 ```
 
-Use a Postgres driver that supports your edge runtime, or `memory()` for stateless services.
+On Cloudflare Workers, set `"compatibility_flags": ["nodejs_compat"]` and a `compatibility_date` of 2025-04-01 or later in `wrangler.jsonc`, so vars and secrets reach `config()` and `env()`. Deploy with `npx wrangler deploy`. Bindings, the client address, `waitUntil` and AI on Workers are in [Cloudflare Workers](integrations.md#cloudflare-workers). Use `memory()` for stateless services; the Postgres adapter is not yet tested on Workers.
 
 ## AWS Lambda
 

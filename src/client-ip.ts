@@ -1,9 +1,16 @@
 /** Client IP addresses of incoming requests, recorded by serve() (Node) where the Request cannot carry them. */
 export const clientIps = new WeakMap<Request, string>();
 
+/** True in the Cloudflare Workers runtime (workerd), where navigator.userAgent is "Cloudflare-Workers". */
+function onWorkers(): boolean {
+  return (globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent === "Cloudflare-Workers";
+}
+
 /**
  * The client IP of a request. With trustProxy, the first X-Forwarded-For address (set by your load balancer).
- * Otherwise the socket address from serve() (Node), Bun's server.requestIP or Deno's remoteAddr, or "unknown".
+ * Otherwise the socket address from serve() (Node), Bun's server.requestIP or Deno's remoteAddr, the
+ * CF-Connecting-IP header on Cloudflare Workers (set by Cloudflare, which replaces any value the client sends),
+ * or "unknown".
  */
 export function clientIp(req: Request, trustProxy: boolean, platform: unknown): string {
   if (trustProxy) {
@@ -18,6 +25,10 @@ export function clientIp(req: Request, trustProxy: boolean, platform: unknown): 
     if (address) return address;
   } catch {
     // Not a Bun server or Deno info object.
+  }
+  if (onWorkers()) {
+    const connecting = req.headers.get("cf-connecting-ip")?.trim();
+    if (connecting) return connecting;
   }
   return "unknown";
 }

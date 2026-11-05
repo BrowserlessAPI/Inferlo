@@ -71,6 +71,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Azure Functions (`@browserlessapi/inferlo/azure`, examples/with-azure) | `@azure/functions` 4.3.0 (the v4 programming model is the supported one; 4.3.0 is its first release with HTTP streams), on the Node.js 22 and 24 jobs | `latest` |
 | Google Cloud Run functions (`toNodeHandler` with `@google-cloud/functions-framework`, examples/with-cloud-run-functions) | Functions Framework 4.0.0 (3.x has had no release since March 2025), on the Node.js 22 and 24 jobs | `latest` |
 | OpenTelemetry API (`createApp({ tracing: { api } })`, optional peer dependency) | 1.3.0 (the oldest the OpenTelemetry JS SDK 2.x accepts) | `latest` |
+| Cloudflare Workers (`export default app`, examples/with-cloudflare-workers, test/cloudflare-workers.test.ts), in workerd through Miniflare | Miniflare 4.20250405.0 (the first Miniflare 4 release, workerd from April 2025; Miniflare 3 gets no more releases), compatibility date 2025-04-01 with `nodejs_compat` (the first date that puts bindings in the environment) | `latest` |
 | Encore.ts (`toNodeHandler` in a raw endpoint and `@browserlessapi/inferlo/ai` in services, examples/with-encore) | encore.dev 1.51.0 (Encore.ts has no long-term support releases and fixes only its newest release; 1.51.0, October 2025, is about a year of releases) | `latest` |
 
 Rules:

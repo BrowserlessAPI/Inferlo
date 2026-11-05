@@ -1,0 +1,4 @@
+{
+  "title": "Deploy on Cloudflare Workers",
+  "prompt": "Deploy the app on Cloudflare Workers. Add src/worker.ts as the Worker entry point that serves the whole app (routes, health, OpenAPI and MCP), and a wrangler.jsonc in the project root for a Worker named \"notes-api\" whose main is src/worker.ts, set up so that Worker vars and secrets reach the app's config() settings. Do not change src/server.ts."
+}
