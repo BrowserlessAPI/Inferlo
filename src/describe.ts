@@ -78,7 +78,7 @@ export interface AppDescription {
   cache: "memory" | "database";
 }
 
-export const INFERLO_VERSION = "0.5.0";
+export const INFERLO_VERSION = "0.6.0";
 
 function field(name: string, schema: AnySchema): FieldDescription {
   const d = schema.def;
