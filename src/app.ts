@@ -21,6 +21,7 @@ import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
+import { requestTracing, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
 import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
 import { INFERLO_VERSION } from "./describe.ts";
@@ -179,6 +180,11 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    * public, so keep it off the internet. Off by default.
    */
   metrics?: boolean | MetricsConfig;
+  /**
+   * OpenTelemetry tracing: import * as otel from "@opentelemetry/api", then tracing: { api: otel }. Every request
+   * gets a server span that continues the caller's trace, and log entries get traceId and spanId. Off by default.
+   */
+  tracing?: TracingConfig;
 }
 
 interface CompiledRoute {
@@ -333,6 +339,10 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const redactor = createRedactor([...redactValues(config.redact), ...Object.values(config.ai?.providers ?? {}).flatMap((p) => secretsOf(p))]);
   const logging = loggingOptions(config.logging, config.logger !== undefined);
   const logger: Logger = redactingLogger(config.logger ?? defaultLogger(logging.format, config.name ?? "inferlo-app"), redactor);
+  const tracing = requestTracing(config.tracing, config.name ?? "inferlo-app", config.version ?? "0.0.0");
+  const tracingApi = tracing ? config.tracing!.api : undefined;
+  // The server span of each request, for errors recorded while it runs.
+  const requestSpans = new WeakMap<Request, OtelSpan>();
   const { modules, modelOwner } = resolveModules(config.modules, config.models ?? []);
   const models = [...(config.models ?? []), ...modules.flatMap((m) => m.models)] as unknown as [...Models, ...ModuleModels<Modules>];
   const modelNames = new Set<string>();
@@ -546,7 +556,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const roles = (user: AppUser): string[] => config.auth?.roles?.(user) ?? ((user as { roles?: string[] }).roles ?? []);
 
   const errorResponse = (error: unknown, headers: Headers, req: Request, requestId: string): Response => {
-    const fields = { requestId };
+    const span = requestSpans.get(req);
+    const fields = { requestId, ...traceFields(span) };
+    if (span && !(error instanceof InferloError && error.status < 500)) span.recordException(error);
     if (error instanceof InferloError) {
       if (error.status >= 500) logger.error(`${req.method} ${new URL(req.url).pathname} failed: ${error.format()}`, error.cause ?? "", fields);
       const body = error.toJSON();
@@ -826,8 +838,27 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   };
 
   async function handle(req: Request, rest: unknown[]): Promise<Response> {
-    const started = performance.now();
     const url = new URL(req.url);
+    // Health and metrics endpoints are called every few seconds by load balancers and scrapers: not logged, counted or traced.
+    const probe = url.pathname === health?.path || url.pathname === health?.readyPath || url.pathname === metricsConfig?.path;
+    if (!tracing || probe) return handleTraced(req, rest, url, probe, undefined);
+    return tracing.run(req, url, async (span) => {
+      requestSpans.set(req, span);
+      let status = 500;
+      try {
+        const response = await handleTraced(req, rest, url, probe, span);
+        status = response.status;
+        return response;
+      } finally {
+        span.setAttribute("http.response.status_code", status);
+        if (status >= 500) span.setStatus({ code: tracingApi!.SpanStatusCode.ERROR });
+        span.end();
+      }
+    });
+  }
+
+  async function handleTraced(req: Request, rest: unknown[], url: URL, probe: boolean, span: OtelSpan | undefined): Promise<Response> {
+    const started = performance.now();
     // Behind a trusted proxy, keep the id it sent so log entries line up across services.
     const incoming = config.trustProxy ? req.headers.get("x-request-id") : null;
     const requestId = incoming && REQUEST_ID.test(incoming) ? incoming : crypto.randomUUID();
@@ -850,15 +881,17 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       response = errorResponse(error, new Headers(), req, requestId);
     }
     response = withHeader(response, "x-request-id", requestId);
-    // Health and metrics endpoints are called every few seconds by load balancers and scrapers: not logged or counted.
-    const probe = url.pathname === health?.path || url.pathname === health?.readyPath || url.pathname === metricsConfig?.path;
+    if (span && seen.route !== "unmatched") {
+      span.updateName(`${req.method.toUpperCase()} ${seen.route}`);
+      span.setAttribute("http.route", seen.route);
+    }
     if (!probe) {
       const elapsed = performance.now() - started;
       const method = req.method.toUpperCase();
       metrics?.request(method, seen.route, response.status, elapsed / 1000);
       if (logging.requests) {
         const durationMs = Math.round(elapsed * 10) / 10;
-        logger.info(`${method} ${url.pathname} ${response.status} ${durationMs}ms`, undefined, { requestId, method, path: url.pathname, status: response.status, durationMs });
+        logger.info(`${method} ${url.pathname} ${response.status} ${durationMs}ms`, undefined, { requestId, ...traceFields(span), method, path: url.pathname, status: response.status, durationMs });
       }
     }
     if (secureHeaders.length) {

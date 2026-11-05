@@ -260,6 +260,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6029
 **Invalid sessions() options or call.** `sessions({ secret, user })` needs a `secret` of at least 32 characters (or a list of them for rotation, newest first; generate one with `openssl rand -base64 32` and keep it in `config({ secrets })`) and a `user({ userId, issuedAt }, { db })` function that loads the signed-in user. `maxAgeMs` is a whole number of milliseconds from 1 minute to 400 days, `cookie.name` a valid cookie name, `cookie.sameSite` `"lax"` or `"strict"`, and `cookie.domain` and `cookie.path` strings without spaces, commas or semicolons. `session.signIn(ctx, userId)` and `session.signOut(ctx)` need the route's context and a non-empty user id. See [Cookie sessions](auth.md#cookie-sessions).
 
+### IL6030
+**Invalid tracing options.** `createApp({ tracing })` takes `{ api }` with the OpenTelemetry API (`import * as otel from "@opentelemetry/api"`, then `tracing: { api: otel }`) and an optional non-empty `tracerName`. Install `@opentelemetry/api` 1.3 or newer, and start an OpenTelemetry SDK so the spans are exported. See [Tracing](observability.md#tracing-opentelemetry).
+
 ## Environment (7xxx)
 
 ### IL7001

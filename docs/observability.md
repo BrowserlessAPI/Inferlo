@@ -1,6 +1,6 @@
 # Observability
 
-Inferlo gives every request an id, can log every request, writes logs as readable text or as one JSON object per line for log collectors (Datadog, Loki, CloudWatch, Elastic, Google Cloud Logging), and serves Prometheus metrics for requests, jobs and AI calls. Tracing is on the [roadmap](../ROADMAP.md).
+Inferlo gives every request an id, can log every request, writes logs as readable text or as one JSON object per line for log collectors (Datadog, Loki, CloudWatch, Elastic, Google Cloud Logging), serves Prometheus metrics for requests, jobs and AI calls, and traces requests with OpenTelemetry.
 
 ```ts
 export const app = createApp({
@@ -132,3 +132,28 @@ histogram_quantile(0.95, sum by (le, route) (rate(inferlo_http_request_duration_
 sum by (requested) (increase(inferlo_ai_cost_usd_total[1d]))
 sum by (job) (increase(inferlo_job_runs_total{outcome="failed"}[1h]))
 ```
+
+## Tracing (OpenTelemetry)
+
+Pass the OpenTelemetry API you already use, and every request gets a server span:
+
+```ts
+import * as otel from "@opentelemetry/api";
+
+export const app = createApp({
+  routes: [tickets],
+  tracing: { api: otel },
+});
+```
+
+Inferlo has no dependency on OpenTelemetry (`@opentelemetry/api` 1.3 and newer is an optional peer dependency): it uses the API you pass, so spans go wherever the OpenTelemetry SDK you start exports them (an OTLP collector, Jaeger, Grafana Tempo, Honeycomb, Datadog). Start the SDK before the app, for example `node --import ./otel.ts src/server.ts` with `@opentelemetry/sdk-node`. Without an SDK, the API's no-op tracer is used and nothing is recorded.
+
+- **One server span per request**, named after the matched route (`GET /tickets/:id`; requests that match no route keep just the method, so names stay few), with the attributes `http.request.method`, `http.route`, `http.response.status_code`, `url.path`, `url.scheme`, `server.address`, `server.port` and `user_agent.original`. Answers with status 500 or more set the span's status to error and record the exception; 4xx answers do not. The span ends when the response headers are ready (a streamed body can take longer).
+- **It continues the caller's trace**: the incoming `traceparent` header (and whatever else the propagator your SDK registers reads) becomes the span's parent, so a trace runs through every service.
+- **The handler runs inside the span**: spans you start with `otel.trace.getTracer(...)` and spans from instrumentations (outgoing `fetch`, `pg`) become its children, and `otel.trace.getActiveSpan()` returns it.
+- **Logs carry the trace**: every log entry Inferlo writes for the request (request logs, failed requests) gets `traceId` and `spanId` fields next to `requestId`, so your log tool links logs and traces.
+- The health, readiness and metrics endpoints are not traced. The tracer is named after the app (`createApp({ name })`) with its `version`; set `tracing: { api: otel, tracerName: "billing-api" }` to change it.
+- Anything else than `{ api }` with the OpenTelemetry API raises IL6030 at startup.
+
+Spans for database queries, jobs and AI calls come next (see the [roadmap](../ROADMAP.md)).
+

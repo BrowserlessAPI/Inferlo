@@ -3579,7 +3579,7 @@ Logged errors stay errors (same class, `code`, `status` and `cause`, with redact
 
 # Observability
 
-Inferlo gives every request an id, can log every request, writes logs as readable text or as one JSON object per line for log collectors (Datadog, Loki, CloudWatch, Elastic, Google Cloud Logging), and serves Prometheus metrics for requests, jobs and AI calls. Tracing is on the [roadmap](../ROADMAP.md).
+Inferlo gives every request an id, can log every request, writes logs as readable text or as one JSON object per line for log collectors (Datadog, Loki, CloudWatch, Elastic, Google Cloud Logging), serves Prometheus metrics for requests, jobs and AI calls, and traces requests with OpenTelemetry.
 
 ```ts
 export const app = createApp({
@@ -3711,6 +3711,30 @@ histogram_quantile(0.95, sum by (le, route) (rate(inferlo_http_request_duration_
 sum by (requested) (increase(inferlo_ai_cost_usd_total[1d]))
 sum by (job) (increase(inferlo_job_runs_total{outcome="failed"}[1h]))
 ```
+
+## Tracing (OpenTelemetry)
+
+Pass the OpenTelemetry API you already use, and every request gets a server span:
+
+```ts
+import * as otel from "@opentelemetry/api";
+
+export const app = createApp({
+  routes: [tickets],
+  tracing: { api: otel },
+});
+```
+
+Inferlo has no dependency on OpenTelemetry (`@opentelemetry/api` 1.3 and newer is an optional peer dependency): it uses the API you pass, so spans go wherever the OpenTelemetry SDK you start exports them (an OTLP collector, Jaeger, Grafana Tempo, Honeycomb, Datadog). Start the SDK before the app, for example `node --import ./otel.ts src/server.ts` with `@opentelemetry/sdk-node`. Without an SDK, the API's no-op tracer is used and nothing is recorded.
+
+- **One server span per request**, named after the matched route (`GET /tickets/:id`; requests that match no route keep just the method, so names stay few), with the attributes `http.request.method`, `http.route`, `http.response.status_code`, `url.path`, `url.scheme`, `server.address`, `server.port` and `user_agent.original`. Answers with status 500 or more set the span's status to error and record the exception; 4xx answers do not. The span ends when the response headers are ready (a streamed body can take longer).
+- **It continues the caller's trace**: the incoming `traceparent` header (and whatever else the propagator your SDK registers reads) becomes the span's parent, so a trace runs through every service.
+- **The handler runs inside the span**: spans you start with `otel.trace.getTracer(...)` and spans from instrumentations (outgoing `fetch`, `pg`) become its children, and `otel.trace.getActiveSpan()` returns it.
+- **Logs carry the trace**: every log entry Inferlo writes for the request (request logs, failed requests) gets `traceId` and `spanId` fields next to `requestId`, so your log tool links logs and traces.
+- The health, readiness and metrics endpoints are not traced. The tracer is named after the app (`createApp({ name })`) with its `version`; set `tracing: { api: otel, tracerName: "billing-api" }` to change it.
+- Anything else than `{ api }` with the OpenTelemetry API raises IL6030 at startup.
+
+Spans for database queries, jobs and AI calls come next (see the [roadmap](../ROADMAP.md)).
 
 ---
 
@@ -3899,6 +3923,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Encore.ts (`toNodeHandler` in a raw endpoint, `/ai` in services) | encore.dev 1.51.0 and newer |
 | Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
+| OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
 
@@ -4172,6 +4197,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6029
 **Invalid sessions() options or call.** `sessions({ secret, user })` needs a `secret` of at least 32 characters (or a list of them for rotation, newest first; generate one with `openssl rand -base64 32` and keep it in `config({ secrets })`) and a `user({ userId, issuedAt }, { db })` function that loads the signed-in user. `maxAgeMs` is a whole number of milliseconds from 1 minute to 400 days, `cookie.name` a valid cookie name, `cookie.sameSite` `"lax"` or `"strict"`, and `cookie.domain` and `cookie.path` strings without spaces, commas or semicolons. `session.signIn(ctx, userId)` and `session.signOut(ctx)` need the route's context and a non-empty user id. See [Cookie sessions](auth.md#cookie-sessions).
+
+### IL6030
+**Invalid tracing options.** `createApp({ tracing })` takes `{ api }` with the OpenTelemetry API (`import * as otel from "@opentelemetry/api"`, then `tracing: { api: otel }`) and an optional non-empty `tracerName`. Install `@opentelemetry/api` 1.3 or newer, and start an OpenTelemetry SDK so the spans are exported. See [Tracing](observability.md#tracing-opentelemetry).
 
 ## Environment (7xxx)
 

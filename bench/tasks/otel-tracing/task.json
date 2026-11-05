@@ -1,0 +1,5 @@
+{
+  "title": "Trace requests with OpenTelemetry",
+  "prompt": "Our platform team collects traces with OpenTelemetry. Turn on Inferlo's built-in OpenTelemetry tracing in src/app.ts using the @opentelemetry/api package, so every request to the app gets a server span named after its route and request logs carry the trace id. Do not add an OpenTelemetry SDK; the platform starts one before the app.",
+  "packages": ["@opentelemetry/api"]
+}
