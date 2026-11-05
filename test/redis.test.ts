@@ -80,7 +80,8 @@ describe("createApp({ redis })", () => {
   });
 });
 
-describe("Redis rate limit store", { skip: REDIS_URL ? false : "set INFERLO_TEST_REDIS_URL to run against Redis" }, () => {
+// Runs against a real Redis when INFERLO_TEST_REDIS_URL is set (describe.skip, because Bun 1.3.0 ignores { skip } on describe).
+(REDIS_URL ? describe : describe.skip)("Redis rate limit store", () => {
   const connected = REDIS_URL ? createClient({ url: REDIS_URL }).connect() : undefined;
   const client: RedisClient = { sendCommand: async (args) => (await connected!).sendCommand(args) };
   const run = `${Date.now()}-${Math.random()}`;
