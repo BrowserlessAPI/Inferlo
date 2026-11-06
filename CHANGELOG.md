@@ -4,6 +4,8 @@ All notable changes are listed here. Inferlo follows [semantic versioning](https
 
 ## Unreleased
 
+## 0.7.0 - 2026-11-06
+
 - Drizzle ORM (Drizzle and Prisma, part 1): an app that uses Drizzle on Postgres can add Inferlo next to it. The new `db.$pgClient()` returns the `pg` client Inferlo's queries run on: the pool, or inside `$transaction` the transaction's connection, so Drizzle (`drizzle({ client: await tx.$pgClient<pg.PoolClient>() })`), Kysely or plain `pg` code writes in the same transaction as Inferlo models, and both commit or roll back together. With other adapters it raises the new IL4028. docs/integrations.md explains sharing one `pg.Pool` through `postgres({ pool })`, using Drizzle in routes and jobs, and keeping `inferlo db migrate` and drizzle-kit (`tablesFilter`) out of each other's tables. The new `examples/with-drizzle` and a CI job test it with `drizzle-orm` 0.44.0 on PostgreSQL 14 and the latest `drizzle-orm` on the latest PostgreSQL.
 - `db.$transaction(async (tx) => ...)` now types `tx` like the db client it was called on, so `tx.orders.insert(...)` type-checks with `noUncheckedIndexedAccess`.
 
