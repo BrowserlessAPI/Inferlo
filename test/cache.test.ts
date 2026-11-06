@@ -29,9 +29,10 @@ function cacheContract(name: string, makeCache: () => Cache) {
 
     test("entries expire after ttlMs", async () => {
       const cache = makeCache();
-      await cache.set(`short-${suffix}`, 1, { ttlMs: 30 });
+      // Wide margins: on a busy CI runner a database round trip can take longer than 30 ms.
+      await cache.set(`short-${suffix}`, 1, { ttlMs: 400 });
       assert.equal(await cache.get(`short-${suffix}`), 1);
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 600));
       assert.equal(await cache.get(`short-${suffix}`), undefined);
     });
 

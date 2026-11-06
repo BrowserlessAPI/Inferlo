@@ -261,6 +261,8 @@ describe("toNodeHandler({ fallthrough: true })", () => {
   });
 });
 
+const isBun = "Bun" in globalThis;
+
 describe("toNodeHandler fast paths", () => {
   const listen = async (handler: Host) => {
     const server = http.createServer(handler);
@@ -293,7 +295,9 @@ describe("toNodeHandler fast paths", () => {
     }
   });
 
-  test("ctx.signal is aborted when the HTTP client disconnects, and is only built when used", async () => {
+  // Bun 1.3.0's node:http does not emit "close" on the response when the client disconnects (newer Bun does);
+  // Bun apps use Bun.serve through serve(), where the Request's own signal aborts.
+  (isBun ? test.skip : test)("ctx.signal is aborted when the HTTP client disconnects, and is only built when used", async () => {
     let aborted: (() => void) | undefined;
     const sawAbort = new Promise<void>((resolve) => (aborted = resolve));
     let started: (() => void) | undefined;
