@@ -916,6 +916,6 @@ Chat UIs built with `useChat` from `@ai-sdk/react` (and the Vue and Svelte versi
 
 ## Other web-standard frameworks
 
-Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun).
+Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 
 `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

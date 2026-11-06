@@ -83,7 +83,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Astro: `export const ALL = toAstroHandler(app, { prefix: "/api" })` in a catch-all endpoint (`src/pages/api/[...path].ts`) and `locals.ai` from an `inferloAI(ai)` middleware, tested on Astro 5 and the latest Astro
 - [x] Vercel and Netlify Functions: `export default app` (web-standard `fetch` handler) tested with the Vercel Node.js runtime and Netlify Functions 2.0 request shapes, with streaming AI answers and the client address from their forwarded headers
 - [x] Deno Deploy and Bun part 1: Bun: a `Bun.serve({ routes, fetch: app.fetch })` guide with the client address, streaming and graceful shutdown, tested on Bun 1.3.0 and latest, `app.close()` letting streamed answers from `app.listen()` finish on Bun instead of cutting them off, and AI streams kept open past Bun's `idleTimeout`
-- [ ] Deno Deploy and Bun part 2: Deno Deploy: a `Deno.serve(app.fetch)` guide with streaming and graceful shutdown, tested together with the Deno support item
+- [x] Deno Deploy and Bun part 2: Deno Deploy: a `Deno.serve(app.fetch)` guide with streaming and graceful shutdown, tested together with the Deno support item
 
 ### Core
 

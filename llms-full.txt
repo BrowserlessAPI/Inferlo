@@ -2918,7 +2918,7 @@ Chat UIs built with `useChat` from `@ai-sdk/react` (and the Vue and Svelte versi
 
 ## Other web-standard frameworks
 
-Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun).
+Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 
 `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
 
@@ -4437,11 +4437,40 @@ process.on("SIGTERM", async () => {
 
 ## Deno
 
-```ts
-Deno.serve(app.fetch);
+```bash
+deno run -A src/server.ts
 ```
 
-Inferlo is tested on Deno 2.9.0 and the latest Deno: the whole test suite and the examples run on Deno in CI, with PostgreSQL and Redis. `app.listen()` on Deno uses `Deno.serve`, and `app.close({ timeoutMs })` cuts off answers that are still streaming when the timeout is up, as on Node.js and Bun. Packages from npm work as on Node.js (`npm:` specifiers or a `package.json` with `node_modules`).
+`app.listen()` uses `Deno.serve` automatically, with the client address from Deno's `info.remoteAddr` for rate limits by IP. `app.close()` (see [graceful shutdown](#graceful-shutdown)) lets requests and streamed answers that are still running finish, then shuts the server down; when `timeoutMs` is up, it cuts off the answers that are still streaming.
+
+To start the server yourself, pass `app.fetch` as the handler. Deno passes its handler info as the second argument, so the app gets the client address without a wrapper:
+
+```ts
+// src/server.ts
+import { app } from "./app.ts";
+
+const server = Deno.serve({ port: Number(Deno.env.get("PORT") ?? 3000) }, app.fetch);
+app.jobs.start();
+
+Deno.addSignalListener("SIGTERM", async () => {
+  await app.close();           // /ready answers 503, new requests get 503 IL2006, waits for running handlers and jobs
+  await server.shutdown();     // stops listening; resolves when the open answers are done
+});
+```
+
+With `deno serve` (and on Deno Deploy), the module's default export is the server: an Inferlo app has the `fetch` method it needs, so export the app itself.
+
+```ts
+// src/main.ts: deno serve -A src/main.ts (add --port to choose the port)
+import { app } from "./app.ts";
+export default app;
+```
+
+- Packages from npm work as on Node.js: `npm:` specifiers, or a `package.json` with `node_modules` (what `inferlo new` creates; Deno reads it). Environment variables reach `config()` and `env()` through Deno's `process.env`, so run with `--allow-env` (or `-A`).
+- Streamed AI answers (`ai.stream(...).toResponse()`, server-sent events) are sent as they are generated.
+- `ctx.signal` aborts when the client disconnects. Deno 2.9 also aborts a request's signal after its answer was delivered (Deno's legacy behaviour; it prints a notice about it the first time a handler uses the signal), so on Deno work you hand to `ctx.waitUntil` should not depend on `ctx.signal`. Run Deno with `--unstable-no-legacy-abort` to abort it only on disconnect.
+- Behind a proxy, set `createApp({ trustProxy: true })` so `X-Forwarded-For` is used.
+- Inferlo is tested on Deno 2.9.0 and the latest Deno: the whole test suite and the examples run on Deno in CI with PostgreSQL and Redis, including these setups (test/deno-serve.test.ts).
 
 ## Cloudflare Workers and other edge runtimes
 
