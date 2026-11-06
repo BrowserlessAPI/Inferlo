@@ -153,5 +153,5 @@ test("@browserlessapi/inferlo/express is exported and loads no router, database 
   assert.deepEqual(imports("serve.ts"), ["./redact.ts", "./request-matcher.ts", "./errors.ts", "./client-ip.ts", "./response-body.ts", "./websocket.ts"]);
   assert.deepEqual(imports("request-matcher.ts"), []);
   assert.deepEqual(imports("response-body.ts"), []);
-  assert.deepEqual(imports("websocket.ts"), []);
+  assert.deepEqual(imports("websocket.ts"), ["./errors.ts"]);
 });

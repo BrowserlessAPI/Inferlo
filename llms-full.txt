@@ -911,7 +911,10 @@ WebSocket routes work with the servers that can upgrade a request:
 - **Node.js and Bun:** `app.listen(port)` and `serve(app, { port })`. Inferlo speaks the WebSocket protocol (RFC 6455) itself on Node.js, without a dependency, and uses Bun's own WebSocket server on Bun.
 - **Deno:** `Deno.serve(app.fetch)`, `deno serve` and Deno Deploy (`export default app`), with `Deno.upgradeWebSocket`.
 
-Elsewhere (`toNodeHandler` inside another framework, `app.request()` in tests, serverless functions) an upgrade request gets 501 IL2011. Test sockets against a real server: `const server = await app.listen(0)`, then `new WebSocket(\`ws://127.0.0.1:${server.port}/chat\`)`.
+- **A Node.js server another framework created** (Express, Fastify, NestJS, Koa, `node:http`): `server.on("upgrade", toNodeUpgradeHandler(app, { prefix: "/api" }))` next to `toNodeHandler` (see [toNodeUpgradeHandler](integrations.md#websocket-routes-tonodeupgradehandler)).
+- **Your own `Bun.serve`:** `Bun.serve({ routes, fetch: app.fetch, websocket: bunWebSocket })`, with `bunWebSocket` from `@browserlessapi/inferlo`. For a request Bun upgraded, `app.fetch` resolves to `undefined`, as `Bun.serve` expects.
+
+Elsewhere (`app.request()` in tests, serverless functions, a `Bun.serve` without `bunWebSocket`) an upgrade request gets 501 IL2011. Test sockets against a real server: `const server = await app.listen(0)`, then `new WebSocket(\`ws://127.0.0.1:${server.port}/chat\`)`.
 
 ## Shutdown
 
@@ -2216,6 +2219,24 @@ await nest.listen(3000);
 ```
 
 To inject the AI client into Nest services, see [NestJS](#nestjs-1) below. To move a Nest app to Inferlo route by route at the same URLs, see [Migrate from NestJS](migrate-from-nestjs.md).
+
+### WebSocket routes: toNodeUpgradeHandler
+
+WebSocket connections do not reach request handlers: Node.js servers emit them as `"upgrade"` events. To serve the app's [WebSocket routes](websockets.md) from a server another framework created, add `toNodeUpgradeHandler` next to `toNodeHandler`, with the same `prefix`:
+
+```ts
+import { toNodeHandler, toNodeUpgradeHandler } from "@browserlessapi/inferlo";
+
+const server = express().use("/api", toNodeHandler(inferlo)).listen(3000);   // Express
+server.on("upgrade", toNodeUpgradeHandler(inferlo, { prefix: "/api" }));
+
+fastify.server.on("upgrade", toNodeUpgradeHandler(inferlo, { prefix: "/ws" })); // Fastify
+nest.getHttpServer().on("upgrade", toNodeUpgradeHandler(inferlo, { prefix: "/api" })); // NestJS
+```
+
+- Upgrades outside the prefix are left to the server's other `"upgrade"` listeners (socket.io, a dev server's live reload). Inside it, the app answers, with a 404 for paths it has no route for; with `fallthrough: true` it leaves those to other listeners too.
+- The connection goes through the app's middleware, auth, permissions and rate limits like any request, and Inferlo speaks the WebSocket protocol itself (no `ws` package).
+- `app.listen()` and `serve(app)` already do this.
 
 ## fromNodeRequest
 
@@ -5058,7 +5079,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Not a WebSocket upgrade (426), or an invalid handshake (400).** The path is a WebSocket route (`route.ws`), which only answers WebSocket upgrade requests (`GET` with `Upgrade: websocket`, `Sec-WebSocket-Version: 13` and a `Sec-WebSocket-Key`). Open it with a WebSocket client, `new WebSocket("wss://host/path")`, not with `fetch`. See [WebSockets](websockets.md).
 
 ### IL2011
-**This server cannot accept WebSocket connections (501).** The upgrade request reached the app through a host that only passes Requests to `app.fetch` and cannot hand over the connection: `toNodeHandler` inside another framework, `app.request()`, or a serverless platform. Serve the app with `app.listen()` or `serve(app)` on Node.js and Bun, or with `Deno.serve(app.fetch)` or `deno serve` on Deno. In tests, connect to `await app.listen(0)`. See [WebSockets](websockets.md#servers).
+**This server cannot accept WebSocket connections (501).** The upgrade request reached the app through a host that only passes Requests to `app.fetch` and cannot hand over the connection: `app.request()`, a serverless platform, or a `Bun.serve` without `websocket: bunWebSocket`. Serve the app with `app.listen()` or `serve(app)` on Node.js and Bun, or with `Deno.serve(app.fetch)` or `deno serve` on Deno; on a Node.js server another framework created, add `server.on("upgrade", toNodeUpgradeHandler(app))`; with your own `Bun.serve`, pass `websocket: bunWebSocket`. In tests, connect to `await app.listen(0)`. See [WebSockets](websockets.md#servers).
 
 ### IL2012
 **Invalid WebSocket close code.** `ctx.socket.close(code, reason)` takes 1000 (normal closure, the default) or an application code from 3000 to 4999. The other codes are reserved by the WebSocket protocol for the server itself (1001 when the app shuts down, 1003, 1009).

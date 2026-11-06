@@ -14,7 +14,7 @@ import { callTool, handleMcp, toolDefinition } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
 import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef, type Socket } from "./route.ts";
-import { denoUpgrader, upgraders, upgrades, validKey, type SocketListener, type SocketTransport } from "./websocket.ts";
+import { bunUpgrader, denoUpgrader, upgraders, upgrades, validKey, type SocketListener, type SocketTransport } from "./websocket.ts";
 import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps, clientSignals, keepEventStreamOpen, platformWaitUntil } from "./client-ip.ts";
@@ -689,11 +689,11 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     if (origin !== null && !socketOriginAllowed(origin, req, url)) {
       throw new InferloError("IL3006", `Connections from the origin ${origin} are not allowed.`, { status: 403, fix: "Open the socket from a page of the app's own origin, or list the page's origin in createApp({ cors: { origin: [...] } })." });
     }
-    const upgrader = upgraders.get(req) ?? denoUpgrader(req, rest[0]);
+    const upgrader = upgraders.get(req) ?? denoUpgrader(req, rest[0]) ?? bunUpgrader(req, rest[0]);
     if (!upgrader) {
       throw new InferloError("IL2011", "This server cannot accept WebSocket connections.", {
         status: 501,
-        fix: "Serve the app with app.listen() or serve(app) on Node.js and Bun, or with Deno.serve(app.fetch) and deno serve on Deno. Hosts that only pass Requests to app.fetch (toNodeHandler, other frameworks, app.request) cannot upgrade them.",
+        fix: 'Serve the app with app.listen() or serve(app), with Deno.serve(app.fetch) or deno serve on Deno, or with Bun.serve({ fetch: app.fetch, websocket: bunWebSocket }) on Bun. On a Node.js server another framework created, add server.on("upgrade", toNodeUpgradeHandler(app)). app.request() cannot upgrade: test against await app.listen(0).',
       });
     }
     const response = await upgrader((transport) => openSocket(def, req, url, transport, conn));
@@ -1217,9 +1217,10 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       metrics?.inFlight(1);
       try {
         const response = await handle(req, rest);
-        // Deno needs its own upgrade response back, untouched.
+        // Deno needs its own upgrade response back, untouched; Bun.serve wants undefined for a request it upgraded.
         const upgrade = upgrades.get(req);
         if (upgrade) return upgrade;
+        if (upgrade === null) return undefined as unknown as Response;
         if (rest.length) keepEventStreamOpen(rest[0], req, response);
         return response;
       } finally {

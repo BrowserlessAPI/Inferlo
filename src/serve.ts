@@ -11,7 +11,7 @@ import { appAnswers } from "./request-matcher.ts";
 import { InferloError } from "./errors.ts";
 import { clientIps, clientSignals } from "./client-ip.ts";
 import { knownBodies } from "./response-body.ts";
-import { acceptKey, encodeClose, encodeFrame, FrameReader, OP_PONG, OP_TEXT, upgraders, upgrades, type SocketListener, type SocketTransport } from "./websocket.ts";
+import { acceptKey, bunWebSocket, encodeClose, encodeFrame, FrameReader, OP_PONG, OP_TEXT, upgraders, type SocketListener, type SocketTransport } from "./websocket.ts";
 
 export interface ServeOptions {
   port?: number;
@@ -271,31 +271,8 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   };
 
   if (g.Bun) {
-    type BunSocket = { data: { connect: (t: SocketTransport) => SocketListener; listener?: SocketListener }; send(text: string): void; close(code?: number, reason?: string): void };
-    const server = g.Bun.serve({
-      port,
-      hostname,
-      fetch: async (req: Request, bunServer: { upgrade(req: Request, options: object): boolean }) => {
-        // WebSocket routes upgrade through Bun's server; the app answers everything else.
-        upgraders.set(req, async (connect) => {
-          if (!bunServer.upgrade(req, { data: { connect } })) throw new InferloError("IL2010", "Invalid WebSocket handshake.", { status: 400, fix: "Use a WebSocket client that speaks RFC 6455." });
-          return undefined;
-        });
-        const response = await app.fetch(req, bunServer);
-        return upgrades.has(req) ? undefined : response;
-      },
-      websocket: {
-        open(ws: BunSocket) {
-          ws.data.listener = ws.data.connect({ send: (text) => ws.send(text), close: (code, reason) => ws.close(code, reason) });
-        },
-        message(ws: BunSocket, data: string | Uint8Array) {
-          ws.data.listener?.message(typeof data === "string" ? data : new Uint8Array(data));
-        },
-        close(ws: BunSocket, code: number, reason: string) {
-          ws.data.listener?.close(code, reason);
-        },
-      },
-    });
+    // app.fetch upgrades WebSocket routes through the Bun server it is given, with bunWebSocket's handlers.
+    const server = g.Bun.serve({ port, hostname, fetch: (req: Request, bunServer: unknown) => app.fetch(req, bunServer), websocket: bunWebSocket });
     // Wait until the open requests (and streamed answers) are done, then stop, closing the idle keep-alive
     // connections too. Requests that arrive meanwhile get 503 IL2006 from app.close(). app.close() calls the force
     // closer, stop(true), when its timeout is up. (stop() without true would leave keep-alive connections served on
@@ -340,7 +317,7 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   const http = await import("node:http");
   const handler = toNodeHandler(app);
   const server = http.createServer((req, res) => void handler(req as NodeRequest, res));
-  server.on("upgrade", (req, socket, head) => void nodeUpgrade(app, req as NodeRequest, socket as unknown as NodeSocket, head, http.STATUS_CODES));
+  server.on("upgrade", toNodeUpgradeHandler(app) as (...args: unknown[]) => void);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, hostname, () => resolve());
@@ -358,8 +335,8 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   return result;
 }
 
-/** The parts of a Node.js net.Socket an upgraded connection uses. */
-interface NodeSocket {
+/** The parts of a Node.js net.Socket (the socket of an "upgrade" event) an upgraded connection uses. */
+export interface NodeSocket {
   write(data: Uint8Array | string): boolean;
   end(data?: Uint8Array | string): void;
   destroy(): void;
@@ -372,16 +349,42 @@ interface NodeSocket {
 /** Longest message a WebSocket on Node.js may send before it is closed with 1009 (the app checks its own maxBodySize too). */
 const MAX_SOCKET_MESSAGE = 16 * 1024 * 1024;
 
+export type NodeUpgradeHandler = (req: NodeRequest, socket: NodeSocket, head: Uint8Array) => void;
+
+const STATUS_TEXT: Record<number, string> = { 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed", 422: "Unprocessable Entity", 426: "Upgrade Required", 429: "Too Many Requests", 500: "Internal Server Error", 501: "Not Implemented", 503: "Service Unavailable" };
+
+/**
+ * A listener for a Node.js server's "upgrade" event that serves the app's WebSocket routes (route.ws), for servers
+ * that another framework created: server.on("upgrade", toNodeUpgradeHandler(app, { prefix: "/api" })). Upgrade
+ * requests outside the prefix are left to the server's other "upgrade" listeners, and so are paths the app has no
+ * route for when fallthrough is true; otherwise the app answers them (404).
+ */
+export function toNodeUpgradeHandler(app: Pick<App<any>, "fetch">, options: NodeHandlerOptions = {}): NodeUpgradeHandler {
+  const prefix = normalizePrefix(options.prefix);
+  if (options.fallthrough !== undefined && typeof options.fallthrough !== "boolean") {
+    throw new InferloError("IL5019", "toNodeUpgradeHandler fallthrough must be true or false.", { fix: "Use toNodeUpgradeHandler(app, { fallthrough: true })." });
+  }
+  if (options.fallthrough && appAnswers(app, "GET", "/") === undefined) {
+    throw new InferloError("IL5019", "toNodeUpgradeHandler(app, { fallthrough: true }) needs an app from createApp.", { fix: "Pass the app returned by createApp, which knows its routes." });
+  }
+  return (req, socket, head) => {
+    const path = stripPrefix(req.url ?? "/", prefix);
+    if (path === null) return;
+    if (options.fallthrough && !answersPath(app, "GET", path)) return;
+    void nodeUpgrade(app, req, socket, head, path);
+  };
+}
+
 /**
  * A Node.js upgrade request: the app decides (auth, permissions, rate limits, the route); when it accepts, the
  * handshake is answered here and the connection speaks RFC 6455 frames. Otherwise the app's answer is written as a
  * plain HTTP response and the connection is closed.
  */
-async function nodeUpgrade(app: Pick<App<any>, "fetch">, req: NodeRequest, socket: NodeSocket, head: Uint8Array, statusText: Record<number, string | undefined>): Promise<void> {
+async function nodeUpgrade(app: Pick<App<any>, "fetch">, req: NodeRequest, socket: NodeSocket, head: Uint8Array, path: string): Promise<void> {
   socket.on("error", () => {});
   let accepted = false;
   try {
-    const request = buildRequest(req, req.url ?? "/");
+    const request = buildRequest(req, path);
     upgraders.set(request, async (connect) => {
       const accept = await acceptKey(request.headers.get("sec-websocket-key") ?? "");
       socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
@@ -393,7 +396,7 @@ async function nodeUpgrade(app: Pick<App<any>, "fetch">, req: NodeRequest, socke
     const response = await app.fetch(request);
     if (accepted) return;
     const body = new Uint8Array(await response.arrayBuffer());
-    const lines = [`HTTP/1.1 ${response.status} ${statusText[response.status] ?? ""}`];
+    const lines = [`HTTP/1.1 ${response.status} ${STATUS_TEXT[response.status] ?? ""}`];
     response.headers.forEach((value, key) => {
       if (key !== "content-length" && key !== "connection" && key !== "transfer-encoding") lines.push(`${key}: ${value}`);
     });

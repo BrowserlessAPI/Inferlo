@@ -59,6 +59,24 @@ await nest.listen(3000);
 
 To inject the AI client into Nest services, see [NestJS](#nestjs-1) below. To move a Nest app to Inferlo route by route at the same URLs, see [Migrate from NestJS](migrate-from-nestjs.md).
 
+### WebSocket routes: toNodeUpgradeHandler
+
+WebSocket connections do not reach request handlers: Node.js servers emit them as `"upgrade"` events. To serve the app's [WebSocket routes](websockets.md) from a server another framework created, add `toNodeUpgradeHandler` next to `toNodeHandler`, with the same `prefix`:
+
+```ts
+import { toNodeHandler, toNodeUpgradeHandler } from "@browserlessapi/inferlo";
+
+const server = express().use("/api", toNodeHandler(inferlo)).listen(3000);   // Express
+server.on("upgrade", toNodeUpgradeHandler(inferlo, { prefix: "/api" }));
+
+fastify.server.on("upgrade", toNodeUpgradeHandler(inferlo, { prefix: "/ws" })); // Fastify
+nest.getHttpServer().on("upgrade", toNodeUpgradeHandler(inferlo, { prefix: "/api" })); // NestJS
+```
+
+- Upgrades outside the prefix are left to the server's other `"upgrade"` listeners (socket.io, a dev server's live reload). Inside it, the app answers, with a 404 for paths it has no route for; with `fallthrough: true` it leaves those to other listeners too.
+- The connection goes through the app's middleware, auth, permissions and rate limits like any request, and Inferlo speaks the WebSocket protocol itself (no `ws` package).
+- `app.listen()` and `serve(app)` already do this.
+
 ## fromNodeRequest
 
 `fromNodeRequest(req, { prefix?, signal? })` converts a Node request to a Web `Request` (method, URL with `https` for TLS sockets, headers, streamed or already parsed body) when you want to call `app.fetch` yourself:

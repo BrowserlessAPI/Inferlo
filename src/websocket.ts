@@ -4,6 +4,8 @@
  * on Node.js, where the runtime has no WebSocket server of its own. Web APIs only.
  */
 
+import { InferloError } from "./errors.ts";
+
 /** One open connection, as the app sees it: send a text message, or close with a code and reason. */
 export interface SocketTransport {
   send(text: string): void;
@@ -56,6 +58,41 @@ export function denoUpgrader(req: Request, info: unknown): Upgrader | undefined 
     socket.onclose = (event) => listener.close(event.code, event.reason);
     socket.onerror = () => {};
     return response;
+  };
+}
+
+type BunSocket = { data: { connect: (transport: SocketTransport) => SocketListener; listener?: SocketListener }; send(text: string): void; close(code?: number, reason?: string): void };
+
+/**
+ * The websocket handlers for Bun.serve, so a Bun server that runs app.fetch serves the app's WebSocket routes:
+ * Bun.serve({ fetch: app.fetch, websocket: bunWebSocket }). serve() and app.listen() on Bun use them already.
+ */
+export const bunWebSocket = {
+  open(ws: BunSocket): void {
+    ws.data.listener = ws.data.connect({ send: (text) => ws.send(text), close: (code, reason) => ws.close(code, reason) });
+  },
+  message(ws: BunSocket, data: string | Uint8Array): void {
+    ws.data.listener?.message(typeof data === "string" ? data : new Uint8Array(data));
+  },
+  close(ws: BunSocket, code: number, reason: string): void {
+    ws.data.listener?.close(code, reason);
+  },
+};
+
+/** On Bun, app.fetch(req, server) gets the Bun server, whose upgrade() hands the connection to bunWebSocket. */
+export function bunUpgrader(req: Request, server: unknown): Upgrader | undefined {
+  if (!(globalThis as { Bun?: unknown }).Bun || typeof (server as { upgrade?: unknown } | null)?.upgrade !== "function") return undefined;
+  return async (connect) => {
+    let upgraded: boolean;
+    try {
+      upgraded = (server as { upgrade(req: Request, options: object): boolean }).upgrade(req, { data: { connect } });
+    } catch {
+      upgraded = false;
+    }
+    if (!upgraded) {
+      throw new InferloError("IL2011", "This Bun server cannot accept WebSocket connections.", { status: 501, fix: 'Pass the websocket handlers to Bun.serve: Bun.serve({ fetch: app.fetch, websocket: bunWebSocket }), with bunWebSocket from "@browserlessapi/inferlo".' });
+    }
+    return undefined;
   };
 }
 

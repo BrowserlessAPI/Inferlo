@@ -1,0 +1,4 @@
+{
+  "title": "Serve WebSocket routes from an existing Node server",
+  "prompt": "We are moving an existing node:http service to Inferlo step by step. The Inferlo app in src/app.ts has a WebSocket route at /ticker (src/routes/ticker.ts). Create src/legacy.ts exporting `function createLegacyServer(): http.Server` (from node:http, not listening yet). Requests and WebSocket connections whose path starts with /api must be handled by the Inferlo app mounted under /api (so GET /api/health reaches the app's GET /health route and a WebSocket to /api/ticker reaches the /ticker route). Every other request is answered by the old service: status 200 with the plain text body \"legacy\"."
+}
