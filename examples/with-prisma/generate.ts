@@ -12,7 +12,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
 
 export function ensurePrismaClient(): void {
-  const version = (JSON.parse(readFileSync(join(root, "node_modules", "prisma", "package.json"), "utf8")) as { version: string }).version;
+  const pkg = JSON.parse(readFileSync(join(root, "node_modules", "prisma", "package.json"), "utf8")) as { version: string; bin: { prisma: string } };
+  const version = pkg.version;
   const major = Number(version.split(".")[0]);
   let schema = readFileSync(join(here, "prisma", "schema.prisma"), "utf8");
   let schemaPath = join(here, "prisma", "schema.prisma");
@@ -28,7 +29,7 @@ export function ensurePrismaClient(): void {
   const stamp = `${version}\n${createHash("sha256").update(schema).digest("hex")}\n`;
   const stampPath = join(outDir, ".stamp");
   if (existsSync(join(outDir, "prisma", "client.ts")) && existsSync(stampPath) && readFileSync(stampPath, "utf8") === stamp) return;
-  const result = spawnSync("node", [join(root, "node_modules", "prisma", "build", "index.js"), "generate", "--schema", schemaPath], {
+  const result = spawnSync("node", [join(root, "node_modules", "prisma", pkg.bin.prisma), "generate", "--schema", schemaPath], {
     cwd: here,
     encoding: "utf8",
     // Prisma 6 reads the datasource url while generating; the client never connects with it.

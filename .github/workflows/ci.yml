@@ -616,7 +616,13 @@ jobs:
       # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
       - name: npm ci
         run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
-      - run: npm install --no-save prisma@${{ matrix.prisma }} @prisma/client@${{ matrix.prisma }} @prisma/adapter-pg@${{ matrix.prisma }}
+      # The prisma package's "latest" tag can point at a release candidate of Prisma's next CLI; the latest
+      # Prisma ORM release is the latest @prisma/client, so the CLI and adapter are installed at that version.
+      - name: Install Prisma ${{ matrix.prisma }}
+        run: |
+          version="${{ matrix.prisma }}"
+          if [ "$version" = "latest" ]; then version="$(npm view @prisma/client dist-tags.latest)"; fi
+          npm install --no-save "prisma@$version" "@prisma/client@$version" "@prisma/adapter-pg@$version"
       - run: node -p "'Prisma ' + require('./node_modules/prisma/package.json').version + ', @prisma/client ' + require('./node_modules/@prisma/client/package.json').version + ', @prisma/adapter-pg ' + require('./node_modules/@prisma/adapter-pg/package.json').version"
       - run: node examples/with-prisma/generate.ts
       - run: npm run typecheck
