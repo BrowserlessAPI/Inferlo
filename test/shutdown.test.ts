@@ -150,6 +150,47 @@ describe("graceful shutdown with app.close()", () => {
     await assert.rejects(fetch(`http://127.0.0.1:${server.port}/ping`));
   });
 
+  const streaming = () =>
+    route.get("/stream", { auth: "public" }).handle(
+      () =>
+        new Response(
+          new ReadableStream({
+            async start(controller) {
+              for (let i = 0; i < 4; i++) {
+                controller.enqueue(new TextEncoder().encode(`chunk ${i}\n`));
+                await tick(150);
+              }
+              controller.close();
+            },
+          }),
+        ),
+    );
+
+  test("lets streamed answers from app.listen() finish before the server closes (Node.js and Bun)", async () => {
+    const app = createApp({ routes: [streaming()], logger: quiet().logger });
+    const server = await app.listen(0, "127.0.0.1");
+    const res = await fetch(`http://127.0.0.1:${server.port}/stream`);
+    const closing = app.close({ timeoutMs: 5_000 });
+    assert.equal(await res.text(), "chunk 0\nchunk 1\nchunk 2\nchunk 3\n", "the stream is not cut off");
+    await closing;
+    await assert.rejects(fetch(`http://127.0.0.1:${server.port}/stream`));
+  });
+
+  test("closes connections that are still streaming when timeoutMs is up", async () => {
+    const app = createApp({ routes: [route.get("/endless", { auth: "public" }).handle(() => new Response(new ReadableStream({ start: (c) => c.enqueue(new TextEncoder().encode("start\n")) })))], logger: quiet().logger });
+    const server = await app.listen(0, "127.0.0.1");
+    const res = await fetch(`http://127.0.0.1:${server.port}/endless`);
+    const reader = res.body!.getReader();
+    await reader.read();
+    const started = Date.now();
+    await app.close({ timeoutMs: 300 });
+    assert.ok(Date.now() - started < 3_000, "close() does not wait for the stream past timeoutMs");
+    await assert.rejects(async () => {
+      while (!(await reader.read()).done);
+      throw new Error("the stream ended normally");
+    });
+  });
+
   test("is idempotent and validates its options", async () => {
     const app = createApp({ logger: quiet().logger });
     assert.throws(() => app.close({ timeoutMs: -1 }), (e: unknown) => e instanceof InferloError && e.code === "IL6015");

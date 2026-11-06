@@ -265,13 +265,29 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   const port = options.port ?? 3000;
   const hostname = options.hostname ?? "0.0.0.0";
   const g = globalThis as {
-    Bun?: { serve(o: object): { port: number; stop(force?: boolean): void } };
+    Bun?: { serve(o: object): { port: number; pendingRequests: number; stop(closeActiveConnections?: boolean): Promise<void> | void } };
     Deno?: { serve(o: object, h: (r: Request, info: unknown) => Promise<Response>): { addr: { port: number }; shutdown(): Promise<void> } };
   };
 
   if (g.Bun) {
     const server = g.Bun.serve({ port, hostname, fetch: (req: Request, bunServer: unknown) => app.fetch(req, bunServer) });
-    return { port: server.port, close: async () => server.stop(true) };
+    // Wait until the open requests (and streamed answers) are done, then stop, closing the idle keep-alive
+    // connections too. Requests that arrive meanwhile get 503 IL2006 from app.close(). app.close() calls the force
+    // closer, stop(true), when its timeout is up. (stop() without true would leave keep-alive connections served on
+    // Bun 1.3, and a later stop(true) would then do nothing.)
+    let forced = false;
+    const result: Server = {
+      port: server.port,
+      close: async () => {
+        while (server.pendingRequests > 0 && !forced) await new Promise((resolve) => setTimeout(resolve, 20));
+        await server.stop(true);
+      },
+    };
+    forceClosers.set(result, () => {
+      forced = true;
+      void server.stop(true);
+    });
+    return result;
   }
   if (g.Deno) {
     const server = g.Deno.serve({ port, hostname }, (req, info) => app.fetch(req, info));

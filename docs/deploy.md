@@ -84,7 +84,32 @@ Calling `app.close()` again returns the same promise. Keep `delayMs + timeoutMs`
 bun src/server.ts
 ```
 
-`app.listen()` uses `Bun.serve` automatically.
+`app.listen()` uses `Bun.serve` automatically, with the client address from Bun's `server.requestIP()` for rate limits by IP. `app.close()` (see [graceful shutdown](#graceful-shutdown)) lets requests and streamed answers that are still running finish, then stops the server and closes its keep-alive connections; when `timeoutMs` is up, it closes the connections that are still open.
+
+To serve Bun's own routes (static files, HTML imports of a full-stack app) from the same server, use `Bun.serve` yourself with the Inferlo app as the `fetch` handler for every other request:
+
+```ts
+// src/server.ts
+import homepage from "./index.html";
+import { app } from "./app.ts";
+
+const server = Bun.serve({
+  port: Number(process.env.PORT ?? 3000),
+  routes: { "/": homepage },   // Bun's routes match first
+  fetch: app.fetch,            // everything else: Inferlo routes (/api/...), /health, /ready, OpenAPI and MCP
+});
+app.jobs.start();
+
+process.on("SIGTERM", async () => {
+  await app.close();           // /ready answers 503, new requests get 503 IL2006, waits for running handlers and jobs
+  await server.stop();         // stops listening; resolves when the open connections are done
+});
+```
+
+- Bun passes its server as the second argument of `fetch`, so `app.fetch` gets the client address without a wrapper. Behind a proxy, set `createApp({ trustProxy: true })` so `X-Forwarded-For` is used.
+- Inferlo's routes keep their full paths here (`route.get("/api/notes", ...)`): Bun does not remove a prefix. To serve an app whose routes start at `/` under a path, mount it in a framework that does (Hono's `app.mount("/api", inferlo.fetch)`, see [integrations](integrations.md)).
+- Streamed AI answers (`ai.stream(...).toResponse()`, server-sent events) are sent as they are generated. Bun closes connections that send nothing for `idleTimeout` seconds (10 by default), so `app.fetch` turns that timeout off for each server-sent events answer (with Bun's `server.timeout(request, 0)`), and a model may pause between tokens for longer. Other long, quiet streams you return yourself follow `idleTimeout`; raise it with `Bun.serve({ idleTimeout: 60, ... })` (at most 255).
+- Inferlo is tested on Bun 1.3.0 and the latest Bun, including this setup (test/bun-serve.test.ts).
 
 ## Deno
 

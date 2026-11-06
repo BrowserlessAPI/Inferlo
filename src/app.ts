@@ -16,7 +16,7 @@ import { buildOpenAPI } from "./openapi.ts";
 import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
 import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
-import { clientIp, clientIps, clientSignals, platformWaitUntil } from "./client-ip.ts";
+import { clientIp, clientIps, clientSignals, keepEventStreamOpen, platformWaitUntil } from "./client-ip.ts";
 import { redisJobStore } from "./redis-jobs.ts";
 import { knownBodies } from "./response-body.ts";
 import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
@@ -990,7 +990,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       inFlight++;
       metrics?.inFlight(1);
       try {
-        return await handle(req, rest);
+        const response = await handle(req, rest);
+        if (rest.length) keepEventStreamOpen(rest[0], req, response);
+        return response;
       } finally {
         inFlight--;
         metrics?.inFlight(-1);

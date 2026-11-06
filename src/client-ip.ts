@@ -83,3 +83,20 @@ export function platformWaitUntil(rest: unknown[]): WaitUntil | undefined {
   if (typeof context?.waitUntil === "function") return (p) => context.waitUntil!(p);
   return undefined;
 }
+
+/**
+ * Keeps a server-sent events answer (ai.stream(...).toResponse()) open on Bun: Bun.serve closes a connection that
+ * sends nothing for idleTimeout seconds (10 by default), which would cut off a model that pauses longer between
+ * tokens. The platform is Bun's server (the second argument Bun passes to fetch), recognised by its requestIP and
+ * timeout methods; elsewhere nothing happens.
+ */
+export function keepEventStreamOpen(platform: unknown, req: Request, response: Response): void {
+  const server = platform as { requestIP?: unknown; timeout?: (req: Request, seconds: number) => void } | null | undefined;
+  if (!server || typeof server.timeout !== "function" || typeof server.requestIP !== "function") return;
+  if (!/^text\/event-stream\b/i.test(response.headers.get("content-type") ?? "")) return;
+  try {
+    server.timeout(req, 0);
+  } catch {
+    // An older Bun without per-request timeouts.
+  }
+}
