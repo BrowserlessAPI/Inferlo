@@ -76,6 +76,7 @@ nest.getHttpServer().on("upgrade", toNodeUpgradeHandler(inferlo, { prefix: "/api
 - Upgrades outside the prefix are left to the server's other `"upgrade"` listeners (socket.io, a dev server's live reload). Inside it, the app answers, with a 404 for paths it has no route for; with `fallthrough: true` it leaves those to other listeners too.
 - The connection goes through the app's middleware, auth, permissions and rate limits like any request, and Inferlo speaks the WebSocket protocol itself (no `ws` package).
 - `app.listen()` and `serve(app)` already do this.
+- On Bun it needs Bun 1.4 or later: Bun 1.3's `node:http` never sends what is written to an upgraded socket, so `toNodeUpgradeHandler` raises IL5031 there; use `Bun.serve({ fetch: app.fetch, websocket: bunWebSocket })` instead.
 
 ## fromNodeRequest
 

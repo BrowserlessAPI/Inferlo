@@ -213,6 +213,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5030
 **Invalid LangChain integration arguments.** `toLangChainModel(ai, { model, for, temperature, maxTokens })` from `@browserlessapi/inferlo/langchain` needs Inferlo's AI client (`ctx.ai`, `app.ai`, or what `createAI()` returns) and takes only those options. `toLangChainTools(tools, { ai })` takes an array of function tools made with `tool(name, ...).handle(fn)` and routes (routes need `{ ai: ctx.ai }`, otherwise IL5009). Tools bound with `bindTools` need a name. See [LangChain.js](integrations.md#langchainjs).
 
+### IL5031
+**toNodeUpgradeHandler needs Bun 1.4 or later.** On Bun 1.3, Bun's `node:http` never sends what is written to an upgraded socket, so a WebSocket handshake through `toNodeUpgradeHandler` would hang. On Bun 1.3, serve WebSocket routes with `app.listen()`, `serve(app)` or `Bun.serve({ fetch: app.fetch, websocket: bunWebSocket })` (Bun's own WebSocket server), or update Bun. See [WebSockets](websockets.md#servers).
+
 ## App configuration (6xxx)
 
 ### IL6001

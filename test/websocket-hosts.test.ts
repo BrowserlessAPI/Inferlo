@@ -8,6 +8,12 @@ import express from "express";
 import Fastify from "fastify";
 import { bunWebSocket, createApp, InferloError, route, t, toNodeHandler, toNodeUpgradeHandler } from "../src/index.ts";
 
+const bunVersion = (globalThis as { Bun?: { version: string } }).Bun?.version;
+// Bun 1.3's node:http never sends what is written to an upgraded socket: toNodeUpgradeHandler raises IL5031 there.
+const oldBun = bunVersion !== undefined && /^1\.[0-3]\./.test(bunVersion);
+// On Bun 1.3, the node:http tests are skipped (toNodeUpgradeHandler needs Bun 1.4; IL5031 is tested below).
+const nodeTest = oldBun ? test.skip : test;
+
 const echo = route.ws("/echo", { auth: "public", message: t.object({ text: t.string() }) }).handle(({ message, url }) => ({ text: message.text, path: url.pathname }));
 const hello = route.get("/hello", { auth: "public" }).handle(() => ({ hello: true }));
 const makeApp = () => createApp({ routes: [{ echo, hello }], logger: { info() {}, error() {} } });
@@ -32,7 +38,7 @@ const close = (server: http.Server) => new Promise<void>((resolve) => {
   server.closeAllConnections();
 });
 
-test("node:http: toNodeUpgradeHandler serves WebSocket routes next to the server's other upgrade listeners", async () => {
+nodeTest("node:http: toNodeUpgradeHandler serves WebSocket routes next to the server's other upgrade listeners", async () => {
   const app = makeApp();
   const server = http.createServer(toNodeHandler(app, { prefix: "/api" }));
   server.on("upgrade", toNodeUpgradeHandler(app, { prefix: "/api" }));
@@ -58,7 +64,7 @@ test("node:http: toNodeUpgradeHandler serves WebSocket routes next to the server
   }
 });
 
-test("fallthrough: true leaves upgrades the app has no route for to other listeners", async () => {
+nodeTest("fallthrough: true leaves upgrades the app has no route for to other listeners", async () => {
   const app = makeApp();
   const server = http.createServer();
   server.on("upgrade", toNodeUpgradeHandler(app, { fallthrough: true }));
@@ -79,7 +85,7 @@ test("fallthrough: true leaves upgrades the app has no route for to other listen
   }
 });
 
-test("Express: the server from app.listen() takes toNodeUpgradeHandler", async () => {
+nodeTest("Express: the server from app.listen() takes toNodeUpgradeHandler", async () => {
   const app = makeApp();
   const web = express();
   web.get("/health", (_req, res) => void res.json({ ok: true }));
@@ -98,7 +104,7 @@ test("Express: the server from app.listen() takes toNodeUpgradeHandler", async (
   }
 });
 
-test("Fastify: fastify.server takes toNodeUpgradeHandler", async () => {
+nodeTest("Fastify: fastify.server takes toNodeUpgradeHandler", async () => {
   const app = makeApp();
   const fastify = Fastify();
   fastify.get("/health", async () => ({ ok: true }));
@@ -114,9 +120,13 @@ test("Fastify: fastify.server takes toNodeUpgradeHandler", async () => {
   }
 });
 
-test("invalid toNodeUpgradeHandler options raise IL5019", () => {
+nodeTest("invalid toNodeUpgradeHandler options raise IL5019", () => {
   assert.throws(() => toNodeUpgradeHandler(makeApp(), { fallthrough: "yes" as never }), (e: InferloError) => e.code === "IL5019");
   assert.throws(() => toNodeUpgradeHandler({ fetch: async () => new Response() }, { fallthrough: true }), (e: InferloError) => e.code === "IL5019");
+});
+
+(oldBun ? test : test.skip)("on Bun 1.3, toNodeUpgradeHandler raises IL5031 with the alternatives", () => {
+  assert.throws(() => toNodeUpgradeHandler(makeApp()), (e: InferloError) => e.code === "IL5031" && /bunWebSocket/.test(e.fix ?? ""));
 });
 
 const Bun = (globalThis as { Bun?: { serve(options: object): { port: number; stop(force?: boolean): Promise<void> | void } } }).Bun;

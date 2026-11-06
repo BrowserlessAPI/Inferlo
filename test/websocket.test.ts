@@ -1,6 +1,7 @@
 // WebSocket routes (route.ws): auth, origin checks, validation, rate limits, ordering, closing and shutdown, on a
 // real server from app.listen() (Node.js, Bun and Deno), and the RFC 6455 frame reader used on Node.js.
 import assert from "node:assert/strict";
+import net from "node:net";
 import { after, before, describe, test } from "node:test";
 import { bearer, createApp, InferloError, memory, model, route, t, type Socket } from "../src/index.ts";
 import { encodeClose, encodeFrame, FrameReader, OP_BINARY, OP_CONTINUATION, OP_PING, OP_TEXT } from "../src/websocket.ts";
@@ -64,6 +65,54 @@ function connect(port: number, path: string, token?: string): Promise<Client> {
   return new Promise((resolve, reject) => {
     ws.onopen = () => resolve({ ws, closed, next: () => (queue.length ? Promise.resolve(queue.shift()) : new Promise((r) => waiting.push(r))) });
     ws.onerror = () => reject(new Error("connection refused"));
+  });
+}
+
+/**
+ * A minimal client on a raw TCP socket: sends the handshake and one masked text message, and resolves with the code
+ * and reason of the server's close frame. It reads the frame itself, because some WebSocket clients (Bun 1.3.0's)
+ * report every close code from the server as 1000.
+ */
+function serverClose(port: number, path: string, token: string, message: string, onOpen: () => void): Promise<{ code: number; reason: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1");
+    let buffer = new Uint8Array(0);
+    let open = false;
+    socket.on("error", reject);
+    socket.on("connect", () => {
+      socket.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nAuthorization: Bearer ${token}\r\n\r\n`);
+    });
+    socket.on("data", (chunk: Uint8Array) => {
+      const joined = new Uint8Array(buffer.length + chunk.length);
+      joined.set(buffer);
+      joined.set(chunk, buffer.length);
+      buffer = joined;
+      if (!open) {
+        const end = Buffer.from(buffer).indexOf("\r\n\r\n");
+        if (end === -1) return;
+        if (!Buffer.from(buffer.subarray(0, end)).toString().startsWith("HTTP/1.1 101")) return reject(new Error("not upgraded"));
+        buffer = buffer.subarray(end + 4);
+        open = true;
+        const payload = new TextEncoder().encode(message);
+        const frame = new Uint8Array(6 + payload.length);
+        frame[0] = 0x81;
+        frame[1] = 0x80 | payload.length;
+        frame.set([9, 8, 7, 6], 2);
+        payload.forEach((byte, i) => (frame[6 + i] = byte ^ [9, 8, 7, 6][i & 3]!));
+        socket.write(frame);
+        onOpen();
+      }
+      // Skip data frames until the close frame (opcode 8); payloads here are short (under 126 bytes).
+      while (buffer.length >= 2) {
+        const length = buffer[1]! & 0x7f;
+        if (buffer.length < 2 + length) return;
+        if ((buffer[0]! & 0x0f) === 0x8) {
+          socket.destroy();
+          return resolve({ code: (buffer[2]! << 8) | buffer[3]!, reason: new TextDecoder().decode(buffer.subarray(4, 2 + length)) });
+        }
+        buffer = buffer.subarray(2 + length);
+      }
+    });
   });
 }
 
@@ -144,7 +193,7 @@ describe("route.ws on a server from app.listen()", () => {
     assert.equal((await c.next()).text, "three");
     assert.equal(await messages(app.db).count(), 3);
     c.ws.close();
-    assert.equal((await c.closed).code, 1005);
+    await c.closed;
   });
 
   test("a socket that may not connect is refused, and public routes take anyone", async () => {
@@ -194,11 +243,11 @@ describe("route.ws on a server from app.listen()", () => {
   });
 
   test("app.close() lets the running message finish, then closes open sockets with 1001", async () => {
-    const c = await connect(server.port, "/control", "ada-token");
-    c.ws.send(JSON.stringify({ action: "slow" }));
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const closing = app.close({ timeoutMs: 2000 });
-    assert.deepEqual(await c.closed, { code: 1001, reason: "Server shutting down" });
+    let closing: Promise<void> | undefined;
+    const closed = serverClose(server.port, "/control", "ada-token", JSON.stringify({ action: "slow" }), () => {
+      setTimeout(() => (closing = app.close({ timeoutMs: 2000 })), 30);
+    });
+    assert.deepEqual(await closed, { code: 1001, reason: "Server shutting down" });
     await closing;
     assert.equal(slowDone, true, "the message finished, with ctx.signal aborted by the close");
   });

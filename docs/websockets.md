@@ -63,7 +63,7 @@ WebSocket routes work with the servers that can upgrade a request:
 - **Node.js and Bun:** `app.listen(port)` and `serve(app, { port })`. Inferlo speaks the WebSocket protocol (RFC 6455) itself on Node.js, without a dependency, and uses Bun's own WebSocket server on Bun.
 - **Deno:** `Deno.serve(app.fetch)`, `deno serve` and Deno Deploy (`export default app`), with `Deno.upgradeWebSocket`.
 
-- **A Node.js server another framework created** (Express, Fastify, NestJS, Koa, `node:http`): `server.on("upgrade", toNodeUpgradeHandler(app, { prefix: "/api" }))` next to `toNodeHandler` (see [toNodeUpgradeHandler](integrations.md#websocket-routes-tonodeupgradehandler)).
+- **A Node.js server another framework created** (Express, Fastify, NestJS, Koa, `node:http`): `server.on("upgrade", toNodeUpgradeHandler(app, { prefix: "/api" }))` next to `toNodeHandler` (see [toNodeUpgradeHandler](integrations.md#websocket-routes-tonodeupgradehandler)). On Bun this needs Bun 1.4 or later (IL5031 on Bun 1.3, whose `node:http` cannot write to upgraded sockets).
 - **Your own `Bun.serve`:** `Bun.serve({ routes, fetch: app.fetch, websocket: bunWebSocket })`, with `bunWebSocket` from `@browserlessapi/inferlo`. For a request Bun upgraded, `app.fetch` resolves to `undefined`, as `Bun.serve` expects.
 
 Elsewhere (`app.request()` in tests, serverless functions, a `Bun.serve` without `bunWebSocket`) an upgrade request gets 501 IL2011. Test sockets against a real server: `const server = await app.listen(0)`, then `new WebSocket(\`ws://127.0.0.1:${server.port}/chat\`)`.

@@ -360,6 +360,13 @@ const STATUS_TEXT: Record<number, string> = { 400: "Bad Request", 401: "Unauthor
  * route for when fallthrough is true; otherwise the app answers them (404).
  */
 export function toNodeUpgradeHandler(app: Pick<App<any>, "fetch">, options: NodeHandlerOptions = {}): NodeUpgradeHandler {
+  // Bun 1.3's node:http never sends what is written to an upgraded socket, so the handshake would hang.
+  const bun = (globalThis as { Bun?: { version?: string } }).Bun?.version;
+  if (bun && /^1\.[0-3]\./.test(bun)) {
+    throw new InferloError("IL5031", `toNodeUpgradeHandler needs Bun 1.4 or later; this is Bun ${bun}.`, {
+      fix: "On Bun 1.3, serve WebSocket routes with app.listen(), serve(app) or Bun.serve({ fetch: app.fetch, websocket: bunWebSocket }), or update Bun.",
+    });
+  }
   const prefix = normalizePrefix(options.prefix);
   if (options.fallthrough !== undefined && typeof options.fallthrough !== "boolean") {
     throw new InferloError("IL5019", "toNodeUpgradeHandler fallthrough must be true or false.", { fix: "Use toNodeUpgradeHandler(app, { fallthrough: true })." });
