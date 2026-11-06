@@ -12,9 +12,10 @@ export interface RateLimit {
   per: "second" | "minute" | "hour" | "day";
   /**
    * Who is counted. "user": each signed-in user (requests without a user count by IP).
-   * "ip": each client IP address. Default "user".
+   * "tenant": each tenant (organisation) in multi-tenant apps, shared by all its users (users without a tenant
+   * count one by one, requests without a user by IP). "ip": each client IP address. Default "user".
    */
-  by?: "user" | "ip";
+  by?: "user" | "tenant" | "ip";
 }
 
 export interface RateLimitConfig {
@@ -45,11 +46,11 @@ export function checkRateLimit(limit: unknown, where: string): void {
   else {
     if (!Number.isInteger(l.max) || l.max < 1) problems.push("max must be a whole number of at least 1");
     if (!Object.hasOwn(WINDOWS, l.per as string)) problems.push(`per must be one of ${Object.keys(WINDOWS).map((k) => `"${k}"`).join(", ")}`);
-    if (l.by !== undefined && l.by !== "user" && l.by !== "ip") problems.push('by must be "user" or "ip"');
+    if (l.by !== undefined && l.by !== "user" && l.by !== "tenant" && l.by !== "ip") problems.push('by must be "user", "tenant" or "ip"');
   }
   if (problems.length) {
     throw new InferloError("IL6007", `Invalid rateLimit on ${where}: ${problems.join(", ")}.`, {
-      fix: 'Use rateLimit: { max: 10, per: "minute", by: "user" } (per: "second" | "minute" | "hour" | "day", by: "user" | "ip").',
+      fix: 'Use rateLimit: { max: 10, per: "minute", by: "user" } (per: "second" | "minute" | "hour" | "day", by: "user" | "tenant" | "ip").',
     });
   }
 }

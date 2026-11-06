@@ -251,9 +251,11 @@ export interface RouteCache {
   ttlMs: number;
   /**
    * Who shares a cached response. "user" (default): each signed-in user gets their own (requests without a user
-   * share one). "public": every caller gets the same response; only for data that does not depend on the user.
+   * share one). "tenant": the users of one tenant (organisation) share one, in multi-tenant apps (users without a
+   * tenant get their own). "public": every caller gets the same response; only for data that does not depend on
+   * the user.
    */
-  by?: "user" | "public";
+  by?: "user" | "tenant" | "public";
   /** Tags for ctx.cache.invalidate(tag), so a change removes the cached responses at once. */
   tags?: readonly string[];
 }
@@ -267,7 +269,7 @@ export function checkRouteCache(option: unknown, method: string, where: string):
   else {
     for (const key of Object.keys(o)) if (key !== "ttlMs" && key !== "by" && key !== "tags") problems.push(`unknown option "${key}"`);
     if (!Number.isInteger(o.ttlMs) || o.ttlMs < 1 || o.ttlMs > MAX_TTL_MS) problems.push("ttlMs must be a whole number of milliseconds from 1 to 365 days");
-    if (o.by !== undefined && o.by !== "user" && o.by !== "public") problems.push('by must be "user" or "public"');
+    if (o.by !== undefined && o.by !== "user" && o.by !== "tenant" && o.by !== "public") problems.push('by must be "user", "tenant" or "public"');
     if (o.tags !== undefined && (!Array.isArray(o.tags) || o.tags.some((t) => typeof t !== "string" || t.length === 0 || t.length > 256))) problems.push("tags must be strings of 1 to 256 characters");
   }
   if (problems.length) {
@@ -289,11 +291,13 @@ async function sha256(text: string): Promise<string> {
 }
 
 /**
- * The cache key of one request to a cached route: the route, who shares the response and the full URL path and
+ * The cache key of one request to a cached route: the route, who shares the response (the user, the tenant or
+ * everyone) and the full URL path and
  * query (sorted, so ?a=1&b=2 and ?b=2&a=1 share an entry), hashed to a short key.
  */
-export async function routeCacheKey(method: string, path: string, option: RouteCache, userId: string | undefined, url: URL): Promise<string> {
-  const who = (option.by ?? "user") === "public" ? "public" : userId === undefined ? "anonymous" : `user:${userId}`;
+export async function routeCacheKey(method: string, path: string, option: RouteCache, userId: string | undefined, url: URL, tenantId?: string | null): Promise<string> {
+  const by = option.by ?? "user";
+  const who = by === "public" ? "public" : by === "tenant" && tenantId ? `tenant:${tenantId}` : userId === undefined ? "anonymous" : `user:${userId}`;
   const query = [...url.searchParams].sort(([a, x], [b, y]) => (a < b ? -1 : a > b ? 1 : x < y ? -1 : x > y ? 1 : 0));
   return `route:${await sha256(JSON.stringify([method, path, who, url.pathname, query]))}`;
 }

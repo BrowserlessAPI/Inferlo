@@ -1,0 +1,4 @@
+{
+  "title": "Rate limit and cache per organisation",
+  "prompt": "Projects belong to the user's organisation (a tenant-scoped model). In src/routes/projects.ts, limit createProject to 3 new projects per hour per organisation: all users of one organisation share the limit, and other organisations are not affected. Then add `export const projectStats`: GET /projects/stats answering { count } with the number of the organisation's projects, cached for 60 seconds so that every user of an organisation shares the cached answer, while an organisation never sees another organisation's count."
+}

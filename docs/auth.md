@@ -122,11 +122,12 @@ Each entry has:
 | `data` | Anything else you pass as `data` |
 | `source` | Where it was written: `"PATCH /tickets/:id"` or `"job export-tickets"` |
 | `requestId` | The request's id, also in its `X-Request-Id` header and log lines |
+| `tenantId` | In [multi-tenant apps](database.md#multi-tenancy), the tenant it happened in: the signed-in user's tenant in routes, the job's tenant in jobs. Pass `tenantId` to name another, or `null` for none |
 | `createdAt` | When |
 
 - Secrets never reach the table: changed fields named like `password`, `token`, `secret`, `apiKey`, `*Hash`, `session` or `cookie` are stored as `"[redacted]"` without their values, the same names in `data` are redacted, and values from `createApp({ redact })` and AI provider keys are replaced inside any string.
 - Writing is explicit: nothing is recorded unless you call `audit`, so you choose which actions matter. Call it after the change succeeded. It writes with the request's (or job's) `db`, outside any `db.$transaction`; when the entry must be part of a transaction, insert it with the transaction's client: `tx.audit_log.insert({ action, userId: user.id, model: "tickets", recordId, changes: auditChanges(before, after) })`.
-- Read it like any table: `db.audit_log.findMany({ where: { model: "tickets", recordId: id }, orderBy: { createdAt: "desc" } })`. Protect routes that show it with a permission such as `"audit.view"`.
+- Read it like any table: `db.audit_log.findMany({ where: { model: "tickets", recordId: id }, orderBy: { createdAt: "desc" } })`. In multi-tenant apps, show a customer only their own entries with `where: { tenantId }` (`audit_log` is not a tenant-scoped table, so an admin can read every tenant's entries). Apps that already have an `audit_log` table get the `tenant_id` column from `inferlo db migrate`. Protect routes that show it with a permission such as `"audit.view"`.
 - Without `AuditLog` in the models, `audit` raises IL6027, as do an empty action name or an entry that is not an object. `auditChanges(before, after)` is exported to compute the same `changes` yourself.
 
 ## Cookie sessions

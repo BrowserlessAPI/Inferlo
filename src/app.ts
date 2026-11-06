@@ -522,7 +522,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       db: db as never,
       ai,
       cache,
-      audit: (run) => createAudit(models, redactor, () => db as never, { userId: null, source: `job ${run.name}` }),
+      audit: (run) => createAudit(models, redactor, () => db as never, { userId: null, tenantId: run.tenantId, source: `job ${run.name}` }),
       store: jobStoreFor(config.jobQueue, adapter, () => {
         if (!redis) throw redisMissing("jobQueue");
         return redisJobStore(redis, redisPrefix(config.name));
@@ -621,6 +621,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     const id = config.auth?.tenant ? config.auth.tenant(user) : (user as { tenantId?: unknown }).tenantId;
     return id === null || id === undefined ? "none" : { tenant: checkTenantId(id) };
   };
+  const tenantOf = (scope: TenantScope): string | null => (typeof scope === "object" ? scope.tenant : null);
   const roles = (user: AppUser): string[] => config.auth?.roles?.(user) ?? ((user as { roles?: string[] }).roles ?? []);
 
   const errorResponse = (error: unknown, headers: Headers, req: Request, requestId: string): Response => {
@@ -745,9 +746,12 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         }
         if (opts.permission) await config.permissions!.authorize(opts.permission, { user });
 
-        // Rate limit: counted per user (or IP without one), after auth so failed sign-ins on private routes do not use it up.
+        // Rate limit: counted per user, tenant or IP, after auth so failed sign-ins on private routes do not use it up.
+        // by "tenant" counts users without a tenant one by one; by "user" and "tenant" count requests without a user by IP.
         if (opts.rateLimit) {
-          const who = (opts.rateLimit.by ?? "user") === "user" && user ? `user:${user.id}` : `ip:${ip}`;
+          const by = opts.rateLimit.by ?? "user";
+          const scope = by === "tenant" && user ? tenantScope(user) : "none";
+          const who = typeof scope === "object" ? `tenant:${scope.tenant}` : by !== "ip" && user ? `user:${user.id}` : `ip:${ip}`;
           const hit = await rateLimits.hit(`${def.method} ${def.path} ${who}`, windowMs(opts.rateLimit));
           const limited = rateLimitResult(opts.rateLimit, hit);
           for (const [k, v] of Object.entries(limited.headers)) headers.set(k, v);
@@ -789,12 +793,12 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         // Response cache: after auth, permissions, rate limits and input checks, so a cached response is only
         // served to callers who may call the route with valid input.
         const routeCache = opts.cache;
-        const cacheKey = routeCache ? await routeCacheKey(def.method, def.path, routeCache, user?.id, url) : undefined;
+        const cacheKey = routeCache ? await routeCacheKey(def.method, def.path, routeCache, user?.id, url, routeCache.by === "tenant" && user ? tenantOf(tenantScope(user)) : undefined) : undefined;
         const cacheHeaders = (outcome: "HIT" | "MISS", etag: string) => {
           headers.set("x-inferlo-cache", outcome);
           headers.set("etag", etag);
           if (!headers.has("cache-control")) headers.set("cache-control", `${(routeCache!.by ?? "user") === "public" && (opts.auth ?? "user") === "public" ? "public" : "private"}, no-cache`);
-          if ((routeCache!.by ?? "user") === "user") headers.append("vary", "Authorization, Cookie");
+          if ((routeCache!.by ?? "user") !== "public") headers.append("vary", "Authorization, Cookie");
         };
         const cachedAnswer = (body: string, etag: string): Response => {
           if (etagMatches(req.headers.get("if-none-match"), etag)) return new Response(null, { status: 304, headers });
@@ -853,7 +857,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           },
           waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e, { requestId }))),
           get audit() {
-            const value = createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, source: `${def.method} ${def.path}`, requestId });
+            const value = createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, tenantId: tenantOf(tenantScope(user)), source: `${def.method} ${def.path}`, requestId });
             Object.defineProperty(ctx, "audit", { value, enumerable: true });
             return value;
           },

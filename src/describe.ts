@@ -64,7 +64,7 @@ export interface AppDescription {
     /** true, or when the route was deprecated, when it stops working and where the migration is explained. */
     deprecated?: true | { since?: string; sunset?: string; link?: string };
     /** The route's response cache (route option cache). */
-    cache?: { ttlMs: number; by: "user" | "public"; tags: string[] };
+    cache?: { ttlMs: number; by: "user" | "tenant" | "public"; tags: string[] };
     params?: JSONSchema;
     query?: JSONSchema;
     body?: JSONSchema;

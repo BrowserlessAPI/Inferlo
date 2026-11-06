@@ -7,8 +7,8 @@
  *   const updated = await db.tickets.update(ticket.id, body);
  *   await audit("tickets.update", { model: "tickets", before: ticket, after: updated });
  *
- * The entry records the signed-in user, the action, the record id, the changed fields ({ from, to }) and the
- * request id. Secret fields (password, token, secret, API keys, hashes) are stored as "[redacted]".
+ * The entry records the signed-in user, the action, the record id, the changed fields ({ from, to }), the
+ * request id and, in multi-tenant apps, the tenant. Secret fields (password, token, secret, API keys, hashes) are stored as "[redacted]".
  */
 import { InferloError } from "./errors.ts";
 import { model, type AnyModel } from "./model.ts";
@@ -31,6 +31,7 @@ export const AuditLog = model("audit_log", {
   data: t.json<Record<string, unknown>>().optional().describe("Other details"),
   source: t.string().max(300).optional().describe('Where it was written: "GET /tickets/:id" or "job send-email"'),
   requestId: t.string().max(200).optional().describe("The request id (X-Request-Id) of the request that wrote it"),
+  tenantId: t.string().max(200).optional().index().describe("The tenant (organisation) it happened in, in multi-tenant apps"),
 });
 
 /** What ctx.audit(action, entry) takes. Every field is optional. */
@@ -50,6 +51,11 @@ export interface AuditEntry {
    * work. null records it as done by the system.
    */
   userId?: string | null;
+  /**
+   * The tenant (organisation) it happened in. Routes use the signed-in user's tenant and jobs the tenant they run
+   * for; null records it without one.
+   */
+  tenantId?: string | null;
 }
 
 /** Writes one audit log entry: await ctx.audit("tickets.update", { model: "tickets", before, after }). */
@@ -92,7 +98,7 @@ export function createAudit(
   models: readonly AnyModel[],
   redactor: Redactor,
   db: () => { audit_log?: { insert(row: Record<string, unknown>): Promise<unknown> } },
-  defaults: { userId: string | null; source: string; requestId?: string },
+  defaults: { userId: string | null; tenantId?: string | null; source: string; requestId?: string },
 ): Audit {
   return async (action, entry = {}) => {
     if (!models.some((m) => m.name === AuditLog.name)) {
@@ -103,6 +109,9 @@ export function createAudit(
     }
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
       throw new InferloError("IL6027", "ctx.audit(action, entry) takes an object as entry.", { fix: 'Call ctx.audit("tickets.update", { model: "tickets", before, after }).' });
+    }
+    if (entry.tenantId !== undefined && entry.tenantId !== null && (typeof entry.tenantId !== "string" || entry.tenantId === "" || entry.tenantId.length > 200)) {
+      throw new InferloError("IL6027", "ctx.audit(action, { tenantId }) takes a tenant id (a non-empty string of at most 200 characters) or null.", { fix: 'Leave tenantId out to record the current tenant, or pass the tenant\'s id: ctx.audit("plans.change", { tenantId: "acme" }).' });
     }
     const id = (entry.recordId ?? (entry.after as { id?: unknown } | null | undefined)?.id ?? (entry.before as { id?: unknown } | null | undefined)?.id) as unknown;
     const changes = entry.before || entry.after ? auditChanges(entry.before, entry.after) : undefined;
@@ -115,6 +124,8 @@ export function createAudit(
     if (entry.data !== undefined) row.data = redactData(entry.data, redactor);
     row.source = defaults.source;
     if (defaults.requestId) row.requestId = defaults.requestId;
+    const tenantId = entry.tenantId === undefined ? defaults.tenantId : entry.tenantId;
+    if (tenantId !== null && tenantId !== undefined) row.tenantId = tenantId;
     await db().audit_log!.insert(row);
   };
 }

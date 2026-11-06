@@ -29,7 +29,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `response` | Response schema for OpenAPI |
 | `summary`, `description`, `tags` | Documentation for OpenAPI, describe and MCP |
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
-| `rateLimit` | `{ max, per, by }` to limit requests per user or IP (see below) |
+| `rateLimit` | `{ max, per, by }` to limit requests per user, tenant or IP (see below) |
 | `deprecated` | `true`, or `{ since, sunset, link }` to send deprecation headers (see below) |
 | `cache` | `{ ttlMs, by: "user" \| "public", tags }` to cache a GET route's JSON responses (see [Caching](caching.md#caching-route-responses)) |
 | `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
@@ -49,7 +49,7 @@ export const summarize = route
 ```
 
 - `max` requests per `per` (`"second"`, `"minute"`, `"hour"` or `"day"`), in fixed windows, counted separately for each route.
-- `by: "user"` (default) counts each signed-in user; requests without a user (on public routes) count by IP. `by: "ip"` counts each client IP.
+- `by: "user"` (default) counts each signed-in user; requests without a user (on public routes) count by IP. `by: "tenant"` counts each tenant (organisation) in [multi-tenant apps](database.md#multi-tenancy), so all users of one customer share the limit (`rateLimit: { max: 1000, per: "day", by: "tenant" }` for a plan's quota); users without a tenant are counted one by one. `by: "ip"` counts each client IP.
 - The count is checked after auth and before input validation: failed sign-ins on private routes do not use it up, invalid bodies do.
 - Over the limit the route answers **429** with IL2005 and a `Retry-After` header. Every response of a limited route has `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (seconds) headers.
 - Tool calls from `ai.generate({ tools })` and the MCP server count too, as the same user.

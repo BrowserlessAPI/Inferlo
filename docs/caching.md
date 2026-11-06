@@ -66,7 +66,7 @@ export const ticketStats = route
 | Option | |
 |---|---|
 | `ttlMs` | Required. How long a response is kept, in milliseconds (1 to 365 days). |
-| `by` | `"user"` (default): each signed-in user gets their own cached response (requests without a user share one). `"public"`: every caller gets the same response; use it only when the response does not depend on the user. |
+| `by` | `"user"` (default): each signed-in user gets their own cached response (requests without a user share one). `"tenant"`: the users of one tenant (organisation) in [multi-tenant apps](database.md#multi-tenancy) share a cached response, and users without a tenant get their own. `"public"`: every caller gets the same response; use it only when the response does not depend on the user. |
 | `tags` | Tags for `ctx.cache.invalidate(tag)`, so a change removes the cached responses at once. |
 
 - **Checks still run.** Auth, roles, `permission`, `rateLimit` and the `query` and `params` schemas run on every request before the cache is read, so a cached response only reaches callers who may call the route with valid input. Only the handler is skipped.

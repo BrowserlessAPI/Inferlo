@@ -430,7 +430,7 @@ export interface JobRuntime {
   ai: AI;
   cache: Cache;
   /** Builds ctx.audit for one run. */
-  audit(job: { name: string; id: string }): Audit;
+  audit(job: { name: string; id: string; tenantId: string | null }): Audit;
   store: JobStore;
   /** Name of the store, shown as app.jobs.queue. Default "memory". */
   queue?: "memory" | "database" | "redis";
@@ -607,7 +607,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
       const tenantId = record.tenantId ?? null;
       const scoped = tenantId ? withTenant({ jobs, events }, tenantId) : { jobs, events };
       const db = tenantId ? ((runtime.db as unknown as DbHelpers).$tenant(tenantId) as unknown as AppDb) : runtime.db;
-      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id }) });
+      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id, tenantId }) });
       await runtime.store.update(record.id, { status: "done" });
       return "done";
     } catch (error) {

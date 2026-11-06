@@ -578,6 +578,8 @@ A tenant id is a non-empty string of at most 200 characters; anything else raise
 
 **Jobs** get the tenant of the request (or job) that queued them, also through events: their `ctx.db` is scoped to it, so a job queued from a route needs no tenant id in its input (see [jobs](jobs.md#enqueue)). `app.jobs.enqueue(job, input, { tenantId })` and `app.events.publish(event, payload, { tenantId })` set it elsewhere.
 
+**Rate limits, cached responses and the audit log** follow the tenant too: `rateLimit: { by: "tenant" }` counts all users of a tenant together (see [rate limiting](routes.md#rate-limiting)), the route option `cache: { by: "tenant" }` shares a cached response between them (see [caching](caching.md)), and `ctx.audit` records the tenant with each entry (see [audit log](auth.md#audit-log)).
+
 **Outside requests and jobs** (`app.db`, scripts, tests, the `db` passed to `auth.resolve`) there is no current tenant, so tenant-scoped tables raise IL4027 until you say which tenant:
 
 ```ts
@@ -695,7 +697,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `response` | Response schema for OpenAPI |
 | `summary`, `description`, `tags` | Documentation for OpenAPI, describe and MCP |
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
-| `rateLimit` | `{ max, per, by }` to limit requests per user or IP (see below) |
+| `rateLimit` | `{ max, per, by }` to limit requests per user, tenant or IP (see below) |
 | `deprecated` | `true`, or `{ since, sunset, link }` to send deprecation headers (see below) |
 | `cache` | `{ ttlMs, by: "user" \| "public", tags }` to cache a GET route's JSON responses (see [Caching](caching.md#caching-route-responses)) |
 | `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
@@ -715,7 +717,7 @@ export const summarize = route
 ```
 
 - `max` requests per `per` (`"second"`, `"minute"`, `"hour"` or `"day"`), in fixed windows, counted separately for each route.
-- `by: "user"` (default) counts each signed-in user; requests without a user (on public routes) count by IP. `by: "ip"` counts each client IP.
+- `by: "user"` (default) counts each signed-in user; requests without a user (on public routes) count by IP. `by: "tenant"` counts each tenant (organisation) in [multi-tenant apps](database.md#multi-tenancy), so all users of one customer share the limit (`rateLimit: { max: 1000, per: "day", by: "tenant" }` for a plan's quota); users without a tenant are counted one by one. `by: "ip"` counts each client IP.
 - The count is checked after auth and before input validation: failed sign-ins on private routes do not use it up, invalid bodies do.
 - Over the limit the route answers **429** with IL2005 and a `Retry-After` header. Every response of a limited route has `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (seconds) headers.
 - Tool calls from `ai.generate({ tools })` and the MCP server count too, as the same user.
@@ -964,11 +966,12 @@ Each entry has:
 | `data` | Anything else you pass as `data` |
 | `source` | Where it was written: `"PATCH /tickets/:id"` or `"job export-tickets"` |
 | `requestId` | The request's id, also in its `X-Request-Id` header and log lines |
+| `tenantId` | In [multi-tenant apps](database.md#multi-tenancy), the tenant it happened in: the signed-in user's tenant in routes, the job's tenant in jobs. Pass `tenantId` to name another, or `null` for none |
 | `createdAt` | When |
 
 - Secrets never reach the table: changed fields named like `password`, `token`, `secret`, `apiKey`, `*Hash`, `session` or `cookie` are stored as `"[redacted]"` without their values, the same names in `data` are redacted, and values from `createApp({ redact })` and AI provider keys are replaced inside any string.
 - Writing is explicit: nothing is recorded unless you call `audit`, so you choose which actions matter. Call it after the change succeeded. It writes with the request's (or job's) `db`, outside any `db.$transaction`; when the entry must be part of a transaction, insert it with the transaction's client: `tx.audit_log.insert({ action, userId: user.id, model: "tickets", recordId, changes: auditChanges(before, after) })`.
-- Read it like any table: `db.audit_log.findMany({ where: { model: "tickets", recordId: id }, orderBy: { createdAt: "desc" } })`. Protect routes that show it with a permission such as `"audit.view"`.
+- Read it like any table: `db.audit_log.findMany({ where: { model: "tickets", recordId: id }, orderBy: { createdAt: "desc" } })`. In multi-tenant apps, show a customer only their own entries with `where: { tenantId }` (`audit_log` is not a tenant-scoped table, so an admin can read every tenant's entries). Apps that already have an `audit_log` table get the `tenant_id` column from `inferlo db migrate`. Protect routes that show it with a permission such as `"audit.view"`.
 - Without `AuditLog` in the models, `audit` raises IL6027, as do an empty action name or an entry that is not an object. `auditChanges(before, after)` is exported to compute the same `changes` yourself.
 
 ## Cookie sessions
@@ -1619,7 +1622,7 @@ export const ticketStats = route
 | Option | |
 |---|---|
 | `ttlMs` | Required. How long a response is kept, in milliseconds (1 to 365 days). |
-| `by` | `"user"` (default): each signed-in user gets their own cached response (requests without a user share one). `"public"`: every caller gets the same response; use it only when the response does not depend on the user. |
+| `by` | `"user"` (default): each signed-in user gets their own cached response (requests without a user share one). `"tenant"`: the users of one tenant (organisation) in [multi-tenant apps](database.md#multi-tenancy) share a cached response, and users without a tenant get their own. `"public"`: every caller gets the same response; use it only when the response does not depend on the user. |
 | `tags` | Tags for `ctx.cache.invalidate(tag)`, so a change removes the cached responses at once. |
 
 - **Checks still run.** Auth, roles, `permission`, `rateLimit` and the `query` and `params` schemas run on every request before the cache is read, so a cached response only reaches callers who may call the route with valid input. Only the handler is skipped.
@@ -5040,7 +5043,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 
 ### IL6007
-**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"`, `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
+**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"`, `"tenant"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"`, `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
 
 ### IL6008
 **Rate limit store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
@@ -5100,10 +5103,10 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid permissions.** `permissions({ ... })` takes an object of named rules: each name like `"tickets.update"`, each rule a function that returns `true` or `false` or `{ roles: ["admin"] }` with at least one role. A function rule that returns anything other than `true` or `false` raises it when checked, as does `can()` or `authorize()` with an unknown name. `createApp` raises it when a route's `permission` is not defined, when a route has a `permission` but the app has no `createApp({ permissions })`, when a route combines `permission` with `auth: "public"`, or when `permissions` is not the result of `permissions()`. See [Permissions](auth.md#permissions).
 
 ### IL6027
-**Audit log not available or used wrongly.** `ctx.audit(action, entry)` in a route or job needs the built-in `AuditLog` model in `createApp({ models: [...models, AuditLog] })` (run `inferlo db migrate` to create the `audit_log` table), an action name such as `"tickets.update"`, and an object as `entry`. See [Audit log](auth.md#audit-log).
+**Audit log not available or used wrongly.** `ctx.audit(action, entry)` in a route or job needs the built-in `AuditLog` model in `createApp({ models: [...models, AuditLog] })` (run `inferlo db migrate` to create the `audit_log` table), an action name such as `"tickets.update"`, and an object as `entry`, whose `tenantId`, when given, is a tenant id (a non-empty string of at most 200 characters) or `null`. See [Audit log](auth.md#audit-log).
 
 ### IL6028
-**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1), `{ store: "database" }`, which needs `postgres()` as the database, or `{ store: "redis" }`, which needs `createApp({ redis })` (IL6031). Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. The route option `cache` only works on GET routes and takes `{ ttlMs, by: "user" | "public", tags }`: `route.get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })`. See [Caching](caching.md).
+**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1), `{ store: "database" }`, which needs `postgres()` as the database, or `{ store: "redis" }`, which needs `createApp({ redis })` (IL6031). Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. The route option `cache` only works on GET routes and takes `{ ttlMs, by: "user" | "tenant" | "public", tags }`: `route.get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })`. See [Caching](caching.md).
 
 ### IL6029
 **Invalid sessions() options or call.** `sessions({ secret, user })` needs a `secret` of at least 32 characters (or a list of them for rotation, newest first; generate one with `openssl rand -base64 32` and keep it in `config({ secrets })`) and a `user({ userId, issuedAt }, { db })` function that loads the signed-in user. `maxAgeMs` is a whole number of milliseconds from 1 minute to 400 days, `cookie.name` a valid cookie name, `cookie.sameSite` `"lax"` or `"strict"`, and `cookie.domain` and `cookie.path` strings without spaces, commas or semicolons. `session.signIn(ctx, userId)` and `session.signOut(ctx)` need the route's context and a non-empty user id. See [Cookie sessions](auth.md#cookie-sessions).

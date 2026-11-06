@@ -143,6 +143,8 @@ A tenant id is a non-empty string of at most 200 characters; anything else raise
 
 **Jobs** get the tenant of the request (or job) that queued them, also through events: their `ctx.db` is scoped to it, so a job queued from a route needs no tenant id in its input (see [jobs](jobs.md#enqueue)). `app.jobs.enqueue(job, input, { tenantId })` and `app.events.publish(event, payload, { tenantId })` set it elsewhere.
 
+**Rate limits, cached responses and the audit log** follow the tenant too: `rateLimit: { by: "tenant" }` counts all users of a tenant together (see [rate limiting](routes.md#rate-limiting)), the route option `cache: { by: "tenant" }` shares a cached response between them (see [caching](caching.md)), and `ctx.audit` records the tenant with each entry (see [audit log](auth.md#audit-log)).
+
 **Outside requests and jobs** (`app.db`, scripts, tests, the `db` passed to `auth.resolve`) there is no current tenant, so tenant-scoped tables raise IL4027 until you say which tenant:
 
 ```ts
