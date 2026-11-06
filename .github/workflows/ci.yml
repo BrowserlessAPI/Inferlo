@@ -580,6 +580,48 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/drizzle.test.ts "examples/with-drizzle/test/*.test.ts"
 
+  prisma:
+    name: Prisma ${{ matrix.prisma }} on PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 6 = oldest supported (Prisma 6 still gets patch releases, so its newest 6.x is tested, with the
+        # prisma-client generator and engineType "client" on @prisma/adapter-pg), latest = newest release (7).
+        # Each runs on the oldest supported and the newest PostgreSQL.
+        include:
+          - prisma: "6"
+            postgres: "14"
+          - prisma: "latest"
+            postgres: "latest"
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: inferlo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      INFERLO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/inferlo_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save prisma@${{ matrix.prisma }} @prisma/client@${{ matrix.prisma }} @prisma/adapter-pg@${{ matrix.prisma }}
+      - run: node -p "'Prisma ' + require('./node_modules/prisma/package.json').version + ', @prisma/client ' + require('./node_modules/@prisma/client/package.json').version + ', @prisma/adapter-pg ' + require('./node_modules/@prisma/adapter-pg/package.json').version"
+      - run: node examples/with-prisma/generate.ts
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec "examples/with-prisma/test/*.test.ts"
+
   koa:
     name: Koa ${{ matrix.koa }}
     runs-on: ubuntu-latest

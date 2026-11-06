@@ -1,0 +1,4 @@
+{
+  "title": "One transaction across a Prisma table and an Inferlo model",
+  "prompt": "The app shares its Postgres database with older code that uses Prisma, which owns the table invoices (id serial primary key, customer_id integer, cents integer). Create src/routes/invoices.ts with `export const createInvoice`: POST /invoices with the body { customerId, cents, reminder } (customerId an integer, cents an integer of at least 1, reminder a string of 1 to 500 characters). It must insert a row into invoices and a Reminder (model reminders: invoiceId, message) for that invoice in the same database transaction, so that either both are saved or neither is. Answer 201 with { invoiceId, reminder }. Register the routes module in src/app.ts."
+}

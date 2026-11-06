@@ -986,6 +986,56 @@ export const createInvoice = route
 
 Inferlo models can store the id of a Drizzle row as a plain field (`invoiceId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with `drizzle-orm` 0.44.0 and the latest release, on the oldest supported and the newest PostgreSQL.
 
+## Prisma
+
+An app that already uses [Prisma](https://www.prisma.io) on Postgres can add Inferlo next to it, on the same database, without moving its tables. Prisma 6 and 7 are supported through Prisma's `pg` driver adapter (`@prisma/adapter-pg`); with Prisma 6, use the `prisma-client` generator with `engineType = "client"`. A tested example is in `examples/with-prisma`.
+
+**One pool for both.** Create the `pg` pool once and give it to Prisma's adapter and to `postgres({ pool })`:
+
+```ts
+// src/db.ts
+import pg from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "../generated/prisma/client.ts"; // from `prisma generate`
+
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
+export const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
+
+// src/app.ts
+export const app = createApp({ models, db: postgres({ pool }), routes, jobs, auth });
+```
+
+**Prisma in routes and jobs.** Import `prisma` where you need it, as any module: `await prisma.invoice.findUnique({ where: { id }, include: { customer: true } })`. Inferlo adds no wrapper, so Prisma queries do not get `ctx.db`'s request timeout or tenant filter; keep Inferlo models (`ctx.db`) for tables that need them. Errors from Prisma are not Inferlo errors: they answer 500 with the details logged, never sent, so check for missing rows and throw `notFound()` (404, IL4001) instead of relying on `findUniqueOrThrow` in routes.
+
+**Models side by side.** Prisma's models stay in `schema.prisma`; new tables can be Inferlo models. An Inferlo model stores the id of a Prisma row as a plain field (`invoiceId: t.int().index()`), and a handler reads both: the invoice with `prisma.invoice.findUnique(...)`, its reminders with `db.reminders.findMany({ where: { invoiceId } })`. `t.ref` points only at Inferlo models.
+
+**Transactions.** Prisma runs `prisma.$transaction(...)` on a connection it keeps to itself, so Prisma and Inferlo cannot share one transaction through their clients. When a write must be atomic across both, start it with Inferlo and write Prisma's tables with parameterised SQL on the same transaction (`tx.$sql`); both commit together, and an error in either rolls both back:
+
+```ts
+export const createInvoice = route
+  .post("/invoices", { body: t.object({ customerId: t.int(), cents: t.int().min(1), reminder: t.string().max(500) }) })
+  .handle(({ body, db }) =>
+    db.$transaction(async (tx) => {
+      const [invoice] = await tx.$sql(
+        `INSERT INTO invoices (customer_id, cents) VALUES ($1, $2) RETURNING id, cents`,
+        [body.customerId, body.cents],
+      );
+      const reminder = await tx.reminders.insert({ invoiceId: invoice!.id as number, message: body.reminder });
+      return { invoice, reminder };
+    }),
+  );
+```
+
+- Writes that touch only Prisma's tables keep using `prisma.$transaction(...)`; writes that touch only Inferlo's use `db.$transaction(...)`.
+- Do not call `prisma` inside `db.$transaction`, or `db` inside `prisma.$transaction`, expecting one transaction: each runs on its own connection and commits on its own.
+- Queue jobs that read the new rows with Prisma after `db.$transaction` returns, so they never run before the rows are committed or for rows that were rolled back.
+
+**Migrations.** Each tool manages its own tables. `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create, so Prisma's tables are safe. `prisma migrate deploy` applies only Prisma's own migration files, so it leaves Inferlo's tables alone. Give new Inferlo models names that Prisma does not use; Inferlo's built-in tables start with `inferlo_` (jobs, rate limits, cache, migrations) or are `audit_log`.
+
+**Shutting down.** Close in order: `await app.close()` (stops requests and jobs), then `await prisma.$disconnect()`, then `await pool.end()`. Neither Inferlo nor Prisma ends a pool you created.
+
+Tested with Prisma 6 (newest 6.x) on the oldest supported PostgreSQL and the latest Prisma on the newest PostgreSQL.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).

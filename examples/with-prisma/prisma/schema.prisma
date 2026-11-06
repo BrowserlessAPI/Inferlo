@@ -1,0 +1,28 @@
+// The existing Prisma schema (Prisma 7). Prisma Migrate keeps managing these tables; Inferlo never touches them.
+// generate.ts derives the Prisma 6 form of this file (datasource url, engineType "client") when Prisma 6 is installed.
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Customer {
+  id       Int       @id @default(autoincrement())
+  name     String
+  invoices Invoice[]
+
+  @@map("crm_customers")
+}
+
+model Invoice {
+  id         Int      @id @default(autoincrement())
+  customerId Int      @map("customer_id")
+  cents      Int
+  createdAt  DateTime @default(now()) @map("created_at")
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  @@map("crm_invoices")
+}

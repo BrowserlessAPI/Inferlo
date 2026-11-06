@@ -229,4 +229,4 @@ await db.$transaction(async (tx) => {
 await db.$sql("select count(*) from tickets where owner_id = $1", [user.id]);   // always use $1 placeholders
 ```
 
-`db.$pgClient()` returns the `pg` client Inferlo's queries run on: the pool, or inside `$transaction` the transaction's connection. Libraries that take a pg client, such as Drizzle, can then work in the same transaction: `drizzle({ client: await tx.$pgClient<pg.PoolClient>() })` (see [Drizzle ORM](integrations.md#drizzle-orm)). `postgres({ pool })` takes a `pg.Pool` you created, so another library can share it.
+`db.$pgClient()` returns the `pg` client Inferlo's queries run on: the pool, or inside `$transaction` the transaction's connection. Libraries that take a pg client, such as Drizzle, can then work in the same transaction: `drizzle({ client: await tx.$pgClient<pg.PoolClient>() })` (see [Drizzle ORM](integrations.md#drizzle-orm)). Prisma shares the pool through its driver adapter, `new PrismaClient({ adapter: new PrismaPg(pool) })` (see [Prisma](integrations.md#prisma)). `postgres({ pool })` takes a `pg.Pool` you created, so another library can share it.

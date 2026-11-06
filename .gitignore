@@ -7,3 +7,4 @@ bench/results/*.json
 examples/with-nestjs/.compiled
 examples/with-tsed/.compiled
 dump.rdb
+examples/with-prisma/generated
