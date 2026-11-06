@@ -11,6 +11,7 @@ import { appAnswers } from "./request-matcher.ts";
 import { InferloError } from "./errors.ts";
 import { clientIps, clientSignals } from "./client-ip.ts";
 import { knownBodies } from "./response-body.ts";
+import { acceptKey, encodeClose, encodeFrame, FrameReader, OP_PONG, OP_TEXT, upgraders, upgrades, type SocketListener, type SocketTransport } from "./websocket.ts";
 
 export interface ServeOptions {
   port?: number;
@@ -270,7 +271,31 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   };
 
   if (g.Bun) {
-    const server = g.Bun.serve({ port, hostname, fetch: (req: Request, bunServer: unknown) => app.fetch(req, bunServer) });
+    type BunSocket = { data: { connect: (t: SocketTransport) => SocketListener; listener?: SocketListener }; send(text: string): void; close(code?: number, reason?: string): void };
+    const server = g.Bun.serve({
+      port,
+      hostname,
+      fetch: async (req: Request, bunServer: { upgrade(req: Request, options: object): boolean }) => {
+        // WebSocket routes upgrade through Bun's server; the app answers everything else.
+        upgraders.set(req, async (connect) => {
+          if (!bunServer.upgrade(req, { data: { connect } })) throw new InferloError("IL2010", "Invalid WebSocket handshake.", { status: 400, fix: "Use a WebSocket client that speaks RFC 6455." });
+          return undefined;
+        });
+        const response = await app.fetch(req, bunServer);
+        return upgrades.has(req) ? undefined : response;
+      },
+      websocket: {
+        open(ws: BunSocket) {
+          ws.data.listener = ws.data.connect({ send: (text) => ws.send(text), close: (code, reason) => ws.close(code, reason) });
+        },
+        message(ws: BunSocket, data: string | Uint8Array) {
+          ws.data.listener?.message(typeof data === "string" ? data : new Uint8Array(data));
+        },
+        close(ws: BunSocket, code: number, reason: string) {
+          ws.data.listener?.close(code, reason);
+        },
+      },
+    });
     // Wait until the open requests (and streamed answers) are done, then stop, closing the idle keep-alive
     // connections too. Requests that arrive meanwhile get 503 IL2006 from app.close(). app.close() calls the force
     // closer, stop(true), when its timeout is up. (stop() without true would leave keep-alive connections served on
@@ -315,6 +340,7 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   const http = await import("node:http");
   const handler = toNodeHandler(app);
   const server = http.createServer((req, res) => void handler(req as NodeRequest, res));
+  server.on("upgrade", (req, socket, head) => void nodeUpgrade(app, req as NodeRequest, socket as unknown as NodeSocket, head, http.STATUS_CODES));
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, hostname, () => resolve());
@@ -330,6 +356,110 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   };
   forceClosers.set(result, () => server.closeAllConnections());
   return result;
+}
+
+/** The parts of a Node.js net.Socket an upgraded connection uses. */
+interface NodeSocket {
+  write(data: Uint8Array | string): boolean;
+  end(data?: Uint8Array | string): void;
+  destroy(): void;
+  setNoDelay?(noDelay: boolean): void;
+  on(event: "data", listener: (chunk: Uint8Array) => void): unknown;
+  on(event: "close" | "end", listener: () => void): unknown;
+  on(event: "error", listener: (error: unknown) => void): unknown;
+}
+
+/** Longest message a WebSocket on Node.js may send before it is closed with 1009 (the app checks its own maxBodySize too). */
+const MAX_SOCKET_MESSAGE = 16 * 1024 * 1024;
+
+/**
+ * A Node.js upgrade request: the app decides (auth, permissions, rate limits, the route); when it accepts, the
+ * handshake is answered here and the connection speaks RFC 6455 frames. Otherwise the app's answer is written as a
+ * plain HTTP response and the connection is closed.
+ */
+async function nodeUpgrade(app: Pick<App<any>, "fetch">, req: NodeRequest, socket: NodeSocket, head: Uint8Array, statusText: Record<number, string | undefined>): Promise<void> {
+  socket.on("error", () => {});
+  let accepted = false;
+  try {
+    const request = buildRequest(req, req.url ?? "/");
+    upgraders.set(request, async (connect) => {
+      const accept = await acceptKey(request.headers.get("sec-websocket-key") ?? "");
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+      accepted = true;
+      socket.setNoDelay?.(true);
+      nodeSocket(socket, connect, head);
+      return undefined;
+    });
+    const response = await app.fetch(request);
+    if (accepted) return;
+    const body = new Uint8Array(await response.arrayBuffer());
+    const lines = [`HTTP/1.1 ${response.status} ${statusText[response.status] ?? ""}`];
+    response.headers.forEach((value, key) => {
+      if (key !== "content-length" && key !== "connection" && key !== "transfer-encoding") lines.push(`${key}: ${value}`);
+    });
+    lines.push(`content-length: ${body.byteLength}`, "connection: close", "", "");
+    socket.write(lines.join("\r\n"));
+    socket.end(body);
+  } catch (error) {
+    console.error("[inferlo] server error", createRedactor([]).value(error));
+    if (!accepted) socket.end("HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+    else socket.destroy();
+  }
+}
+
+/** Runs one accepted connection: frames in, frames out, and the close handshake. */
+function nodeSocket(socket: NodeSocket, connect: (transport: SocketTransport) => SocketListener, head: Uint8Array): void {
+  const encoder = new TextEncoder();
+  let closeSent = false;
+  let gone = false;
+  let code = 1006;
+  let reason = "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const sendClose = (closeCode: number, closeReason: string) => {
+    if (closeSent || gone) return;
+    closeSent = true;
+    socket.write(closeCode === 1005 ? encodeFrame(0x8, new Uint8Array(0)) : encodeClose(closeCode, closeReason));
+    // Wait for the client's close frame, but not forever.
+    timer = setTimeout(() => socket.destroy(), 5000);
+  };
+  const listener = connect({
+    send: (text) => {
+      if (!closeSent && !gone) socket.write(encodeFrame(OP_TEXT, encoder.encode(text)));
+    },
+    close: (closeCode, closeReason) => {
+      code = closeCode;
+      reason = closeReason;
+      sendClose(closeCode, closeReason);
+    },
+  });
+  const reader = new FrameReader(MAX_SOCKET_MESSAGE, {
+    message: (data) => listener.message(data),
+    ping: (payload) => {
+      if (!closeSent) socket.write(encodeFrame(OP_PONG, payload));
+    },
+    close: (clientCode, clientReason) => {
+      if (!closeSent) {
+        code = clientCode;
+        reason = clientReason;
+      }
+      sendClose(clientCode, clientReason);
+      socket.end();
+    },
+    error: (errorCode, errorReason) => {
+      code = errorCode;
+      reason = errorReason;
+      sendClose(errorCode, errorReason);
+      socket.end();
+    },
+  });
+  socket.on("data", (chunk) => reader.push(chunk));
+  socket.on("close", () => {
+    if (gone) return;
+    gone = true;
+    clearTimeout(timer);
+    listener.close(code, reason);
+  });
+  if (head.byteLength) reader.push(head);
 }
 
 /** Closes every open connection of a server from serve() (Node.js, Bun and Deno), for app.close() after its timeout. */

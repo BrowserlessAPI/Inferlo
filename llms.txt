@@ -11,6 +11,7 @@ Key rules: routes are private unless `auth: "public"`; validate input with `t.*`
 - [Schemas](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/schema.md): t.* types, modifiers, validation, JSON Schema
 - [Models and database](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/database.md): model(), queries, adapters, db push, transactions
 - [Routes](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/routes.md): options, handler context, return values, errors, middleware, deprecated routes (Deprecation and Sunset headers), API versions with apiVersion("v1", routes) and an OpenAPI document per version
+- [WebSockets](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/websockets.md): route.ws(path, { message, auth, rateLimit }).handle(fn) with the same auth, permissions and rate limits as HTTP routes, JSON messages validated and handled in order, ctx.socket, origin checks, on Node.js, Bun and Deno
 - [Auth](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/auth.md): auth.resolve, roles, permissions() with can() and authorize() and the route permission option, bearer API keys, passwords
 - [AI](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/ai.md): providers, aliases and fallback, structured output, streaming, embeddings, usage and budgets
 - [Modules](https://github.com/BrowserlessAPI/Inferlo/blob/main/docs/modules.md): module("billing", { imports, models, routes, jobs, provides }) splits a large app into feature modules with explicit dependencies, createApp({ modules }), checked at startup and shown in describe

@@ -53,6 +53,9 @@ export interface AppDescription {
     name?: string;
     method: string;
     path: string;
+    /** true for WebSocket routes (route.ws): method is "GET" (the upgrade request) and message is the schema of each message. */
+    websocket?: true;
+    message?: JSONSchema;
     auth: string;
     /** The permission the user must have (route option permission). */
     permission?: string;
@@ -140,6 +143,11 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     routes: app.routes.map((r) => {
       const o = r.options;
       const out: AppDescription["routes"][number] = { method: r.method, path: r.path, auth: o.auth ?? "user" };
+      if (r.websocket) {
+        out.websocket = true;
+        const message = (o as { message?: { toJSONSchema(): JSONSchema } }).message;
+        if (message) out.message = message.toJSONSchema();
+      }
       if (r.name) out.name = r.name;
       if (r.version) out.version = r.version;
       const owner = info.routeModule.get(r);

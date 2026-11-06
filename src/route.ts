@@ -167,6 +167,8 @@ export interface RouteDef {
   name?: string;
   /** API version ("v1") when the route comes from apiVersion("v1", routes). */
   readonly version?: string;
+  /** Set for WebSocket routes from route.ws(): the handler runs once per message instead of once per request. */
+  readonly websocket?: true;
 }
 
 export class RouteBuilder<Path extends string, B extends AnySchema | undefined, Q extends ObjectSchema<any> | undefined, P extends ObjectSchema<any> | undefined, A> {
@@ -212,12 +214,117 @@ function builder(method: Method) {
   ) => new RouteBuilder<Path, B, Q, P, A>(method, path, options);
 }
 
+export interface SocketRouteOptions<M extends AnySchema | undefined, Q extends ObjectSchema<any> | undefined, P extends ObjectSchema<any> | undefined> {
+  /** Who may connect. Default "user" (signed in), checked once when the socket opens. */
+  auth?: Auth;
+  /** A permission from createApp({ permissions }) the user must have to connect (checked with { user }). */
+  permission?: AppPermission;
+  /** Schema of each message (JSON text). A message that does not match gets an IL1001 error message back. */
+  message?: M;
+  /** Query string schema of the connection URL. */
+  query?: Q;
+  /** Path parameter schema. Without it, path params are strings. */
+  params?: P;
+  /**
+   * Limit connections and messages per user, tenant or IP: { max: 30, per: "minute", by: "user" }. Opening the
+   * socket and every message count. A refused connection answers 429; a message over the limit gets an IL2005 error message.
+   */
+  rateLimit?: RateLimit;
+  /** One line shown in describe. */
+  summary?: string;
+  description?: string;
+  tags?: string[];
+}
+
+/** The open connection, in a WebSocket handler. */
+export interface Socket {
+  /** A random id for this connection. */
+  readonly id: string;
+  /** Send a message to this client, as JSON. Does nothing once the socket is closed. */
+  send(data: unknown): void;
+  /** Close the connection: code 1000 (normal) by default. */
+  close(code?: number, reason?: string): void;
+}
+
+export interface SocketContext<Message, Query, Params, User> {
+  /** This message, validated against the route's message schema. */
+  message: Message;
+  query: Query;
+  params: Params;
+  /** The user who opened the socket (null only on public routes with no session). */
+  user: User;
+  socket: Socket;
+  db: AppDb;
+  ai: AI;
+  jobs: Jobs;
+  events: Events;
+  cache: Cache;
+  /** Write an audit log entry with the user and this connection's request id. */
+  audit: Audit;
+  /** Aborted when the socket closes. ctx.ai calls use it automatically. */
+  signal: AbortSignal;
+  /** The id of the request that opened the socket, also in its log entries. */
+  requestId: string;
+  /** URL and headers of the request that opened the socket. */
+  url: URL;
+  headers: Headers;
+}
+
+export class SocketRouteBuilder<Path extends string, M extends AnySchema | undefined, Q extends ObjectSchema<any> | undefined, P extends ObjectSchema<any> | undefined, A> {
+  readonly path: Path;
+  readonly options: SocketRouteOptions<M, Q, P>;
+
+  constructor(path: Path, options: SocketRouteOptions<M, Q, P>) {
+    this.path = path;
+    this.options = options;
+  }
+
+  /**
+   * The message handler, run for each message in the order they arrive. Return data to send it back as JSON, or
+   * nothing; call ctx.socket.send(data) to send more. A thrown error is sent back as an error message (the socket stays open).
+   */
+  handle<R>(
+    handler: Handler<
+      SocketContext<
+        M extends AnySchema ? Infer<M> : unknown,
+        Q extends AnySchema ? Infer<Q> : Record<string, string | undefined>,
+        P extends AnySchema ? Infer<P> : PathParams<Path>,
+        UserFor<A>
+      >,
+      R
+    >,
+  ): RouteDef & { readonly $message: M extends AnySchema ? InferInput<M> : unknown; readonly $reply: Awaited<R> } {
+    return {
+      kind: "inferlo.route",
+      method: "GET",
+      path: this.path,
+      options: this.options as RouteOptions<any, any, any>,
+      handler: handler as unknown as Handler<AnyContext, unknown>,
+      websocket: true,
+    } as unknown as RouteDef & { readonly $message: M extends AnySchema ? InferInput<M> : unknown; readonly $reply: Awaited<R> };
+  }
+}
+
 export const route = {
   get: builder("GET"),
   post: builder("POST"),
   put: builder("PUT"),
   patch: builder("PATCH"),
   delete: builder("DELETE"),
+  /**
+   * A WebSocket route: route.ws("/chat", { message: t.object({ text: t.string() }) }).handle(({ message, user, socket }) => ...).
+   * Same auth, permissions and rate limits as HTTP routes; each JSON message is validated and handled in order.
+   */
+  ws: <
+    const Path extends string,
+    M extends AnySchema | undefined = undefined,
+    Q extends ObjectSchema<any> | undefined = undefined,
+    P extends ObjectSchema<any> | undefined = undefined,
+    const A extends Auth = "user",
+  >(
+    path: Path,
+    options: SocketRouteOptions<M, Q, P> & { auth?: A } = {},
+  ) => new SocketRouteBuilder<Path, M, Q, P, A>(path, options),
 };
 
 export function isRoute(value: unknown): value is RouteDef {

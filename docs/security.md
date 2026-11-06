@@ -14,6 +14,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Cookie sessions resist CSRF.** `sessions()` cookies are signed, `HttpOnly`, `Secure` and `SameSite=Lax`, and requests that change data with a session cookie must send the session's CSRF token (IL3005); see [Cookie sessions](auth.md#cookie-sessions).
 - **Security headers** are sent on every response (below).
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
+- **WebSockets only accept their own origin.** A `route.ws` socket may only be opened from the app's own origin or one listed in `cors.origin` (IL3006), because browsers send cookies with WebSocket upgrades from any page; each message is validated and limited like a request (see [WebSockets](websockets.md)).
 
 ## Security headers
 

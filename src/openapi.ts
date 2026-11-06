@@ -26,7 +26,8 @@ const errorSchema: JSONSchema = {
 export function buildOpenAPI(app: App<any>, options: { description?: string; auth: boolean; modules?: ModuleInfo; version?: string }): Record<string, unknown> {
   const paths: Record<string, Record<string, unknown>> = {};
   // A version's document has its routes and the routes outside every version.
-  const routes = options.version === undefined ? app.routes : app.routes.filter((r) => r.version === undefined || r.version === options.version);
+  // WebSocket routes (route.ws) have no HTTP operation to describe; describe() lists them.
+  const routes = (options.version === undefined ? app.routes : app.routes.filter((r) => r.version === undefined || r.version === options.version)).filter((r) => !r.websocket);
   for (const route of routes) {
     const o = route.options;
     const openPath = route.path.replace(/:([^/]+)/g, "{$1}").replace(/\/\*$/, "/{wildcard}");

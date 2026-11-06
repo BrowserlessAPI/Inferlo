@@ -49,7 +49,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Multi-tenancy part 1: `tenant` scoping for models (`model("tickets", { ... }, { tenant: true })`) so every query, insert and update in `ctx.db` is filtered by and stamped with the current tenant from the auth result, with no way to forget the filter
 - [x] Multi-tenancy part 2a: jobs (the tenant travels with the job, also through events and between services) and `inferlo describe` showing which models are tenant-scoped
 - [x] Multi-tenancy part 2b: tenant-aware rate limits (`by: "tenant"`), cache keys (`cache: { by: "tenant" }`) and audit entries (the tenant recorded with each entry)
-- [ ] WebSockets part 1: `route.ws(path, { auth, message: schema }).handle(...)` with the same auth, validation and rate limits as HTTP routes, on Node.js, Bun and Deno
+- [x] WebSockets part 1: `route.ws(path, { auth, message: schema }).handle(...)` with the same auth, validation and rate limits as HTTP routes, on Node.js, Bun and Deno
 - [ ] WebSockets part 2: rooms and broadcast across instances through Redis, and streaming AI answers over a socket
 - [x] Support policy: `docs/support.md` with semantic versioning, LTS releases after 1.0, deprecation rules and supported runtime versions
 

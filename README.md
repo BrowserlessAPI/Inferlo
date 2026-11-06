@@ -98,7 +98,7 @@ npm install @browserlessapi/inferlo
 
 ## Features
 
-- **Routing:** `route.get/post/put/patch/delete`, typed path params, query coercion, CORS, middleware, body limits
+- **Routing:** `route.get/post/put/patch/delete`, typed path params, query coercion, CORS, middleware, body limits, WebSockets with `route.ws(path, { message })` on Node.js, Bun and Deno
 - **Schemas:** `t.string()`, `t.email()`, `t.enum()`, `t.ref()`, ... with `.optional()`, `.default()`, `.pick()`, `.partial()`, JSON Schema output
 - **Database:** typed tables (`db.tickets.findMany(...)`), PostgreSQL and in-memory adapters, `inferlo db push`, versioned migrations (`inferlo db migrate`), transactions, unique and foreign keys
 - **Auth:** `auth.resolve(req)`, `bearer()` API keys, roles, password hashing with Web Crypto

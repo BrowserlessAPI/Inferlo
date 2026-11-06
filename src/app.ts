@@ -13,7 +13,8 @@ import { InferloError, didYouMean, suggest } from "./errors.ts";
 import { callTool, handleMcp, toolDefinition } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
-import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
+import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef, type Socket } from "./route.ts";
+import { denoUpgrader, upgraders, upgrades, validKey, type SocketListener, type SocketTransport } from "./websocket.ts";
 import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
 import { clientIp, clientIps, clientSignals, keepEventStreamOpen, platformWaitUntil } from "./client-ip.ts";
@@ -23,7 +24,7 @@ import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFo
 import { checkEventsConfig, invalidTransport, type AppEvents, type Events, type EventsConfig, type EventTransport } from "./events.ts";
 import { redisEventTransport } from "./redis-events.ts";
 import type { Server } from "./serve.ts";
-import { ValidationError, type AnySchema } from "./schema.ts";
+import { Schema, ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
 import { clientTracing, jobTracing, requestTracing, traceAdapter, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
@@ -446,6 +447,13 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   }
 
   for (const r of routes) if (r.options.rateLimit !== undefined) checkRateLimit(r.options.rateLimit, `${r.method} ${r.path}`);
+  for (const r of routes) {
+    if (!r.websocket) continue;
+    const message = (r.options as { message?: unknown }).message;
+    if (message !== undefined && !(message instanceof Schema)) {
+      throw new InferloError("IL6035", `The WebSocket route ${r.path} has a message option that is not a schema.`, { fix: 'Pass a schema: route.ws("/chat", { message: t.object({ text: t.string() }) }).' });
+    }
+  }
   for (const r of routes) if (r.options.cache !== undefined) checkRouteCache(r.options.cache, r.method, `${r.method} ${r.path}`);
   const requestTimeoutMs = config.requestTimeoutMs === undefined ? 60_000 : checkTimeout(config.requestTimeoutMs, "createApp({ requestTimeoutMs })");
   for (const r of routes) if (r.options.timeoutMs !== undefined) checkTimeout(r.options.timeoutMs, `${r.method} ${r.path} { timeoutMs }`);
@@ -639,7 +647,180 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     return json({ error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } }, 500, headers);
   };
 
-  const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[], ip: string, requestId: string, seen: { route: string }): Promise<Response> => {
+  // Rate limit counts are kept per route and per user, tenant or IP. by "tenant" counts users without a tenant one by
+  // one; by "user" and "tenant" count requests without a user by IP.
+  const rateLimitKey = (def: RouteDef, user: AppUser | null, ip: string): string => {
+    const by = def.options.rateLimit!.by ?? "user";
+    const scope = by === "tenant" && user ? tenantScope(user) : "none";
+    const who = typeof scope === "object" ? `tenant:${scope.tenant}` : by !== "ip" && user ? `user:${user.id}` : `ip:${ip}`;
+    return `${def.method} ${def.path} ${who}`;
+  };
+
+  // Open WebSockets, closed with 1001 by app.close().
+  const sockets = new Set<() => void>();
+  const encoder = new TextEncoder();
+
+  /** The JSON error message a socket gets when one of its messages fails (the same body as an HTTP error answer). */
+  const socketError = (error: unknown, def: RouteDef, requestId: string): unknown => {
+    if (error instanceof InferloError) {
+      if (error.status >= 500) logger.error(`WS ${def.path} message failed: ${error.format()}`, error.cause ?? "", { requestId });
+      const body = error.toJSON();
+      if (config.exposeErrors && !error.expose) (body.error as Record<string, unknown>).message = redactor.text(error.message);
+      return body;
+    }
+    logger.error(`WS ${def.path} message failed`, error, { requestId });
+    const message = config.exposeErrors && error instanceof Error ? redactor.text(error.message) : "Internal server error";
+    return { error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } };
+  };
+
+  /** Checks the upgrade request of a WebSocket route (after auth, permissions, rate limits and input) and accepts it. */
+  const acceptSocket = async (def: RouteDef, req: Request, url: URL, headers: Headers, rest: unknown[], conn: { user: AppUser | null; params: unknown; query: unknown; requestId: string; ip: string }): Promise<Response> => {
+    if (req.method.toUpperCase() !== "GET" || req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      headers.set("upgrade", "websocket");
+      throw new InferloError("IL2010", `${def.path} is a WebSocket route: open it with a WebSocket client.`, { status: 426, fix: `Connect with new WebSocket("wss://<host>${def.path}"); plain HTTP requests are not answered.` });
+    }
+    if (req.headers.get("sec-websocket-version") !== "13" || !validKey(req.headers.get("sec-websocket-key"))) {
+      headers.set("sec-websocket-version", "13");
+      throw new InferloError("IL2010", "Invalid WebSocket handshake.", { status: 400, fix: "Use a WebSocket client that speaks RFC 6455 (Sec-WebSocket-Version: 13 with a Sec-WebSocket-Key)." });
+    }
+    // Browsers send cookies with WebSocket upgrades from any page, so only the app's own origin (and the origins
+    // allowed by createApp({ cors })) may connect. Clients without an Origin header (servers, CLIs) may.
+    const origin = req.headers.get("origin");
+    if (origin !== null && !socketOriginAllowed(origin, req, url)) {
+      throw new InferloError("IL3006", `Connections from the origin ${origin} are not allowed.`, { status: 403, fix: "Open the socket from a page of the app's own origin, or list the page's origin in createApp({ cors: { origin: [...] } })." });
+    }
+    const upgrader = upgraders.get(req) ?? denoUpgrader(req, rest[0]);
+    if (!upgrader) {
+      throw new InferloError("IL2011", "This server cannot accept WebSocket connections.", {
+        status: 501,
+        fix: "Serve the app with app.listen() or serve(app) on Node.js and Bun, or with Deno.serve(app.fetch) and deno serve on Deno. Hosts that only pass Requests to app.fetch (toNodeHandler, other frameworks, app.request) cannot upgrade them.",
+      });
+    }
+    const response = await upgrader((transport) => openSocket(def, req, url, transport, conn));
+    upgrades.set(req, response ?? null);
+    // On Node.js and Bun the server already answered the handshake; this response is never sent.
+    return response ?? new Response(null, { status: 200, headers });
+  };
+
+  const socketOriginAllowed = (origin: string, req: Request, url: URL): boolean => {
+    try {
+      if (new URL(origin).host === (req.headers.get("host") ?? url.host)) return true;
+    } catch {
+      return false;
+    }
+    if (!cors) return false;
+    return cors.origin === "*" || (Array.isArray(cors.origin) ? cors.origin : [cors.origin]).includes(origin);
+  };
+
+  /** One open WebSocket: runs the route's handler for each message, in order. */
+  const openSocket = (def: RouteDef, req: Request, url: URL, transport: SocketTransport, conn: { user: AppUser | null; params: unknown; query: unknown; requestId: string; ip: string }): SocketListener => {
+    const { user, requestId, ip } = conn;
+    const opts = def.options as RouteDef["options"] & { message?: AnySchema };
+    const closed = new AbortController();
+    let open = true;
+    const finish = () => {
+      closed.abort();
+      sockets.delete(shutdown);
+    };
+    const end = (code: number, reason: string) => {
+      if (!open) return;
+      open = false;
+      transport.close(code, reason);
+      finish();
+    };
+    const shutdown = () => end(1001, "Server shutting down");
+    sockets.add(shutdown);
+    const socket: Socket = {
+      id: crypto.randomUUID(),
+      send: (data) => {
+        if (open) transport.send(JSON.stringify(data));
+      },
+      close: (code = 1000, reason = "") => {
+        if (!(code === 1000 || (Number.isInteger(code) && code >= 3000 && code <= 4999))) {
+          throw new InferloError("IL2012", `Invalid WebSocket close code ${String(code)}.`, { fix: "Close with 1000 (normal), or an application code from 3000 to 4999: socket.close(4000, \"reason\")." });
+        }
+        end(code, reason);
+      },
+    };
+    const scope = tenantScope(user);
+    let socketDb: Db<Models> | undefined;
+    let queues: { jobs: Jobs; events: Events } | undefined;
+    const tenantQueues = () => (queues ??= typeof scope === "object" ? withTenant({ jobs, events }, scope.tenant) : { jobs, events });
+
+    const handleMessage = async (data: string | Uint8Array): Promise<void> => {
+      if (typeof data !== "string") return end(1003, "Send JSON text messages");
+      if (data.length > maxBody / 3 && encoder.encode(data).byteLength > maxBody) return end(1009, "Message too big");
+      try {
+        let raw: unknown;
+        try {
+          raw = JSON.parse(data);
+        } catch {
+          throw new InferloError("IL2003", "Message is not valid JSON.", { status: 400, fix: "Send each message as JSON text: socket.send(JSON.stringify(message))." });
+        }
+        if (opts.rateLimit) {
+          const limited = rateLimitResult(opts.rateLimit, await rateLimits.hit(rateLimitKey(def, user, ip), windowMs(opts.rateLimit)));
+          if (limited.error) throw limited.error;
+        }
+        const message = opts.message ? parseOrThrow(opts.message, raw, "message", false) : raw;
+        const ctx = {
+          message,
+          query: conn.query,
+          params: conn.params,
+          user,
+          socket,
+          get db() {
+            return (socketDb ??= bindDb(models, adapter, scope)) as never;
+          },
+          get ai() {
+            const value = toolsFor(req, closed.signal);
+            Object.defineProperty(ctx, "ai", { value, enumerable: true });
+            return value;
+          },
+          get jobs() {
+            return tenantQueues().jobs;
+          },
+          get events() {
+            return tenantQueues().events;
+          },
+          cache,
+          get audit() {
+            const value = createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, tenantId: tenantOf(scope), source: `WS ${def.path}`, requestId });
+            Object.defineProperty(ctx, "audit", { value, enumerable: true });
+            return value;
+          },
+          signal: closed.signal,
+          requestId,
+          url,
+          headers: req.headers,
+        };
+        const result = await def.handler(ctx as unknown as AnyContext);
+        if (result !== undefined) socket.send(result);
+      } catch (error) {
+        if (open) transport.send(JSON.stringify(socketError(error, def, requestId)));
+      }
+    };
+
+    let chain: Promise<void> = Promise.resolve();
+    return {
+      message(data) {
+        if (!open) return;
+        // One message at a time, in order; app.close() waits for the one running.
+        const next = chain.then(() => (open ? handleMessage(data) : undefined));
+        chain = next;
+        tasks.add(next);
+        void next.finally(() => {
+          tasks.delete(next);
+          settle();
+        });
+      },
+      close() {
+        open = false;
+        finish();
+      },
+    };
+  };
+
+  const dispatch = async (req: Request, url: URL, state: Record<string, unknown>, pending: Promise<unknown>[], ip: string, requestId: string, seen: { route: string }, rest: unknown[]): Promise<Response> => {
     const headers = new Headers();
     if (cors) for (const [k, v] of Object.entries(corsHeaders(cors, req.headers.get("origin")))) headers.set(k, v);
     try {
@@ -749,10 +930,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         // Rate limit: counted per user, tenant or IP, after auth so failed sign-ins on private routes do not use it up.
         // by "tenant" counts users without a tenant one by one; by "user" and "tenant" count requests without a user by IP.
         if (opts.rateLimit) {
-          const by = opts.rateLimit.by ?? "user";
-          const scope = by === "tenant" && user ? tenantScope(user) : "none";
-          const who = typeof scope === "object" ? `tenant:${scope.tenant}` : by !== "ip" && user ? `user:${user.id}` : `ip:${ip}`;
-          const hit = await rateLimits.hit(`${def.method} ${def.path} ${who}`, windowMs(opts.rateLimit));
+          const hit = await rateLimits.hit(rateLimitKey(def, user, ip), windowMs(opts.rateLimit));
           const limited = rateLimitResult(opts.rateLimit, hit);
           for (const [k, v] of Object.entries(limited.headers)) headers.set(k, v);
           if (limited.error) throw limited.error;
@@ -767,6 +945,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         const params = opts.params ? parseOrThrow(opts.params, rawParams, "path parameters", true) : rawParams;
         const rawQuery = queryObject(url);
         const query = opts.query ? parseOrThrow(opts.query.strip(), rawQuery, "query string", true) : rawQuery;
+        // WebSocket routes answer the upgrade here; their handler then runs once per message.
+        if (def.websocket) return await acceptSocket(def, req, url, headers, rest, { user, params, query, requestId, ip });
         let body: unknown;
         if (opts.body) {
           const text = method === "GET" || method === "HEAD" ? "" : await readBody(req, maxBody, timeout.signal);
@@ -971,7 +1151,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     const seen = { route: "unmatched" };
     const run = (i: number): Promise<Response> => {
       const mw = chain[i];
-      if (!mw) return dispatch(req, url, state, pending, ip, requestId, seen);
+      if (!mw) return dispatch(req, url, state, pending, ip, requestId, seen, rest);
       return mw({ req, url, state, requestId }, () => run(i + 1));
     };
     let response: Response;
@@ -988,10 +1168,12 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     if (!probe) {
       const elapsed = performance.now() - started;
       const method = req.method.toUpperCase();
-      metrics?.request(method, seen.route, response.status, elapsed / 1000);
+      // An accepted WebSocket upgrade is logged and counted as the 101 the client gets.
+      const status = upgrades.has(req) ? 101 : response.status;
+      metrics?.request(method, seen.route, status, elapsed / 1000);
       if (logging.requests) {
         const durationMs = Math.round(elapsed * 10) / 10;
-        logger.info(`${method} ${url.pathname} ${response.status} ${durationMs}ms`, undefined, { requestId, ...traceFields(span), method, path: url.pathname, status: response.status, durationMs });
+        logger.info(`${method} ${url.pathname} ${status} ${durationMs}ms`, undefined, { requestId, ...traceFields(span), method, path: url.pathname, status, durationMs });
       }
     }
     if (secureHeaders.length) {
@@ -1035,6 +1217,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       metrics?.inFlight(1);
       try {
         const response = await handle(req, rest);
+        // Deno needs its own upgrade response back, untouched.
+        const upgrade = upgrades.get(req);
+        if (upgrade) return upgrade;
         if (rest.length) keepEventStreamOpen(rest[0], req, response);
         return response;
       } finally {
@@ -1095,6 +1280,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       closed = (async () => {
         if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
         refusing = true;
+        // Open WebSockets are told the server is going away (1001); a message being handled still finishes.
+        for (const shutdown of [...sockets]) shutdown();
         const deadline = Date.now() + timeoutMs;
         let workersStopped = false;
         const drained = Promise.all([whenIdle(), stopWorkers(jobs).then(() => void (workersStopped = true))]);

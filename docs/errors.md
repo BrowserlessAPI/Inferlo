@@ -54,6 +54,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2009
 **Invalid serviceClient() options or call.** `serviceClient({ baseUrl, token, headers, timeoutMs, retries, fetch })` needs an http or https `baseUrl` without a query string, a positive `timeoutMs` and a whole number of `retries` from 0 to 10. `client.call(route, input)` needs a route made with `route.<method>(...).handle(...)` and a value for every `:param` in its path. See [Service-to-service calls](services.md).
 
+### IL2010
+**Not a WebSocket upgrade (426), or an invalid handshake (400).** The path is a WebSocket route (`route.ws`), which only answers WebSocket upgrade requests (`GET` with `Upgrade: websocket`, `Sec-WebSocket-Version: 13` and a `Sec-WebSocket-Key`). Open it with a WebSocket client, `new WebSocket("wss://host/path")`, not with `fetch`. See [WebSockets](websockets.md).
+
+### IL2011
+**This server cannot accept WebSocket connections (501).** The upgrade request reached the app through a host that only passes Requests to `app.fetch` and cannot hand over the connection: `toNodeHandler` inside another framework, `app.request()`, or a serverless platform. Serve the app with `app.listen()` or `serve(app)` on Node.js and Bun, or with `Deno.serve(app.fetch)` or `deno serve` on Deno. In tests, connect to `await app.listen(0)`. See [WebSockets](websockets.md#servers).
+
+### IL2012
+**Invalid WebSocket close code.** `ctx.socket.close(code, reason)` takes 1000 (normal closure, the default) or an application code from 3000 to 4999. The other codes are reserved by the WebSocket protocol for the server itself (1001 when the app shuts down, 1003, 1009).
+
 ## Auth (3xxx)
 
 ### IL3001
@@ -70,6 +79,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL3005
 **Missing or invalid CSRF token (403).** The request has a valid `sessions()` cookie and changes data (POST, PUT, PATCH or DELETE), but it did not send the session's CSRF token, or sent another one. Send it in an `X-CSRF-Token` header (the value returned by `session.signIn(ctx, userId)`, also in the readable `inferlo_session_csrf` cookie) or, from an HTML form, in a hidden `_csrf` field (the value of `await session.csrfToken(req)`). This is what stops other sites from making a signed-in browser change data. See [Cookie sessions](auth.md#cookie-sessions).
+
+### IL3006
+**WebSocket origin not allowed (403).** A browser page from another origin tried to open a WebSocket route. Browsers send cookies with WebSocket upgrades from any page, so only the app's own origin (the `Origin` host equals the `Host` header) and the origins in `createApp({ cors: { origin: [...] } })` may connect. Open the socket from the app's own pages, or list the page's origin in `cors.origin`. See [WebSockets](websockets.md#connecting).
 
 ## Database (4xxx)
 
@@ -302,6 +314,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6034
 **A received event was dropped.** An event from the transport did not match this service's payload schema, so its jobs were not queued; the log line names the event, its id and the problem (not the payload). Delivering it again cannot help, so it is acknowledged. Publish and subscribe with the same event definition, from a shared package, and change payloads compatibly (add optional fields only). See [Events between services](jobs.md#between-services).
+
+### IL6035
+**Invalid WebSocket route.** The `message` option of `route.ws(path, { message })` must be a schema: `route.ws("/chat", { message: t.object({ text: t.string() }) })`. Leave it out to accept any JSON message. See [WebSockets](websockets.md).
 
 ## Environment (7xxx)
 

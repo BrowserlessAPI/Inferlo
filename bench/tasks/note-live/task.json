@@ -1,0 +1,4 @@
+{
+  "title": "A WebSocket route",
+  "prompt": "Add live note editing over a WebSocket. Create src/routes/live.ts with `export const liveNote`: a WebSocket route at /notes/:id/live (id is a uuid) for signed-in users. Each message is { body } (a string of at most 10000 characters). For each message, update the body of the note with that id if it belongs to the signed-in user, and reply with the updated note; if the note does not exist or belongs to someone else, reply with a 404 error instead. Allow at most 120 messages per minute per user. Register the routes module in src/app.ts."
+}

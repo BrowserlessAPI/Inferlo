@@ -16,7 +16,7 @@ export { apiVersion } from "./api-version.ts";
 export type { ApiVersionOptions } from "./api-version.ts";
 
 export { route, isRoute } from "./route.ts";
-export type { Register, Context, RouteDef, RouteInput, RouteOptions, Auth, Method, ToolOptions, AppUser, AppDb, AppPermission } from "./route.ts";
+export type { Register, Context, RouteDef, RouteInput, RouteOptions, Auth, Method, ToolOptions, AppUser, AppDb, AppPermission, Socket, SocketContext, SocketRouteOptions } from "./route.ts";
 
 export { t, Schema, ObjectSchema, ArraySchema, RefSchema, ValidationError, toJSONSchema } from "./schema.ts";
 export type { Infer, InferInput, Issue, JSONSchema, ParseResult, Shape, AnySchema } from "./schema.ts";

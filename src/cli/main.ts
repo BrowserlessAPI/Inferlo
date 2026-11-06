@@ -131,7 +131,7 @@ async function cmdDescribe(args: Args) {
       }
     }
     lines.push("", "Routes");
-    for (const r of d.routes) lines.push(`  ${r.method.padEnd(6)} ${r.path.padEnd(28)} auth=${r.auth}${r.permission ? `  permission=${r.permission}` : ""}${r.cache ? `  cache=${r.cache.ttlMs}ms/${r.cache.by}` : ""}${r.tool ? `  tool=${r.tool}` : ""}${r.deprecated ? `  deprecated${r.deprecated !== true && r.deprecated.sunset ? ` (sunset ${r.deprecated.sunset})` : ""}` : ""}${r.name ? `  (${r.name})` : ""}${r.module ? `  [${r.module}]` : ""}`);
+    for (const r of d.routes) lines.push(`  ${(r.websocket ? "WS" : r.method).padEnd(6)} ${r.path.padEnd(28)} auth=${r.auth}${r.permission ? `  permission=${r.permission}` : ""}${r.cache ? `  cache=${r.cache.ttlMs}ms/${r.cache.by}` : ""}${r.tool ? `  tool=${r.tool}` : ""}${r.deprecated ? `  deprecated${r.deprecated !== true && r.deprecated.sunset ? ` (sunset ${r.deprecated.sunset})` : ""}` : ""}${r.name ? `  (${r.name})` : ""}${r.module ? `  [${r.module}]` : ""}`);
     if (d.jobs?.length) {
       lines.push("", `Jobs (queue: ${d.jobQueue})`);
       for (const j of d.jobs) lines.push(`  ${j.name.padEnd(28)} retries=${j.retries}${j.summary ? `  ${j.summary}` : ""}`);

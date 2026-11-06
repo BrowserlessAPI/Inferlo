@@ -36,6 +36,8 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
 
+For WebSockets, `route.ws(path, { message, auth, rateLimit }).handle(fn)` runs the handler once per message, with the same auth, permissions and rate limits; see [WebSockets](websockets.md).
+
 ## Rate limiting
 
 ```ts
