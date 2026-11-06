@@ -15,6 +15,7 @@ import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
 import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef, type Socket } from "./route.ts";
 import { createSocketHub, type AppSockets } from "./sockets.ts";
+import { checkSocketsConfig, redisSocketRelay, type SocketsConfig } from "./redis-sockets.ts";
 import { bunUpgrader, denoUpgrader, upgraders, upgrades, validKey, type SocketListener, type SocketTransport } from "./websocket.ts";
 import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
@@ -162,6 +163,12 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    * after app.close().
    */
   redis?: RedisClient;
+  /**
+   * WebSocket broadcasts across instances: { transport: "redis", subscriber: await redis.duplicate().connect() }
+   * publishes every sockets.broadcast through Redis Pub/Sub (needs redis and name), so it reaches the sockets of
+   * every instance. Default: broadcasts reach the sockets of this process only.
+   */
+  sockets?: SocketsConfig;
   /**
    * Where route rateLimit counts are kept: { store: "memory" } (default), { store: "database" } (Postgres) or
    * { store: "redis" } (createApp({ redis })), both shared by every instance.
@@ -527,7 +534,10 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     if (!config.name) throw invalidTransport('events transport "redis" needs createApp({ name }): each service reads events as its own consumer group, named after the app.');
     eventTransport = redisEventTransport(redis, { group: config.name });
   } else eventTransport = transportOption;
-  const socketHub = createSocketHub();
+  const socketSubscriber = checkSocketsConfig(config.sockets, redis, config.name);
+  const socketHub = createSocketHub(
+    socketSubscriber ? redisSocketRelay(redis!, socketSubscriber, `${redisPrefix(config.name)}sockets`, (message, error) => logger.error(`WebSocket broadcasts: ${message}`, error ?? "")) : undefined,
+  );
   const jobs = createJobs(
     collectJobs(jobSources),
     {
@@ -701,6 +711,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         fix: 'Serve the app with app.listen() or serve(app), with Deno.serve(app.fetch) or deno serve on Deno, or with Bun.serve({ fetch: app.fetch, websocket: bunWebSocket }) on Bun. On a Node.js server another framework created, add server.on("upgrade", toNodeUpgradeHandler(app)). app.request() cannot upgrade: test against await app.listen(0).',
       });
     }
+    // With sockets: { transport: "redis" }, the first connection subscribes this instance to the app's broadcasts.
+    await socketHub.ready();
     const response = await upgrader((transport) => openSocket(def, req, url, transport, conn));
     upgrades.set(req, response ?? null);
     // On Node.js and Bun the server already answered the handshake; this response is never sent.
@@ -1332,6 +1344,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           servers.delete(server);
           if (!(await within(server.close(), Math.max(0, deadline - Date.now())))) forceClosers?.get(server)?.();
         }));
+        await socketHub.stop().catch((error: unknown) => logger.error("WebSocket broadcasts: unsubscribing failed", error));
         await db.$close();
       })();
       return closed;

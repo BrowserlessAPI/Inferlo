@@ -11,12 +11,15 @@ import { settings } from "./settings.ts";
 const redis = await createClient({ url: settings.REDIS_URL }).connect();
 
 export const app = createApp({
+  name: "boards",
   // ...
   redis,
   rateLimit: { store: "redis" },   // route rateLimit counts, shared by every instance
   cache: { store: "redis" },       // ctx.cache, app.cache and cached routes
   jobQueue: { store: "redis" },    // background jobs and cron ticks
   events: { transport: "redis" },  // events to and from other services (Redis Streams)
+  // WebSocket broadcasts to every instance (Redis Pub/Sub, on a second connection)
+  sockets: { transport: "redis", subscriber: await redis.duplicate().connect() },
   health: true,                    // GET /ready also checks that Redis answers
 });
 ```
@@ -64,6 +67,15 @@ Use a Redis that keeps its data (AOF or RDB persistence, or a managed Redis with
 - A deleted stream or group (`FLUSHDB`) is created again on the next poll.
 
 As for the job queue, use a Redis that keeps its data, or events not yet received are lost when Redis restarts.
+
+## WebSocket broadcasts
+
+`createApp({ name, redis, sockets: { transport: "redis", subscriber } })` sends every `sockets.broadcast(room, data)` to the sockets of every instance (see [Rooms and broadcast](websockets.md#rooms-and-broadcast)):
+
+- A broadcast goes to the sockets of the instance that sends it, then is published (`PUBLISH`) on one channel per app, `inferlo:<app name>:sockets`, with the room and its tenant. Each instance with open sockets subscribes to the channel and sends what the others published to its own sockets in that room; an instance does not get its own broadcasts back. Apps with other names on the same Redis never see each other's broadcasts.
+- `subscriber` is a second connected client, `await redis.duplicate().connect()`: a client that subscribes cannot send other commands, so it cannot be the `redis` client (IL6036 otherwise, and for a missing `name` or subscriber). For ioredis, pass `{ subscribe: async (channel, listener) => { sub.on("message", (c, m) => c === channel && listener(m)); await sub.subscribe(channel); }, unsubscribe: (channel) => sub.unsubscribe(channel) }`. Close it after the app, like the `redis` client.
+- An instance subscribes when its first WebSocket connection opens, so `inferlo worker` and other processes without sockets only publish. `app.close()` unsubscribes.
+- Pub/Sub keeps nothing: an instance that is not connected to Redis while a broadcast is published does not get it. Clients that reconnect should load the current state over HTTP, then apply the broadcasts that follow.
 
 ## Readiness
 

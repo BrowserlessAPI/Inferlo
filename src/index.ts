@@ -94,6 +94,7 @@ export type { ServiceClient, ServiceClientOptions, CallInput, CallOptions, CallC
 export { serve, toNodeHandler, toNodeUpgradeHandler, fromNodeRequest } from "./serve.ts";
 export { bunWebSocket } from "./websocket.ts";
 export type { Sockets, AppSockets, BroadcastOptions } from "./sockets.ts";
+export type { SocketsConfig, RedisSubscriber } from "./redis-sockets.ts";
 export type { ServeOptions, Server, NodeRequest, NodeResponse, NodeHandler, NodeHandlerOptions, FromNodeRequestOptions, NodeUpgradeHandler, NodeSocket } from "./serve.ts";
 export { INFERLO_VERSION } from "./describe.ts";
 export type { AppDescription } from "./describe.ts";

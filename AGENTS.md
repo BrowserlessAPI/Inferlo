@@ -53,7 +53,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Deno (`npm run test:deno`: the whole suite with the examples; Ts.ED with `--unsafe-proto`, which Ts.ED needs on Deno) | 2.9.0 (Deno supports only its newest minor line; its LTS releases ended 2026-04-30) | `latest` |
 | PostgreSQL | oldest major still supported upstream (14 until 2026-11-12, then 15) and every major after it | `latest` |
 | TypeScript | 5.9 | `latest` |
-| Redis (`createApp({ redis })`: rate limits, cache, job queue and events transport) | Redis 6.2 (oldest version still supported upstream, until 2027-04-01; 7.2 is tested too), `redis` package 5.0.0 (node-redis 4 gets no more releases) | `latest` (server and package) |
+| Redis (`createApp({ redis })`: rate limits, cache, job queue, events transport and WebSocket broadcasts) | Redis 6.2 (oldest version still supported upstream, until 2027-04-01; 7.2 is tested too), `redis` package 5.0.0 (node-redis 4 gets no more releases) | `latest` (server and package) |
 | Hono (`@browserlessapi/inferlo/hono`, examples/with-hono) | 4.0.0 | `latest` |
 | Express (`@browserlessapi/inferlo/express`, examples/with-express) | 4 (newest 4.x, maintained upstream) | `latest` (5) |
 | Fastify (`@browserlessapi/inferlo/fastify`, examples/with-fastify) | 5.0.0 (Fastify 4 reached end of life 2025-06-30) | `latest` |

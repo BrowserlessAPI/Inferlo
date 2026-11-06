@@ -39,8 +39,23 @@ export interface RoomMember {
   sendText(text: string): void;
 }
 
+/**
+ * Carries broadcasts to the other instances of the app (Redis Pub/Sub with sockets: { transport: "redis" }).
+ * Internal: the hub publishes each broadcast, and delivers what start() receives from other instances.
+ */
+export interface SocketRelay {
+  publish(key: string, text: string): Promise<void>;
+  /** Starts receiving: deliver(key, text) for each broadcast of another instance. */
+  start(deliver: (key: string, text: string) => void): Promise<void>;
+  stop(): Promise<void>;
+}
+
 /** The rooms of one app, in memory. Internal. */
 export interface SocketHub extends AppSockets {
+  /** Resolves once broadcasts from other instances arrive here (at once without a relay). Retried after a failure. */
+  ready(): Promise<void>;
+  /** Stops receiving broadcasts from other instances (app.close()). */
+  stop(): Promise<void>;
   open(member: RoomMember): void;
   join(member: RoomMember, room: string, tenant: string | null): void;
   leave(member: RoomMember, room: string, tenant: string | null): void;
@@ -64,7 +79,7 @@ function keyOf(room: string, tenant: string | null): string {
   return tenant === null ? `-${room}` : `${tenant.length}:${tenant}:${room}`;
 }
 
-export function createSocketHub(): SocketHub {
+export function createSocketHub(relay?: SocketRelay): SocketHub {
   const members = new Set<RoomMember>();
   const rooms = new Map<string, Set<RoomMember>>();
   const joined = new Map<RoomMember, Set<string>>();
@@ -74,19 +89,27 @@ export function createSocketHub(): SocketHub {
     return options.tenantId === null ? null : checkTenantId(options.tenantId);
   };
 
-  const send = (room: string, data: unknown, tenant: string | null): void => {
+  const deliver = (key: string, text: string): void => {
+    const set = rooms.get(key);
+    if (!set) return;
+    for (const member of [...set]) member.sendText(text);
+  };
+
+  const send = async (room: string, data: unknown, tenant: string | null): Promise<void> => {
     const text = data === undefined ? undefined : JSON.stringify(data);
     if (text === undefined) {
       throw new InferloError("IL2014", "sockets.broadcast() needs data that can be sent as JSON.", { fix: 'Pass the message as the second argument: sockets.broadcast(room, { type: "note.created", note }).' });
     }
-    const set = rooms.get(keyOf(room, tenant));
-    if (!set) return;
-    for (const member of [...set]) member.sendText(text);
+    const key = keyOf(room, tenant);
+    deliver(key, text);
+    if (relay) await relay.publish(key, text);
   };
 
   const forTenant = (tenant: string | null): Sockets => ({
     broadcast: async (room, data, options) => send(checkRoom(room), data, tenantFrom(options, tenant)),
   });
+
+  let started: Promise<void> | undefined;
 
   const base = forTenant(null);
   return {
@@ -123,5 +146,19 @@ export function createSocketHub(): SocketHub {
       joined.delete(member);
     },
     forTenant,
+    ready() {
+      if (!relay) return Promise.resolve();
+      started ??= relay.start(deliver).catch((error: unknown) => {
+        started = undefined;
+        throw error;
+      });
+      return started;
+    },
+    async stop() {
+      if (!started) return;
+      const was = started;
+      started = undefined;
+      await was.then(() => relay!.stop(), () => {});
+    },
   };
 }

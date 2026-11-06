@@ -327,6 +327,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6035
 **Invalid WebSocket route.** The `message` option of `route.ws(path, { message })` must be a schema: `route.ws("/chat", { message: t.object({ text: t.string() }) })`. Leave it out to accept any JSON message. See [WebSockets](websockets.md).
 
+### IL6036
+**Invalid `sockets` option.** `createApp({ sockets })` takes `{ transport: "redis", subscriber }`, which needs `createApp({ redis })`, a `name` (the instances of an app share one channel named after it), and a `subscriber`: a second connected Redis client with `subscribe` and `unsubscribe`, not the `redis` client itself, because a subscribed client cannot send other commands. With the `redis` package: `sockets: { transport: "redis", subscriber: await redis.duplicate().connect() }`. See [WebSocket broadcasts](redis.md#websocket-broadcasts).
+
 ## Environment (7xxx)
 
 ### IL7001

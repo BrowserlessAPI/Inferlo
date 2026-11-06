@@ -52,7 +52,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] WebSockets part 1: `route.ws(path, { auth, message: schema }).handle(...)` with the same auth, validation and rate limits as HTTP routes, on Node.js, Bun and Deno
 - [x] WebSockets part 2a: streaming AI answers over a socket, `socket.stream(ai.stream(...))`
 - [x] WebSockets part 2b: rooms and broadcast in one process (`socket.join(room)`, `ctx.sockets.broadcast(room, data)` in routes, WebSocket handlers and jobs, `app.sockets`), per tenant
-- [ ] WebSockets part 2c: broadcast across instances and from `inferlo worker` through Redis Pub/Sub (`createApp({ redis, sockets: { transport: "redis" } })`), tested on the oldest supported and latest Redis
+- [x] WebSockets part 2c: broadcast across instances and from `inferlo worker` through Redis Pub/Sub (`createApp({ redis, sockets: { transport: "redis" } })`), tested on the oldest supported and latest Redis
 - [x] Support policy: `docs/support.md` with semantic versioning, LTS releases after 1.0, deprecation rules and supported runtime versions
 
 ### Works with other frameworks (top priority)
