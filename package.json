@@ -153,6 +153,7 @@
   },
   "devDependencies": {
     "@adonisjs/core": "^6.21.0",
+    "@ai-sdk/openai-compatible": "^3.0.85",
     "@azure/functions": "^4.17.0",
     "@google-cloud/functions-framework": "^5.0.5",
     "@hapi/hapi": "^21.4.13",

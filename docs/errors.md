@@ -195,6 +195,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5028
 **Invalid toAstroHandler() arguments.** `toAstroHandler(app, { prefix })` from `@browserlessapi/inferlo/astro` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `src/pages/api/[...path].ts`: `export const ALL = toAstroHandler(app, { prefix: "/api" })`. The handler it returns must be exported from an endpoint file in `src/pages`, so Astro calls it with an API context. See [Astro](integrations.md#astro).
 
+### IL5029
+**Not an AI SDK provider, or an unsupported one.** `aiSdk(provider)` takes a Vercel AI SDK provider, such as `createOpenAI({ apiKey })` from `@ai-sdk/openai` or the default `mistral` instance from `@ai-sdk/mistral`, not a model (`openai("gpt-5")`): the model id goes in the alias, `"openai:gpt-5"`. Its language and embedding models must use specification v2, v3 or v4 (`@ai-sdk/*` packages for `ai` 5 and later); upgrade older provider packages. Also raised for an embedding call on a provider without embedding models, and for a `name` option that is not 1 to 64 letters, digits, dots, dashes or underscores. See [Any Vercel AI SDK provider](ai.md#any-vercel-ai-sdk-provider).
+
 ## App configuration (6xxx)
 
 ### IL6001

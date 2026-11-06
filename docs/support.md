@@ -79,6 +79,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
 | Vercel AI SDK UI (`toResponse({ format: "ai-sdk" })` for `useChat`) | `ai` package 5.0.0 and newer (UI message stream protocol v1) |
+| Vercel AI SDK providers (`aiSdk(provider)`) | `@ai-sdk/*` provider packages for `ai` 5 and newer (language model specifications v2, v3 and v4); tested with `@ai-sdk/openai-compatible` 1.0.0, 2 and the latest |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | Astro (`/astro`) | 5 (newest 5.x) and newer |

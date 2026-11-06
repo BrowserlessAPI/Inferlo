@@ -1,0 +1,5 @@
+{
+  "title": "Add a Vercel AI SDK provider",
+  "prompt": "Add Together AI as a model provider through the Vercel AI SDK. Use createOpenAICompatible from @ai-sdk/openai-compatible (name \"together\", baseURL \"https://api.together.xyz/v1\", API key from a new TOGETHER_API_KEY setting that defaults to an empty string and is kept secret) and register it in src/app.ts as the provider `together`, made into an Inferlo provider with Inferlo's own adapter for AI SDK providers. Add an alias `cheap` for the model meta-llama/Llama-3.3-70B-Instruct-Turbo of that provider, and keep the existing providers and aliases.",
+  "packages": ["@ai-sdk/openai-compatible"]
+}

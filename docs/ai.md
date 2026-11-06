@@ -30,6 +30,35 @@ createApp({
 });
 ```
 
+### Any Vercel AI SDK provider
+
+`aiSdk(provider)` turns any [Vercel AI SDK](https://ai-sdk.dev) provider into an Inferlo provider, so the providers Inferlo has no adapter of its own for (Mistral, Amazon Bedrock, Azure OpenAI, Google Vertex AI, Groq, xAI, Cohere, the AI Gateway and the others) work with aliases, fallback, structured output, tools, streaming, embeddings, usage tracking, budgets and tracing:
+
+```ts
+import { aiSdk, createApp } from "@browserlessapi/inferlo";
+import { createMistral } from "@ai-sdk/mistral";
+import { bedrock } from "@ai-sdk/amazon-bedrock";
+
+createApp({
+  ai: {
+    providers: {
+      mistral: aiSdk(createMistral({ apiKey: settings.MISTRAL_API_KEY })),
+      bedrock: aiSdk(bedrock),
+    },
+    models: {
+      fast: ["mistral:mistral-small-latest", "bedrock:anthropic.claude-haiku-4-5-20251001-v1:0"],
+      embed: "mistral:mistral-embed",
+    },
+  },
+});
+```
+
+- Pass the **provider** (what `createMistral()` returns, or the default `mistral` instance), not a model: the part after the colon in `"mistral:mistral-small-latest"` is the model id Inferlo asks the provider for, as with every other provider. To use models you built yourself (for example with `wrapLanguageModel` middleware), group them with `customProvider({ languageModels: { ... }, embeddingModels: { ... } })` from `ai` and pass that.
+- Works with providers made for `ai` 5, 6 and 7 (`@ai-sdk/*` 2.0 and later: language model specifications v2, v3 and v4). Inferlo does not depend on the AI SDK; install the provider packages you use. An older provider, or anything that is not a provider, raises IL5029.
+- Errors of the AI SDK (`APICallError`) become IL5006 with the HTTP status, so 429, 5xx and network errors move on to the next model of an alias like any other provider. Embeddings are sent in batches of the model's `maxEmbeddingsPerCall`.
+- The provider name in errors and traces is the AI SDK's own (`mistral`); `aiSdk(provider, { name: "eu-mistral" })` sets another.
+- `ai.stream` streams text; tool calls are available with `ai.generate`, as with every provider.
+
 ## Use it without createApp
 
 The AI module also works on its own, in any framework (Express, Hono, Fastify, NestJS, Next.js route handlers), a script or a queue worker. Import it from `@browserlessapi/inferlo/ai`, which never loads the router, database or jobs code:

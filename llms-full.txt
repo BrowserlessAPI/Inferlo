@@ -1106,6 +1106,35 @@ createApp({
 });
 ```
 
+### Any Vercel AI SDK provider
+
+`aiSdk(provider)` turns any [Vercel AI SDK](https://ai-sdk.dev) provider into an Inferlo provider, so the providers Inferlo has no adapter of its own for (Mistral, Amazon Bedrock, Azure OpenAI, Google Vertex AI, Groq, xAI, Cohere, the AI Gateway and the others) work with aliases, fallback, structured output, tools, streaming, embeddings, usage tracking, budgets and tracing:
+
+```ts
+import { aiSdk, createApp } from "@browserlessapi/inferlo";
+import { createMistral } from "@ai-sdk/mistral";
+import { bedrock } from "@ai-sdk/amazon-bedrock";
+
+createApp({
+  ai: {
+    providers: {
+      mistral: aiSdk(createMistral({ apiKey: settings.MISTRAL_API_KEY })),
+      bedrock: aiSdk(bedrock),
+    },
+    models: {
+      fast: ["mistral:mistral-small-latest", "bedrock:anthropic.claude-haiku-4-5-20251001-v1:0"],
+      embed: "mistral:mistral-embed",
+    },
+  },
+});
+```
+
+- Pass the **provider** (what `createMistral()` returns, or the default `mistral` instance), not a model: the part after the colon in `"mistral:mistral-small-latest"` is the model id Inferlo asks the provider for, as with every other provider. To use models you built yourself (for example with `wrapLanguageModel` middleware), group them with `customProvider({ languageModels: { ... }, embeddingModels: { ... } })` from `ai` and pass that.
+- Works with providers made for `ai` 5, 6 and 7 (`@ai-sdk/*` 2.0 and later: language model specifications v2, v3 and v4). Inferlo does not depend on the AI SDK; install the provider packages you use. An older provider, or anything that is not a provider, raises IL5029.
+- Errors of the AI SDK (`APICallError`) become IL5006 with the HTTP status, so 429, 5xx and network errors move on to the next model of an alias like any other provider. Embeddings are sent in batches of the model's `maxEmbeddingsPerCall`.
+- The provider name in errors and traces is the AI SDK's own (`mistral`); `aiSdk(provider, { name: "eu-mistral" })` sets another.
+- `ai.stream` streams text; tool calls are available with `ai.generate`, as with every provider.
+
 ## Use it without createApp
 
 The AI module also works on its own, in any framework (Express, Hono, Fastify, NestJS, Next.js route handlers), a script or a queue worker. Import it from `@browserlessapi/inferlo/ai`, which never loads the router, database or jobs code:
@@ -4737,6 +4766,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
 | Vercel AI SDK UI (`toResponse({ format: "ai-sdk" })` for `useChat`) | `ai` package 5.0.0 and newer (UI message stream protocol v1) |
+| Vercel AI SDK providers (`aiSdk(provider)`) | `@ai-sdk/*` provider packages for `ai` 5 and newer (language model specifications v2, v3 and v4); tested with `@ai-sdk/openai-compatible` 1.0.0, 2 and the latest |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | Astro (`/astro`) | 5 (newest 5.x) and newer |
@@ -4951,6 +4981,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5028
 **Invalid toAstroHandler() arguments.** `toAstroHandler(app, { prefix })` from `@browserlessapi/inferlo/astro` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `src/pages/api/[...path].ts`: `export const ALL = toAstroHandler(app, { prefix: "/api" })`. The handler it returns must be exported from an endpoint file in `src/pages`, so Astro calls it with an API context. See [Astro](integrations.md#astro).
+
+### IL5029
+**Not an AI SDK provider, or an unsupported one.** `aiSdk(provider)` takes a Vercel AI SDK provider, such as `createOpenAI({ apiKey })` from `@ai-sdk/openai` or the default `mistral` instance from `@ai-sdk/mistral`, not a model (`openai("gpt-5")`): the model id goes in the alias, `"openai:gpt-5"`. Its language and embedding models must use specification v2, v3 or v4 (`@ai-sdk/*` packages for `ai` 5 and later); upgrade older provider packages. Also raised for an embedding call on a provider without embedding models, and for a `name` option that is not 1 to 64 letters, digits, dots, dashes or underscores. See [Any Vercel AI SDK provider](ai.md#any-vercel-ai-sdk-provider).
 
 ## App configuration (6xxx)
 
