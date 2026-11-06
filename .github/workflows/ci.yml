@@ -628,6 +628,47 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec "examples/with-prisma/test/*.test.ts"
 
+  typeorm:
+    name: TypeORM ${{ matrix.typeorm }} on PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0.3 = oldest supported (TypeORM 0.3 is the "legacy" line that still gets releases next to 1.x, so its
+        # newest 0.3.x is tested), latest = newest release. Each runs on the oldest supported and the newest PostgreSQL.
+        include:
+          - typeorm: "0.3"
+            postgres: "14"
+          - typeorm: "latest"
+            postgres: "latest"
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: inferlo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      INFERLO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/inferlo_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      # TypeORM 0.3 lists redis 5 at most as an optional peer; the repository's redis 6 is not used by it.
+      - run: npm install --no-save --legacy-peer-deps typeorm@${{ matrix.typeorm }} reflect-metadata
+      - run: node -p "'typeorm ' + require('./node_modules/typeorm/package.json').version"
+      - run: npx tsc --noEmit -p examples/with-typeorm
+      - run: node --test --test-reporter=spec "examples/with-typeorm/test/*.test.ts"
+
   koa:
     name: Koa ${{ matrix.koa }}
     runs-on: ubuntu-latest

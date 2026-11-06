@@ -3261,6 +3261,57 @@ export const createInvoice = route
 
 Tested with Prisma 6 (newest 6.x) on the oldest supported PostgreSQL and the latest Prisma on the newest PostgreSQL.
 
+## TypeORM
+
+An app that already uses [TypeORM](https://typeorm.io) on Postgres (often with NestJS) can add Inferlo next to it, on the same database, without moving its entities or tables. TypeORM 0.3 and 1.x are supported, with decorated entity classes or `EntitySchema`. A tested example is in `examples/with-typeorm`.
+
+**Two pools, one database.** TypeORM opens its own pool from its `DataSource`; give Inferlo a `pg` pool with `postgres({ pool })` (or `postgres({ url })`). Keep the two `max` sizes together under the server's `max_connections`:
+
+```ts
+// src/db.ts
+import pg from "pg";
+import { DataSource } from "typeorm";
+import { Account, Subscription } from "./entities.ts";
+
+export const dataSource = new DataSource({ type: "postgres", url: process.env.DATABASE_URL, entities: [Account, Subscription], extra: { max: 5 } });
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+
+// src/server.ts
+await dataSource.initialize();
+export const app = createApp({ models, db: postgres({ pool }), routes, jobs, auth });
+```
+
+**TypeORM in routes and jobs.** Import `dataSource` where you need it: `await dataSource.getRepository(Account).findOne({ where: { id }, relations: { subscriptions: true } })`. Inferlo adds no wrapper, so TypeORM queries do not get `ctx.db`'s request timeout or tenant filter; keep Inferlo models (`ctx.db`) for tables that need them. Check for missing rows and throw `notFound()` (404, IL4001); TypeORM's own errors (such as `EntityNotFoundError` from `findOneByOrFail`) answer 500 with the details logged, never sent. In a NestJS app, `TypeOrmModule` and Inferlo's `InferloModule` sit side by side (see [NestJS](#nestjs)).
+
+**Models side by side.** TypeORM's entities stay where they are; new tables can be Inferlo models. An Inferlo model stores the id of a TypeORM row as a plain field (`subscriptionId: t.int().index()`), and a handler reads both: the account and its subscriptions with TypeORM, their notices with `db.renewal_notices.findMany({ where: { subscriptionId: { in: ids } } })`. `t.ref` points only at Inferlo models.
+
+**Transactions.** `dataSource.transaction(...)` runs on a connection of TypeORM's pool, so TypeORM and Inferlo cannot share one transaction through their clients. When a write must be atomic across both, start it with Inferlo and write TypeORM's tables with parameterised SQL on the same transaction (`tx.$sql`); both commit together, and an error in either rolls both back. Database errors from `tx.$sql` are Inferlo errors, so a foreign key or unique violation answers 409:
+
+```ts
+export const createSubscription = route
+  .post("/subscriptions", { body: t.object({ accountId: t.int(), plan: t.enum(["team", "business"]), cents: t.int().min(1), notice: t.string().max(500) }) })
+  .handle(({ body, db }) =>
+    db.$transaction(async (tx) => {
+      const [subscription] = await tx.$sql(
+        "INSERT INTO saas_subscriptions (account_id, plan, cents) VALUES ($1, $2, $3) RETURNING id, plan, cents",
+        [body.accountId, body.plan, body.cents],
+      );
+      const notice = await tx.renewal_notices.insert({ subscriptionId: subscription!.id as number, message: body.notice });
+      return { subscription, notice };
+    }),
+  );
+```
+
+- Writes that touch only TypeORM's tables keep using `dataSource.transaction(...)`; writes that touch only Inferlo's use `db.$transaction(...)`.
+- Do not call `dataSource` inside `db.$transaction`, or `db` inside `dataSource.transaction`, expecting one transaction: each runs on its own connection and commits on its own.
+- Queue jobs that read the new rows with TypeORM after `db.$transaction` returns, so they never run before the rows are committed or for rows that were rolled back.
+
+**Migrations.** Each tool manages its own tables. `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create. TypeORM's `migration:generate` and `synchronize` compare only the tables of its entities, so they plan no changes to Inferlo's tables (the example tests both directions). Give new Inferlo models table names no entity uses; Inferlo's built-in tables start with `inferlo_` or are `audit_log`, and TypeORM's own table is `migrations` (or its `migrationsTableName`). Keep `synchronize: false` in production, as TypeORM recommends.
+
+**Shutting down.** Close in order: `await app.close()` (stops requests and jobs), then `await dataSource.destroy()`, then `await pool.end()`.
+
+Tested with TypeORM 0.3 (newest 0.3.x) on the oldest supported PostgreSQL and the latest TypeORM on the newest PostgreSQL.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
@@ -5047,6 +5098,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Vercel AI SDK providers (`aiSdk(provider)`) | `@ai-sdk/*` provider packages for `ai` 5 and newer (language model specifications v2, v3 and v4); tested with `@ai-sdk/openai-compatible` 1.0.0, 2 and the latest |
 | Drizzle ORM (next to Inferlo on one Postgres database, `db.$pgClient()`) | `drizzle-orm` 0.44.0 and newer |
 | Prisma (next to Inferlo on one Postgres database, through `@prisma/adapter-pg`) | Prisma 6 (with `engineType = "client"`) and 7 |
+| TypeORM (next to Inferlo on one Postgres database) | TypeORM 0.3 (newest 0.3.x) and 1.x |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | Astro (`/astro`) | 5 (newest 5.x) and newer |
