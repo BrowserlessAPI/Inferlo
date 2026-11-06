@@ -1,0 +1,5 @@
+{
+  "title": "LangChain chat model from Inferlo's AI",
+  "prompt": "Part of the team uses LangChain.js. Create src/routes/assistant.ts exporting `assistant`: POST /assistant with body { message } (a string of at most 4000 characters) that answers { answer } (a string). Build the LangChain chat model from the request's Inferlo AI client with Inferlo's LangChain integration, using the \"fast\" alias and tracking usage for the signed-in user, and call its invoke() with a system message \"You are a helpful assistant.\" and the user's message (LangChain message classes from @langchain/core/messages). Register the route module in src/app.ts.",
+  "packages": ["@langchain/core"]
+}

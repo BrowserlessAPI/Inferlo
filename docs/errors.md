@@ -198,6 +198,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5029
 **Not an AI SDK provider, or an unsupported one.** `aiSdk(provider)` takes a Vercel AI SDK provider, such as `createOpenAI({ apiKey })` from `@ai-sdk/openai` or the default `mistral` instance from `@ai-sdk/mistral`, not a model (`openai("gpt-5")`): the model id goes in the alias, `"openai:gpt-5"`. Its language and embedding models must use specification v2, v3 or v4 (`@ai-sdk/*` packages for `ai` 5 and later); upgrade older provider packages. Also raised for an embedding call on a provider without embedding models, and for a `name` option that is not 1 to 64 letters, digits, dots, dashes or underscores. See [Any Vercel AI SDK provider](ai.md#any-vercel-ai-sdk-provider).
 
+### IL5030
+**Invalid LangChain integration arguments.** `toLangChainModel(ai, { model, for, temperature, maxTokens })` from `@browserlessapi/inferlo/langchain` needs Inferlo's AI client (`ctx.ai`, `app.ai`, or what `createAI()` returns) and takes only those options. `toLangChainTools(tools, { ai })` takes an array of function tools made with `tool(name, ...).handle(fn)` and routes (routes need `{ ai: ctx.ai }`, otherwise IL5009). Tools bound with `bindTools` need a name. See [LangChain.js](integrations.md#langchainjs).
+
 ## App configuration (6xxx)
 
 ### IL6001

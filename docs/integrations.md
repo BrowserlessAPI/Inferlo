@@ -914,6 +914,35 @@ The [with-encore example](../examples/with-encore) does both. Its tests run the 
 
 Chat UIs built with `useChat` from `@ai-sdk/react` (and the Vue and Svelte versions) talk to an Inferlo route directly: `ai.stream(...).toResponse({ format: "ai-sdk" })` speaks the AI SDK UI message stream protocol, and `uiChatBody` with `fromUIMessages` reads what `useChat` sends. Works in any framework above, since it is a plain route. See [Chat UIs with the Vercel AI SDK](ai.md#chat-uis-with-the-vercel-ai-sdk-usechat). Tested with the `ai` package 5.0.0 and the latest release.
 
+## Vercel AI SDK providers
+
+Any AI SDK provider package (`@ai-sdk/mistral`, `@ai-sdk/amazon-bedrock`, `@ai-sdk/azure` and the others) works as an Inferlo provider with `aiSdk(provider)`. See [Any Vercel AI SDK provider](ai.md#any-vercel-ai-sdk-provider).
+
+## LangChain.js
+
+`@browserlessapi/inferlo/langchain` lets LangChain agents, chains and LangGraph graphs use Inferlo's AI, and Inferlo tools:
+
+```ts
+import { createAgent } from "langchain";
+import { toLangChainModel, toLangChainTools } from "@browserlessapi/inferlo/langchain";
+
+export const assistant = route
+  .post("/assistant", { body: t.object({ message: t.string().max(4000) }), rateLimit: { max: 20, per: "minute" } })
+  .handle(async ({ body, ai, user }) => {
+    const agent = createAgent({
+      model: toLangChainModel(ai, { model: "fast", for: user.id }),
+      tools: toLangChainTools([getWeather, createTicket], { ai }),
+    });
+    const result = await agent.invoke({ messages: [{ role: "user", content: body.message }] });
+    return { answer: result.messages.at(-1)?.content };
+  });
+```
+
+- **`toLangChainModel(ai, { model, for, temperature, maxTokens })`** is a LangChain chat model (`BaseChatModel`) that calls Inferlo's AI: the alias and its fallback models, budgets (`allow`), usage tracking (`onUsage`, with `for`), tracing and every configured provider. `invoke`, `stream` (text chunks, then one chunk with usage) and `bindTools` work; LangChain runs the agent loop and the tools, so the model returns the tool calls without running them. Answers carry `usage_metadata` and, in `response_metadata`, the model that answered and the cost. Images in human messages (`image_url` parts, or `image` parts with a URL or base64 data) reach vision models.
+- **`toLangChainTools(tools, { ai })`** turns Inferlo function tools (`tool(name, ...).handle(fn)`) into LangChain tools, with the tool's schema and validation. Routes work too when you pass a request's `ctx.ai`: each call runs as the signed-in user, with the route's auth, permissions, validation and rate limits, as with `ai.generate({ tools })`. Without `ai`, a route raises IL5009.
+- `bindTools` also takes LangChain tools and OpenAI-style tool definitions.
+- `@langchain/core` is an optional peer dependency: install it (and `langchain` or `@langchain/langgraph` for agents) in your app. The core package never loads it. Tested with `@langchain/core` 0.3 (newest 0.3.x, maintained until December 2026) and the latest release (1.x). Invalid arguments raise IL5030.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).

@@ -442,6 +442,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/ai-sdk-ui.test.ts test/ai-sdk-provider.test.ts
 
+  langchain:
+    name: LangChain.js (@langchain/core ${{ matrix.langchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0.3 = oldest supported (newest 0.3.x: LangChain 0.3 is in maintenance until December 2026),
+        # latest = newest release (1.x, LangChain's long-term support line).
+        langchain: ["0.3", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save @langchain/core@${{ matrix.langchain }}
+      - run: node -p "'@langchain/core ' + require('./node_modules/@langchain/core/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/langchain.test.ts
+
   koa:
     name: Koa ${{ matrix.koa }}
     runs-on: ubuntu-latest

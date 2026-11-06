@@ -114,6 +114,10 @@
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
+    },
+    "./langchain": {
+      "types": "./dist/langchain.d.ts",
+      "default": "./dist/langchain.js"
     }
   },
   "bin": {
@@ -140,10 +144,14 @@
     "bench:perf:check": "node bench/perf/check.ts"
   },
   "peerDependencies": {
+    "@langchain/core": ">=0.3.0",
     "@opentelemetry/api": ">=1.3.0",
     "pg": ">=8"
   },
   "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    },
     "@opentelemetry/api": {
       "optional": true
     },
@@ -158,6 +166,7 @@
     "@google-cloud/functions-framework": "^5.0.5",
     "@hapi/hapi": "^21.4.13",
     "@hono/node-server": "^2.1.6",
+    "@langchain/core": "^1.3.5",
     "@nestjs/common": "^12.3.3",
     "@nestjs/core": "^12.3.3",
     "@nestjs/platform-express": "^12.3.3",

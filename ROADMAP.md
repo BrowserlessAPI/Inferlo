@@ -91,7 +91,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Deno Deploy and Bun part 2: Deno Deploy: a `Deno.serve(app.fetch)` guide with streaming and graceful shutdown, tested together with the Deno support item
 - [x] AI SDK providers: any Vercel AI SDK provider (`@ai-sdk/*`, `LanguageModelV2` and later) usable as an Inferlo provider (`aiSdk(createOpenAI({ apiKey }))` in `createAI({ providers })`), so every provider the AI SDK supports works with aliases, fallback, usage tracking and tools, tested on the oldest supported and latest `ai` package
 - [ ] Drizzle and Prisma: adopt Inferlo next to an existing Drizzle or Prisma database (the client available in routes and jobs, its transactions shared, and Inferlo models on the same Postgres), with a guide and examples tested on the oldest supported and latest versions
-- [ ] LangChain.js: Inferlo AI aliases as a LangChain chat model and Inferlo tools (routes and `tool()`) as LangChain tools, tested on the oldest supported and latest `@langchain/core`
+- [x] LangChain.js: Inferlo AI aliases as a LangChain chat model and Inferlo tools (routes and `tool()`) as LangChain tools, tested on the oldest supported and latest `@langchain/core`
 
 ### Core
 

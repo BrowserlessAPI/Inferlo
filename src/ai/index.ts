@@ -15,7 +15,7 @@ import type { RouteDef } from "../route.ts";
 import { functionToolSpec, isTool, runFunctionTool, type ToolDef } from "./tool.ts";
 import { createRedactor, secretsOf } from "../redact.ts";
 import { checkTracing, clientTracing, type OtelSpan, type TracingConfig } from "../tracing.ts";
-import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolSpec } from "./providers.ts";
+import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolCall, type ToolSpec } from "./providers.ts";
 
 export * from "./providers.ts";
 export { tool, isTool, ToolBuilder } from "./tool.ts";
@@ -132,6 +132,40 @@ export type ToolRunner = (route: RouteDef, input: unknown) => Promise<{ name: st
 
 const toolRunners = new WeakMap<AI, { runner: ToolRunner; describe: (route: RouteDef) => ToolSpec }>();
 
+/** One model call that returns the tool calls instead of running them, for agent loops such as LangChain's. */
+export interface ModelCallOptions {
+  model?: string;
+  messages: Message[];
+  tools?: ToolSpec[];
+  temperature?: number;
+  maxTokens?: number;
+  for?: string;
+  signal?: AbortSignal;
+}
+
+export interface ModelCallResult {
+  text: string;
+  toolCalls: ToolCall[];
+  usage: Usage;
+}
+
+const modelCalls = new WeakMap<AI, (options: ModelCallOptions) => Promise<ModelCallResult>>();
+
+/**
+ * One model call with the AI's aliases, fallback, budgets, usage tracking and tracing, which returns the tool calls
+ * the model asked for without running them. Internal: used by the LangChain integration.
+ */
+export function callModel(ai: AI, options: ModelCallOptions): Promise<ModelCallResult> {
+  const call = modelCalls.get(ai);
+  if (!call) throw new InferloError("IL5030", "Expected an AI client made by createAI() or createApp({ ai }).", { fix: "Pass app.ai, ctx.ai or the client createAI() returns." });
+  return call(options);
+}
+
+/** The route tools of ctx.ai (a request's AI client), or undefined for other clients. Internal. */
+export function routeToolsOf(ai: AI): { runner: ToolRunner; describe: (route: RouteDef) => ToolSpec } | undefined {
+  return toolRunners.get(ai);
+}
+
 /**
  * ctx.ai for one request: the same AI, with tools that run as the request's user, and the request's signal
  * on every call that does not pass its own. Internal: used by createApp.
@@ -143,6 +177,8 @@ export function bindTools(ai: AI, runner: ToolRunner, describe: (route: RouteDef
   bound.generate = (options) => ai.generate.call(bound, withSignal(options));
   bound.stream = (options) => ai.stream.call(bound, withSignal(options));
   bound.embed = (options) => ai.embed.call(bound, withSignal(options));
+  const call = modelCalls.get(ai);
+  if (call) modelCalls.set(bound, (options) => call(withSignal(options)));
   return bound;
 }
 
@@ -682,6 +718,38 @@ export function createAI(config?: AIConfig): AI {
       });
     },
   };
+
+  modelCalls.set(ai, async (options) => {
+    const requested = options.model ?? config?.defaultModel ?? Object.keys(aliases)[0] ?? "";
+    const targets = resolve(options.model);
+    await guard(options.for, requested);
+    if (!options.messages.some((m) => m.role !== "system")) {
+      throw new InferloError("IL5007", "A model call needs at least one message besides the system message.", { fix: 'Pass messages: [{ role: "user", content: "..." }].' });
+    }
+    options.messages.forEach(checkImages);
+    const started = Date.now();
+    const call = () =>
+      withFallback(targets, async (target) => {
+        const response = await target.provider.generate({
+          model: target.model,
+          messages: options.messages,
+          temperature: options.temperature,
+          maxTokens: options.maxTokens,
+          tools: options.tools?.length ? options.tools : undefined,
+          signal: options.signal,
+        });
+        const usage: Usage = { requested, model: target.id, ...response.usage, cost: cost(target.id, response.usage), for: options.for, kind: "generate", durationMs: Date.now() - started };
+        await record(usage);
+        return { text: response.text, toolCalls: response.toolCalls ?? [], usage };
+      });
+    if (!spans) return call();
+    const { name, attributes } = spanStart("chat", requested, targets, options);
+    return spans.run(name, attributes, async (span) => {
+      const result = await call();
+      spanUsage(span, result.usage);
+      return result;
+    });
+  });
   return ai;
 }
 
