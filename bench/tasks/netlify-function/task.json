@@ -1,0 +1,4 @@
+{
+  "title": "Deploy on Netlify Functions",
+  "prompt": "Deploy the app on Netlify. Add netlify/functions/api.ts, a Netlify Function (Functions 2.0) that serves the whole Inferlo app from src/app.ts (routes, health, OpenAPI and MCP) for every path of the site, so that rate limits by IP count each caller by the client address Netlify reports and ctx.waitUntil work keeps the function alive. Do not change src/server.ts."
+}

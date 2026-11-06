@@ -1,3 +1,5 @@
+import { readEnv } from "./env.ts";
+
 /** Client IP addresses of incoming requests, recorded by serve() (Node) where the Request cannot carry them. */
 export const clientIps = new WeakMap<Request, string>();
 
@@ -8,6 +10,21 @@ export const clientIps = new WeakMap<Request, string>();
  */
 export const clientSignals = new WeakMap<Request, AbortSignal>();
 
+/**
+ * The context Netlify Functions 2.0 pass as the second argument of the handler (export default app.fetch):
+ * it carries the client address in ip, a requestId and a waitUntil. Other platform objects (Bun's server,
+ * Deno's info, Worker env) do not have both strings, so a Worker binding that happens to be named "ip" is not taken for it.
+ */
+export function netlifyContext(platform: unknown): { ip: string; waitUntil?(p: Promise<unknown>): void } | undefined {
+  const p = platform as { ip?: unknown; requestId?: unknown } | null | undefined;
+  return p && typeof p === "object" && typeof p.ip === "string" && typeof p.requestId === "string" ? (p as { ip: string }) : undefined;
+}
+
+/** True on Vercel Functions, where Vercel sets VERCEL=1 in the environment of every deployment and of vercel dev. */
+function onVercel(): boolean {
+  return readEnv("VERCEL") === "1";
+}
+
 /** True in the Cloudflare Workers runtime (workerd), where navigator.userAgent is "Cloudflare-Workers". */
 function onWorkers(): boolean {
   return (globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent === "Cloudflare-Workers";
@@ -17,7 +34,8 @@ function onWorkers(): boolean {
  * The client IP of a request. With trustProxy, the first X-Forwarded-For address (set by your load balancer).
  * Otherwise the socket address from serve() (Node), Bun's server.requestIP or Deno's remoteAddr, the
  * CF-Connecting-IP header on Cloudflare Workers (set by Cloudflare, which replaces any value the client sends),
- * or "unknown".
+ * the context.ip of Netlify Functions, the X-Real-IP header on Vercel (set by Vercel, which replaces any value the
+ * client sends), or "unknown".
  */
 export function clientIp(req: Request, trustProxy: boolean, platform: unknown): string {
   if (trustProxy) {
@@ -37,5 +55,31 @@ export function clientIp(req: Request, trustProxy: boolean, platform: unknown): 
     const connecting = req.headers.get("cf-connecting-ip")?.trim();
     if (connecting) return connecting;
   }
+  const netlify = netlifyContext(platform)?.ip.trim();
+  if (netlify) return netlify;
+  if (onVercel()) {
+    const real = req.headers.get("x-real-ip")?.trim();
+    if (real) return real;
+  }
   return "unknown";
+}
+
+type WaitUntil = (p: Promise<unknown>) => void;
+
+/**
+ * The platform's waitUntil for work that outlives the response (ctx.waitUntil), so a serverless platform keeps the
+ * function alive until it settles: the execution context of Cloudflare Workers (the third fetch argument), the
+ * context of Netlify Functions (the second), or the request context Vercel Functions keep under
+ * Symbol.for("@vercel/request-context") (what waitUntil from @vercel/functions uses). Undefined elsewhere: the app
+ * then tracks the work itself, and app.close() waits for it.
+ */
+export function platformWaitUntil(rest: unknown[]): WaitUntil | undefined {
+  const execution = rest[1] as { waitUntil?: WaitUntil } | null | undefined;
+  if (typeof execution?.waitUntil === "function") return (p) => execution.waitUntil!(p);
+  const netlify = netlifyContext(rest[0]);
+  if (typeof netlify?.waitUntil === "function") return (p) => netlify.waitUntil!(p);
+  const vercel = (globalThis as Record<symbol, { get?(): { waitUntil?: WaitUntil } | undefined } | undefined>)[Symbol.for("@vercel/request-context")];
+  const context = vercel?.get?.();
+  if (typeof context?.waitUntil === "function") return (p) => context.waitUntil!(p);
+  return undefined;
 }

@@ -16,7 +16,7 @@ import { buildOpenAPI } from "./openapi.ts";
 import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
 import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
-import { clientIp, clientIps, clientSignals } from "./client-ip.ts";
+import { clientIp, clientIps, clientSignals, platformWaitUntil } from "./client-ip.ts";
 import { redisJobStore } from "./redis-jobs.ts";
 import { knownBodies } from "./response-body.ts";
 import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
@@ -950,8 +950,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     }
     if (pending.length) {
       const all = Promise.all(pending);
-      const execution = rest[1] as { waitUntil?(p: Promise<unknown>): void } | undefined;
-      if (execution?.waitUntil) execution.waitUntil(all);
+      const execution = platformWaitUntil(rest);
+      if (execution) execution(all);
       else {
         // Kept until it settles, so app.close() waits for it.
         tasks.add(all);

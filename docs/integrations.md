@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, hapi uses `inferloPlugin` from `@browserlessapi/inferlo/hapi`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, AWS Lambda uses `toLambdaHandler(app)`, and Cloudflare Workers take `export default app`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, hapi uses `inferloPlugin` from `@browserlessapi/inferlo/hapi`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, AWS Lambda uses `toLambdaHandler(app)`, Cloudflare Workers and Vercel Functions take `export default app`, and Netlify Functions take `export default app.fetch`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -761,6 +761,49 @@ export default {
 ```
 
 The [with-cloudflare-workers example](../examples/with-cloudflare-workers) has the Worker, its `wrangler.jsonc`, and tests that run it in workerd (the open-source Workers runtime) through Miniflare, with Anthropic answered by a stand-in. CI runs the Workers tests on Miniflare 4.20250405.0 (the first Miniflare 4 release, with workerd from April 2025) and the latest Miniflare.
+
+## Vercel Functions
+
+An Inferlo app is a Vercel Function as it is: on the Node.js runtime, a default export with a `fetch` method is the web-standard handler, so `export default app` serves routes, auth, validation, rate limits, OpenAPI, MCP and the AI module. No adapter.
+
+```ts
+// api/index.ts
+import { app } from "../src/app.ts"; // export const app = createApp({ ... })
+
+export default app;
+```
+
+```json
+// vercel.json: every path goes to the function
+{ "rewrites": [{ "source": "/(.*)", "destination": "/api" }] }
+```
+
+- **Paths.** The Request carries the path the client asked for, so declare routes with their public paths (`route.get("/api/notes")` for `https://example.com/api/notes`).
+- **Client address.** On Vercel (where Vercel sets `VERCEL=1`), `rateLimit: { by: "ip" }` uses the `X-Real-IP` header, which Vercel sets to the caller's address (a value sent by the client is replaced). Off Vercel the header is ignored, so a client cannot choose its address. With `createApp({ trustProxy: true })` the first `X-Forwarded-For` address wins instead.
+- **Background work.** `ctx.waitUntil(promise)` hands the promise to Vercel's `waitUntil` (the request context that `waitUntil` from `@vercel/functions` uses), so the function stays alive until it settles.
+- **AI.** Streamed answers (`ai.stream(...).toResponse()`) stream to the client. Put provider keys in the project's environment variables; `config()` and `env()` read them.
+- **State.** Instances do not share memory, so use the Postgres or Redis stores for rate limits, the cache and jobs when they must be shared.
+
+The [with-vercel example](../examples/with-vercel) has the function, its `vercel.json`, and tests that call it with requests shaped like the ones Vercel passes. Vercel's Node.js 22 and 24 runtimes are covered by the Node.js 22 and 24 CI jobs.
+
+## Netlify Functions
+
+Netlify Functions 2.0 call the default export with `(request, context)`, which is the signature of `app.fetch`, so `export default app.fetch` serves the whole app:
+
+```ts
+// netlify/functions/api.ts
+import { app } from "../../src/app.ts";
+
+export default app.fetch;
+export const config = { path: "/api/*" }; // the paths this function answers
+```
+
+- **Paths.** The Request carries the path the client asked for: with `path: "/api/*"`, declare routes as `route.get("/api/notes")`.
+- **Client address.** `rateLimit: { by: "ip" }` uses `context.ip`, the address Netlify reports for the caller. With `createApp({ trustProxy: true })` the first `X-Forwarded-For` address wins instead.
+- **Background work.** `ctx.waitUntil(promise)` hands the promise to `context.waitUntil`, so the function stays alive until it settles.
+- **AI and state.** As on Vercel: streamed answers stream, provider keys come from the site's environment variables, and instances do not share memory.
+
+The [with-netlify example](../examples/with-netlify) has the function and tests that call it the way Netlify does. Netlify Functions on Node.js 22 and 24 are covered by the Node.js 22 and 24 CI jobs.
 
 ## Encore.ts
 

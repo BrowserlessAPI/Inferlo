@@ -101,6 +101,23 @@ export default app;   // app.fetch is the Worker handler
 
 On Cloudflare Workers, set `"compatibility_flags": ["nodejs_compat"]` and a `compatibility_date` of 2025-04-01 or later in `wrangler.jsonc`, so vars and secrets reach `config()` and `env()`. Deploy with `npx wrangler deploy`. Bindings, the client address, `waitUntil` and AI on Workers are in [Cloudflare Workers](integrations.md#cloudflare-workers). Use `memory()` for stateless services; the Postgres adapter is not yet tested on Workers.
 
+## Vercel and Netlify Functions
+
+```ts
+// Vercel: api/index.ts, with vercel.json rewriting every path to /api
+import { app } from "../src/app.ts";
+export default app;
+```
+
+```ts
+// Netlify: netlify/functions/api.ts
+import { app } from "../../src/app.ts";
+export default app.fetch;
+export const config = { path: "/api/*" };
+```
+
+Rate limits by IP use the address the platform sets (`X-Real-IP` on Vercel, `context.ip` on Netlify), and `ctx.waitUntil` keeps the function alive until the work settles. See [Vercel Functions](integrations.md#vercel-functions) and [Netlify Functions](integrations.md#netlify-functions).
+
 ## AWS Lambda
 
 ```ts
