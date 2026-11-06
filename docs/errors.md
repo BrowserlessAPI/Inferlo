@@ -350,6 +350,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL4025
 **Invalid paginate options.** `paginate()` orders by one field, which must be required (not optional without a default, not nullable) and not `json`, `array` or `object`, and it does not take `offset`. Use for example `orderBy: { createdAt: "desc" }`; use `findMany({ offset })` for numbered pages.
 
+### IL4026
+**Invalid model options.** The third argument of `model(name, fields, options)` is an object with one option, `tenant` (`true` or `false`): `model("projects", { ... }, { tenant: true })`.
+
+### IL4027
+**No tenant for a tenant-scoped table.** The table was made with `model(name, fields, { tenant: true })`, and this db client does not know which tenant to work for: a request without a signed-in user, a user without a tenant (`user.tenantId`, or what `auth.tenant(user)` returns, is `null` or `undefined`), or `app.db`, a job or a script. In routes, give signed-in users a tenant; elsewhere use `db.$tenant(tenantId)`, or `db.$allTenants()` to read across tenants (it cannot insert). Also raised when a tenant id is not a non-empty string of at most 200 characters.
+
 ## CLI (8xxx)
 
 ### IL8000

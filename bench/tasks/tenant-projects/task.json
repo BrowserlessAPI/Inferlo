@@ -1,0 +1,4 @@
+{
+  "title": "Projects scoped to the user's organisation",
+  "prompt": "Users belong to an organisation. Add an `orgId` field to users (a string of at most 100 characters, default \"personal\") and put it on the signed-in user as `tenantId` (add an optional `tenantId?: string` to AppUser and return it from auth). Add a `projects` model with a `name` (string, 1 to 100 characters) whose rows belong to the organisation, using Inferlo's tenant-scoped models so every query is filtered by the user's organisation without filtering by hand, and register it. Create src/routes/projects.ts with POST /projects (body { name }, answers 201 with the stored project) and GET /projects (the organisation's projects, oldest first), and register those routes in src/app.ts."
+}

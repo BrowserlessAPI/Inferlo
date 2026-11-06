@@ -44,8 +44,8 @@ export interface Def {
   example?: unknown;
   unique?: boolean;
   index?: boolean;
-  /** Filled in by the framework (id, createdAt, updatedAt). Never accepted as input. */
-  system?: "id" | "createdAt" | "updatedAt";
+  /** Filled in by the framework (id, createdAt, updatedAt, and tenantId on tenant-scoped models). Never accepted as input. */
+  system?: "id" | "createdAt" | "updatedAt" | "tenantId";
 }
 
 export interface Issue {

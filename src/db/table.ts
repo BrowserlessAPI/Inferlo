@@ -3,7 +3,7 @@
  * Inserts and updates are always validated against the model, and every query is parameterised.
  */
 import { InferloError, didYouMean, notFound } from "../errors.ts";
-import type { AnyModel, Row, CreateInput, UpdateInput } from "../model.ts";
+import { MAX_TENANT_ID, type AnyModel, type Row, type CreateInput, type UpdateInput } from "../model.ts";
 import type { AnySchema } from "../schema.ts";
 import { ValidationError } from "../schema.ts";
 import type { Adapter, Condition, DbRecord, Op, Query } from "./types.ts";
@@ -125,6 +125,13 @@ export interface FindOptions<I> {
   include?: I;
 }
 
+/**
+ * Which tenant a db client works for. { tenant: id }: tenant-scoped tables are filtered by and stamped with id.
+ * "all": tenant-scoped tables are read across tenants (db.$allTenants(); inserts still need a tenant).
+ * "none": no tenant (app.db, jobs, a request without one): tenant-scoped tables refuse every call with IL4027.
+ */
+export type TenantScope = { tenant: string } | "all" | "none";
+
 const OPS: Op[] = ["eq", "ne", "gt", "gte", "lt", "lte", "in", "notIn", "like", "ilike", "isNull"];
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
@@ -133,11 +140,51 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
   readonly model: M;
   #adapter: () => Adapter;
   #models: readonly AnyModel[];
+  #scope: TenantScope;
 
-  constructor(model: M, adapter: () => Adapter, models: readonly AnyModel[] = [model]) {
+  constructor(model: M, adapter: () => Adapter, models: readonly AnyModel[] = [model], scope: TenantScope = "none") {
     this.model = model;
     this.#adapter = adapter;
     this.#models = models;
+    this.#scope = scope;
+  }
+
+  /** The tenant condition for a tenant-scoped model (none for other models). Throws IL4027 without a tenant. */
+  #tenantWhere(model: AnyModel = this.model): Condition[] {
+    if (!model.tenant) return [];
+    const scope = this.#scope;
+    if (scope === "all") return [];
+    if (scope === "none") throw noTenant(model.name);
+    return [{ field: "tenantId", op: "eq", value: scope.tenant }];
+  }
+
+  /** The tenant id inserts are stamped with. */
+  #tenantId(): string {
+    const scope = this.#scope;
+    if (scope === "none") throw noTenant(this.model.name);
+    if (scope === "all") {
+      throw new InferloError("IL4027", `Cannot insert into the tenant-scoped table "${this.model.name}" through db.$allTenants(), because it does not say which tenant the row belongs to.`, {
+        fix: `Insert through the tenant's client: db.$tenant(tenantId).${this.model.name}.insert(...).`,
+      });
+    }
+    return scope.tenant;
+  }
+
+  /**
+   * t.ref fields of a tenant-scoped row must point at rows of the same tenant when the referenced table is
+   * tenant-scoped too, so one tenant cannot link (and then include) another tenant's rows.
+   */
+  async #checkRefs(data: DbRecord, tenantId: string): Promise<void> {
+    for (const [field, schema] of Object.entries(this.model.fields as Record<string, AnySchema>)) {
+      const value = data[field];
+      if (schema.def.kind !== "ref" || typeof value !== "string") continue;
+      const target = this.#models.find((m) => m.name === schema.def.refTable);
+      if (!target?.tenant) continue;
+      const found = await this.#adapter().count(target, [{ field: "id", op: "eq", value }, { field: "tenantId", op: "eq", value: tenantId }]);
+      if (!found) {
+        throw new ValidationError([{ path: [field], code: "invalid_reference", message: `No ${singular(target.name).toLowerCase()} ${value} in this tenant.` }], `${singular(this.model.name)} ${data.id === undefined ? "update" : "insert"}`);
+      }
+    }
   }
 
   get #fields(): string[] {
@@ -148,7 +195,11 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
   async insert(data: CreateInput<M>): Promise<Row<M>> {
     const parsed = this.#validate(this.model.create, data, "insert");
     const now = new Date();
-    const row = { id: crypto.randomUUID(), createdAt: now, updatedAt: now, ...parsed };
+    const row: DbRecord = { id: crypto.randomUUID(), createdAt: now, updatedAt: now, ...parsed };
+    if (this.model.tenant) {
+      row.tenantId = this.#tenantId();
+      await this.#checkRefs(row, row.tenantId as string);
+    }
     return (await this.#adapter().insert(this.model, row)) as Row<M>;
   }
 
@@ -161,7 +212,7 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
   /** Row by id, or null. */
   async find<const I extends Include<M, Models> = {}>(id: string, options: FindOptions<I> = {}): Promise<WithInclude<M, Models, I> | null> {
     const relations = this.#relations(options.include);
-    const rows = await this.#adapter().select(this.model, { where: [{ field: "id", op: "eq", value: id }], orderBy: [], limit: 1 });
+    const rows = await this.#adapter().select(this.model, { where: [{ field: "id", op: "eq", value: id }, ...this.#tenantWhere()], orderBy: [], limit: 1 });
     await this.#load(rows, relations);
     return (rows[0] as WithInclude<M, Models, I>) ?? null;
   }
@@ -346,7 +397,7 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
       if (relation.kind === "many") {
         const ids = [...new Set(rows.map((row) => row.id as string))];
         const related = ids.length
-          ? await this.#adapter().select(target, { where: [{ field: relation.field, op: "in", value: ids }], orderBy: [["createdAt", "asc"], ["id", "asc"]] })
+          ? await this.#adapter().select(target, { where: [{ field: relation.field, op: "in", value: ids }, ...this.#tenantWhere(target)], orderBy: [["createdAt", "asc"], ["id", "asc"]] })
           : [];
         const byParent = new Map<string, DbRecord[]>();
         for (const r of related) {
@@ -359,7 +410,7 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
       }
       const ids = [...new Set(rows.map((row) => row[relation.field]).filter((id): id is string => typeof id === "string"))];
       const related = ids.length
-        ? await this.#adapter().select(target, { where: [{ field: "id", op: "in", value: ids }], orderBy: [], limit: ids.length })
+        ? await this.#adapter().select(target, { where: [{ field: "id", op: "in", value: ids }, ...this.#tenantWhere(target)], orderBy: [], limit: ids.length })
         : [];
       const byId = new Map(related.map((r) => [r.id as string, r]));
       for (const row of rows) row[relation.name] = (typeof row[relation.field] === "string" ? byId.get(row[relation.field] as string) : undefined) ?? null;
@@ -367,27 +418,31 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
   }
 
   async count(where: Where<Row<M>> = {}): Promise<number> {
-    return this.#adapter().count(this.model, this.#where(where));
+    return this.#adapter().count(this.model, [...this.#where(where), ...this.#tenantWhere()]);
   }
 
   /** Validate and update one row by id. Throws IL4001 (HTTP 404) when it does not exist. */
   async update(id: string, patch: UpdateInput<M>): Promise<Row<M>> {
     const parsed = this.#validate(this.model.update, patch, "update");
-    const rows = await this.#adapter().update(this.model, [{ field: "id", op: "eq", value: id }], { ...parsed, updatedAt: new Date() });
+    const tenant = this.#tenantWhere();
+    if (tenant.length) await this.#checkRefs(parsed, tenant[0]!.value as string);
+    const rows = await this.#adapter().update(this.model, [{ field: "id", op: "eq", value: id }, ...tenant], { ...parsed, updatedAt: new Date() });
     if (!rows[0]) throw notFound(`${singular(this.model.name)} ${id} was not found.`, { table: this.model.name, id });
     return rows[0] as Row<M>;
   }
 
   /** Update every row matching where. Returns the updated rows. */
   async updateMany(where: Where<Row<M>>, patch: UpdateInput<M>): Promise<Row<M>[]> {
-    const conditions = this.#where(where);
+    const tenant = this.#tenantWhere();
+    const conditions = [...this.#where(where), ...tenant];
     const parsed = this.#validate(this.model.update, patch, "update");
+    if (tenant.length) await this.#checkRefs(parsed, tenant[0]!.value as string);
     return (await this.#adapter().update(this.model, conditions, { ...parsed, updatedAt: new Date() })) as Row<M>[];
   }
 
   /** Delete by id. Returns true if a row was deleted. */
   async delete(id: string): Promise<boolean> {
-    return (await this.#adapter().delete(this.model, [{ field: "id", op: "eq", value: id }])) > 0;
+    return (await this.#adapter().delete(this.model, [{ field: "id", op: "eq", value: id }, ...this.#tenantWhere()])) > 0;
   }
 
   /** Delete every row matching where. Refuses an empty where to prevent accidental wipes. */
@@ -398,7 +453,7 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
         fix: "Pass a filter, e.g. deleteMany({ status: \"closed\" }). To delete everything use deleteMany({ id: { isNull: false } }).",
       });
     }
-    return this.#adapter().delete(this.model, conditions);
+    return this.#adapter().delete(this.model, [...conditions, ...this.#tenantWhere()]);
   }
 
   #validate(schema: { safeParse(input: unknown): { ok: true; value: unknown } | { ok: false; issues: any[] } }, data: unknown, action: string): DbRecord {
@@ -453,7 +508,7 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
     }
     const limit = Math.min(Math.max(0, Math.floor(options.limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
     const offset = Math.max(0, Math.floor(options.offset ?? 0));
-    return { where: this.#where(options.where), orderBy, limit, offset };
+    return { where: [...this.#where(options.where), ...this.#tenantWhere()], orderBy, limit, offset };
   }
 }
 
@@ -488,6 +543,26 @@ function describeRelation(r: Relation): string {
   return r.kind === "one" ? `${r.name} (${r.field})` : `${r.name} (${r.table}.${r.field})`;
 }
 
+function noTenant(table: string): InferloError {
+  return new InferloError("IL4027", `"${table}" is tenant-scoped, and this db client has no tenant.`, {
+    fix: `In routes, sign the user in and give them a tenant (user.tenantId, or createApp({ auth: { tenant: (user) => ... } })). Elsewhere (app.db, jobs, scripts) say which tenant: db.$tenant(tenantId).${table}, or db.$allTenants().${table} to read across tenants.`,
+  });
+}
+
+/** A valid tenant id, or IL4027. */
+export function checkTenantId(id: unknown): string {
+  if (typeof id !== "string" || id.length === 0 || id.length > MAX_TENANT_ID) {
+    throw new InferloError("IL4027", `A tenant id must be a non-empty string of at most ${MAX_TENANT_ID} characters, got ${typeof id === "string" ? `a string of ${id.length} characters` : describeValue(id)}.`, {
+      fix: "Pass the tenant's id as a string, e.g. db.$tenant(user.orgId), or return one from createApp({ auth: { tenant: (user) => user.orgId } }).",
+    });
+  }
+  return id;
+}
+
+function describeValue(value: unknown): string {
+  return value === null ? "null" : Array.isArray(value) ? "an array" : typeof value;
+}
+
 function singular(name: string): string {
   const word = name.endsWith("ies") ? name.slice(0, -3) + "y" : name.endsWith("s") ? name.slice(0, -1) : name;
   return word.charAt(0).toUpperCase() + word.slice(1).replace(/_/g, " ");
@@ -501,8 +576,17 @@ export interface DbHelpers {
   readonly $adapter: Adapter;
   /** Create missing tables, columns and indexes. */
   $sync(options?: { dryRun?: boolean }): Promise<string[]>;
-  /** Run fn in a transaction (Postgres). With memory() it simply runs fn. */
+  /** Run fn in a transaction (Postgres). With memory() it simply runs fn. tx works for the same tenant as this client. */
   $transaction<T>(fn: (tx: Db<any>) => Promise<T>): Promise<T>;
+  /**
+   * A client for one tenant: tenant-scoped tables (model(name, fields, { tenant: true })) are filtered by
+   * and stamped with tenantId. For jobs, scripts and tests: db.$tenant("acme").tickets.findMany().
+   */
+  $tenant(tenantId: string): this;
+  /** A client that reads tenant-scoped tables across every tenant (reports, admin tools). Inserts still need $tenant(id). */
+  $allTenants(): this;
+  /** The tenant this client works for: its id, "all" after $allTenants(), or null without one. */
+  readonly $tenantId: string | "all" | null;
   /** Raw parameterised SQL (Postgres): $sql("select * from tickets where id = $1", [id]). */
   $sql(text: string, params?: unknown[]): Promise<DbRecord[]>;
   $close(): Promise<void>;
@@ -514,14 +598,17 @@ export function createDb<const Models extends readonly AnyModel[]>(models: Model
 }
 
 /** A db client over an adapter that is already connected. Internal: createApp uses it for each request's ctx.db. */
-export function bindDb<const Models extends readonly AnyModel[]>(models: Models, adapter: Adapter): Db<Models> {
-  const build = (current: Adapter): Db<Models> => {
+export function bindDb<const Models extends readonly AnyModel[]>(models: Models, adapter: Adapter, scope: TenantScope = "none"): Db<Models> {
+  const build = (current: Adapter, scope: TenantScope): Db<Models> => {
     const db: Record<string, unknown> = {};
-    for (const m of models) db[m.name] = new Table(m, () => current, models);
+    for (const m of models) db[m.name] = new Table(m, () => current, models, scope);
     const helpers: DbHelpers = {
       $adapter: current,
       $sync: (options) => current.sync([...models], options),
-      $transaction: async (fn) => (current.transaction ? current.transaction((tx) => fn(build(tx))) : fn(build(current))),
+      $transaction: async (fn) => (current.transaction ? current.transaction((tx) => fn(build(tx, scope))) : fn(build(current, scope))),
+      $tenant: ((tenantId: string) => build(current, { tenant: checkTenantId(tenantId) })) as never,
+      $allTenants: (() => build(current, "all")) as never,
+      $tenantId: scope === "none" ? null : scope === "all" ? "all" : scope.tenant,
       $sql: async (text, params) => {
         if (!current.sql) throw new InferloError("IL4008", `Raw SQL is not supported by the ${current.dialect} adapter.`, { fix: "Use postgres() from @browserlessapi/inferlo/postgres." });
         return current.sql(text, params);
@@ -541,7 +628,7 @@ export function bindDb<const Models extends readonly AnyModel[]>(models: Models,
       },
     }) as Db<Models>;
   };
-  return build(adapter);
+  return build(adapter, scope);
 }
 
 /**

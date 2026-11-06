@@ -88,7 +88,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   const d = schema.def;
   const out: FieldDescription = {
     type: d.kind,
-    required: !d.optional && !d.hasDefault,
+    required: !d.optional && !d.hasDefault && !d.system,
     nullable: d.nullable,
     column: columnName(name),
   };

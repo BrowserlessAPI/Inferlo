@@ -6,7 +6,7 @@ import { bindTools, createAI, type AI, type AIConfig, type Usage } from "./ai/in
 import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
 import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
-import { bindDb, createDb, guardAdapter, type Db } from "./db/table.ts";
+import { bindDb, checkTenantId, createDb, guardAdapter, type Db, type TenantScope } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { describeApp, type AppDescription } from "./describe.ts";
 import { InferloError, didYouMean, suggest } from "./errors.ts";
@@ -41,6 +41,12 @@ export interface AuthConfig {
   resolve(req: Request, ctx: { db: AppDb; url: URL }): AppUser | null | undefined | Promise<AppUser | null | undefined>;
   /** Roles of a user, checked when a route uses auth: "<role>". Default: user.roles ?? []. */
   roles?(user: AppUser): string[];
+  /**
+   * The tenant (organisation, workspace, customer) a user belongs to, for tenant-scoped models
+   * (model(name, fields, { tenant: true })): ctx.db filters and stamps their rows with it.
+   * Default: user.tenantId. Return null for a user without a tenant.
+   */
+  tenant?(user: AppUser): string | null | undefined;
 }
 
 export interface CorsConfig {
@@ -610,6 +616,11 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       return { name: tool.name, status: response.status, output, text: text || String(response.status) };
     }, describeTool, signal);
 
+  const tenantScope = (user: AppUser | null): TenantScope => {
+    if (!user) return "none";
+    const id = config.auth?.tenant ? config.auth.tenant(user) : (user as { tenantId?: unknown }).tenantId;
+    return id === null || id === undefined ? "none" : { tenant: checkTenantId(id) };
+  };
   const roles = (user: AppUser): string[] => config.auth?.roles?.(user) ?? ((user as { roles?: string[] }).roles ?? []);
 
   const errorResponse = (error: unknown, headers: Headers, req: Request, requestId: string): Response => {
@@ -800,7 +811,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           user,
           get db() {
             // Built on first use: after a timeout, new queries fail with IL2007 instead of running.
-            return (requestDb ??= bindDb(models, guardAdapter(adapter, timeout.signal))) as never;
+            // Tenant-scoped tables are filtered by the signed-in user's tenant (none without one).
+            return (requestDb ??= bindDb(models, guardAdapter(adapter, timeout.signal), tenantScope(user))) as never;
           },
           // ctx.ai and ctx.audit are built on first use too, so routes that do not use them pay nothing.
           get ai() {

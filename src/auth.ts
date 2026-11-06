@@ -12,7 +12,7 @@ import type { AppDb, AppUser } from "./route.ts";
 type Verify = (token: string, ctx: { db: AppDb; req: Request }) => AppUser | null | undefined | Promise<AppUser | null | undefined>;
 
 /** Read "Authorization: Bearer <token>" (or an x-api-key header) and verify it. */
-export function bearer(verify: Verify, options: { roles?: (user: AppUser) => string[]; header?: string } = {}): AuthConfig {
+export function bearer(verify: Verify, options: { roles?: (user: AppUser) => string[]; tenant?: (user: AppUser) => string | null | undefined; header?: string } = {}): AuthConfig {
   return {
     async resolve(req, { db }) {
       let token: string | undefined;
@@ -23,6 +23,7 @@ export function bearer(verify: Verify, options: { roles?: (user: AppUser) => str
       return (await verify(token, { db, req })) ?? null;
     },
     roles: options.roles,
+    tenant: options.tenant,
   };
 }
 

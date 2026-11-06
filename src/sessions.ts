@@ -53,6 +53,8 @@ export interface SessionsOptions {
   cookie?: SessionCookieOptions;
   /** Roles of a user, checked when a route uses auth: "<role>". Default: user.roles ?? []. */
   roles?: (user: AppUser) => string[];
+  /** The tenant of a user, for tenant-scoped models. Default: user.tenantId. */
+  tenant?: (user: AppUser) => string | null | undefined;
 }
 
 /** What session.signIn and session.signOut need from the route context. */
@@ -149,6 +151,7 @@ export function sessions(options: SessionsOptions): Sessions {
       return (await options.user(current.data, { db, req })) ?? null;
     },
     roles: options.roles,
+    tenant: options.tenant,
     async signIn(ctx, userId) {
       if (typeof userId !== "string" || !userId) throw new InferloError("IL6029", "session.signIn(ctx, userId) needs the user's id as a non-empty string.", { fix: "Call it after checking the password: await session.signIn(ctx, user.id)." });
       if (!ctx || typeof ctx.header !== "function" || !(ctx.url instanceof URL)) throw new InferloError("IL6029", "session.signIn(ctx, userId) needs the route context.", { fix: "Pass the handler's context: route.post(\"/login\", ...).handle(async (ctx) => { await session.signIn(ctx, user.id) })." });

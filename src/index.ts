@@ -22,7 +22,7 @@ export { t, Schema, ObjectSchema, ArraySchema, RefSchema, ValidationError, toJSO
 export type { Infer, InferInput, Issue, JSONSchema, ParseResult, Shape, AnySchema } from "./schema.ts";
 
 export { model, Model, columnName } from "./model.ts";
-export type { Row, CreateInput, UpdateInput, AnyModel } from "./model.ts";
+export type { Row, CreateInput, UpdateInput, AnyModel, ModelOptions } from "./model.ts";
 
 export { memory } from "./db/memory.ts";
 export { createDb, Table } from "./db/table.ts";

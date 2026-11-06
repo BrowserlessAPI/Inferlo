@@ -229,3 +229,5 @@ These use Web Crypto, so they run on Node, Bun, Deno and edge runtimes.
 ## The user type
 
 Declare your user type once (see [database](database.md#register-your-models-once)) and `ctx.user` is typed in every handler.
+
+In multi-tenant apps, give the user a `tenantId` (or pass `tenant: (user) => user.orgId` to `bearer`, `sessions` or `auth`): `ctx.db` then filters and stamps tenant-scoped models with it. See [multi-tenancy](database.md#multi-tenancy).

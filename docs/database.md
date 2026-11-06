@@ -114,6 +114,44 @@ export const listTickets = route
 - **Cursors** are opaque strings. Pass them back unchanged with the same `orderBy`. A cursor that was changed, is not from `paginate`, or was made for another order raises IL4024 with status 400, so a bad `?cursor=` from a client is a 400 response. Cursors are not secret: they contain the last row's id and order value, and `where` still applies to every page.
 - For numbered pages ("page 3 of 12"), use `findMany({ limit, offset })` with `count(where)`.
 
+## Multi-tenancy
+
+In an app used by many organisations (workspaces, customers), a table whose rows belong to one organisation is **tenant-scoped**: pass `{ tenant: true }` as the third argument of `model`.
+
+```ts
+export const Project = model("projects", { name: t.string().max(100), slug: t.string().unique() }, { tenant: true });
+```
+
+Every row then has a `tenantId` (column `tenant_id`, indexed), and `ctx.db` in routes works only with the signed-in user's tenant:
+
+- **Reads** (`find`, `get`, `findOne`, `findMany`, `paginate`, `count`) only see the tenant's rows. Another tenant's id is "not found" (404 with `get`).
+- **Inserts** are stamped with the tenant. `tenantId` is never accepted as input (422), so a client cannot choose it.
+- **Updates and deletes** (by id or with a `where`) only touch the tenant's rows.
+- **Unique fields are unique per tenant**: two organisations can both have the slug `support` (the Postgres index is `(tenant_id, slug)`).
+- **References stay in the tenant**: a `t.ref` field pointing at another tenant-scoped table must name a row of the same tenant (422 otherwise), and `include` loads only the tenant's rows.
+- `$transaction` keeps the tenant. Tables that are not tenant-scoped (users, plans) work as before.
+
+There is no filter to forget: handlers write `db.projects.findMany()` and get only their organisation's projects.
+
+**Where the tenant comes from.** By default it is `user.tenantId`, the user object your auth returns. Name another field with the `tenant` option of `bearer`, `sessions` or `auth`:
+
+```ts
+auth: bearer(verifyKey, { tenant: (user) => user.orgId }),
+```
+
+A tenant id is a non-empty string of at most 200 characters; anything else raises IL4027. A request without a user, or with a user who has no tenant (`null` or `undefined`), cannot use tenant-scoped tables: the call raises IL4027 (a 500, because the route should not reach it), and other tables work.
+
+**Outside requests** (`app.db`, jobs, scripts, tests, the `db` passed to `auth.resolve`) there is no current tenant, so tenant-scoped tables raise IL4027 until you say which tenant:
+
+```ts
+await app.db.$tenant("acme").projects.insert({ name: "Apollo", slug: "apollo" });
+const all = await app.db.$allTenants().projects.findMany(); // reports and admin tools: every tenant's rows
+```
+
+`$allTenants()` reads, updates and deletes across tenants and cannot insert (a new row needs `$tenant(id)`). `db.$tenantId` is the client's tenant id, `"all"`, or `null`.
+
+Adding `{ tenant: true }` to a table that already has rows adds a required `tenant_id` column and changes its unique indexes: write that migration yourself (add the column, fill it in, then make it `NOT NULL`).
+
 ## Adapters
 
 ```ts

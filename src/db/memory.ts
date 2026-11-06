@@ -65,7 +65,8 @@ export function memory(): Adapter {
   const checkUnique = (model: AnyModel, candidate: DbRecord, ignoreId?: unknown) => {
     for (const [field, schema] of Object.entries(model.fields as Record<string, { def: { unique?: boolean } }>)) {
       if (!schema.def.unique || candidate[field] == null) continue;
-      const clash = rowsOf(model).find((r) => r.id !== ignoreId && compare(r[field], candidate[field]) === 0);
+      // Unique per tenant on tenant-scoped models, as the Postgres index (tenant_id, column).
+      const clash = rowsOf(model).find((r) => r.id !== ignoreId && compare(r[field], candidate[field]) === 0 && (!model.tenant || r.tenantId === candidate.tenantId));
       if (clash) {
         throw new InferloError("IL4004", `A ${model.name} row with this ${field} already exists.`, { status: 409, details: { table: model.name, field } });
       }

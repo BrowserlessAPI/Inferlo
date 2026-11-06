@@ -117,8 +117,10 @@ export function modelIndexes(model: AnyModel): [name: string, sql: string][] {
   for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
     const col = columnName(field);
     if (schema.def.unique) {
+      // Unique per tenant on tenant-scoped models: two tenants may both have the slug "support".
       const name = `${model.name}_${col}_key`;
-      out.push([name, `CREATE UNIQUE INDEX IF NOT EXISTS ${q(name)} ON ${q(model.name)} (${q(col)})`]);
+      const cols = model.tenant ? `${q("tenant_id")}, ${q(col)}` : q(col);
+      out.push([name, `CREATE UNIQUE INDEX IF NOT EXISTS ${q(name)} ON ${q(model.name)} (${cols})`]);
     } else if (schema.def.index || schema.def.kind === "ref") {
       const name = `${model.name}_${col}_idx`;
       out.push([name, `CREATE INDEX IF NOT EXISTS ${q(name)} ON ${q(model.name)} (${q(col)})`]);
