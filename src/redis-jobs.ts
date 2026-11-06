@@ -139,6 +139,7 @@ function fromHash(id: string, h: Record<string, string>): JobRecord {
     record.trace = { traceparent: h.traceparent };
     if (h.tracestate !== undefined) record.trace.tracestate = h.tracestate;
   }
+  if (h.tenant_id !== undefined) record.tenantId = h.tenant_id;
   return record;
 }
 
@@ -163,6 +164,7 @@ export function redisJobStore(client: RedisClient, prefix: string, options: { st
       if (r.lastError !== undefined) pairs.push("last_error", r.lastError);
       if (r.trace?.traceparent) pairs.push("traceparent", r.trace.traceparent);
       if (r.trace?.tracestate) pairs.push("tracestate", r.trace.tracestate);
+      if (r.tenantId) pairs.push("tenant_id", r.tenantId);
       await client.sendCommand(["EVAL", ADD, "2", jobPrefix + r.id, duePrefix + r.name, r.id, String(r.runAt.getTime()), r.status, ...pairs]);
     },
     async claim(now, limit, names) {

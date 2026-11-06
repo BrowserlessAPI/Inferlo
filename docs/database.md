@@ -141,7 +141,9 @@ auth: bearer(verifyKey, { tenant: (user) => user.orgId }),
 
 A tenant id is a non-empty string of at most 200 characters; anything else raises IL4027. A request without a user, or with a user who has no tenant (`null` or `undefined`), cannot use tenant-scoped tables: the call raises IL4027 (a 500, because the route should not reach it), and other tables work.
 
-**Outside requests** (`app.db`, jobs, scripts, tests, the `db` passed to `auth.resolve`) there is no current tenant, so tenant-scoped tables raise IL4027 until you say which tenant:
+**Jobs** get the tenant of the request (or job) that queued them, also through events: their `ctx.db` is scoped to it, so a job queued from a route needs no tenant id in its input (see [jobs](jobs.md#enqueue)). `app.jobs.enqueue(job, input, { tenantId })` and `app.events.publish(event, payload, { tenantId })` set it elsewhere.
+
+**Outside requests and jobs** (`app.db`, scripts, tests, the `db` passed to `auth.resolve`) there is no current tenant, so tenant-scoped tables raise IL4027 until you say which tenant:
 
 ```ts
 await app.db.$tenant("acme").projects.insert({ name: "Apollo", slug: "apollo" });

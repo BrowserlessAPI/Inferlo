@@ -124,7 +124,7 @@ async function cmdDescribe(args: Args) {
     }
     lines.push("", "Models");
     for (const m of d.models) {
-      lines.push(`  ${m.name}${m.module ? `  [${m.module}]` : ""}`);
+      lines.push(`  ${m.name}${m.module ? `  [${m.module}]` : ""}${m.tenant ? "  (tenant-scoped)" : ""}`);
       for (const [k, f] of Object.entries<any>(m.fields)) {
         const extra = [f.required ? "required" : "", f.unique ? "unique" : "", f.references ? `-> ${f.references}` : "", f.values ? f.values.join("|") : ""].filter(Boolean).join(", ");
         lines.push(`    ${k.padEnd(16)} ${f.type}${extra ? `  (${extra})` : ""}`);

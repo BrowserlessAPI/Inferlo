@@ -19,8 +19,8 @@ import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimit
 import { clientIp, clientIps, clientSignals, keepEventStreamOpen, platformWaitUntil } from "./client-ip.ts";
 import { redisJobStore } from "./redis-jobs.ts";
 import { knownBodies } from "./response-body.ts";
-import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
-import { checkEventsConfig, invalidTransport, type AppEvents, type EventsConfig, type EventTransport } from "./events.ts";
+import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFor, stopWorkers, withTenant, type AppJobs, type Jobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
+import { checkEventsConfig, invalidTransport, type AppEvents, type Events, type EventsConfig, type EventTransport } from "./events.ts";
 import { redisEventTransport } from "./redis-events.ts";
 import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
@@ -725,11 +725,19 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       let combined: AbortSignal | undefined;
       const signal = () => (combined ??= AbortSignal.any([clientSignals.get(req) ?? req.signal, timeout.signal]));
       let requestDb: Db<Models> | undefined;
+      let queues: { jobs: Jobs; events: Events } | undefined;
+      let requestUser: AppUser | null = null;
+      const tenantQueues = () => {
+        if (queues) return queues;
+        const scope = tenantScope(requestUser);
+        return (queues = typeof scope === "object" ? withTenant({ jobs, events }, scope.tenant) : { jobs, events });
+      };
       const run = async (): Promise<Response> => {
         // Auth
         let user: AppUser | null = null;
         if (testUsers.has(req)) user = testUsers.get(req) ?? null;
         else if (config.auth) user = (await config.auth.resolve(req, { db: db as never, url })) ?? null;
+        requestUser = user;
         const level = opts.auth ?? "user";
         if (level !== "public") {
           if (!user) throw new InferloError("IL3001", "Sign in required.", { status: 401, fix: "Send valid credentials, e.g. an Authorization: Bearer <token> header." });
@@ -824,8 +832,13 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             return signal();
           },
           requestId,
-          jobs,
-          events,
+          // With a tenant, jobs and events queued by the request carry it.
+          get jobs() {
+            return tenantQueues().jobs;
+          },
+          get events() {
+            return tenantQueues().events;
+          },
           cache,
           req,
           url,

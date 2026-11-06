@@ -14,6 +14,7 @@ import type { AI } from "./ai/index.ts";
 import type { Audit } from "./audit.ts";
 import type { Cache } from "./cache.ts";
 import { cronTickId, isCron, type CronDef } from "./cron.ts";
+import { checkTenantId, type DbHelpers } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
 import { createEvents, isOn, type AppEvents, type EventTransport, type Events, type OnDef } from "./events.ts";
@@ -46,6 +47,11 @@ export interface JobContext<Input> {
   /** 1 on the first run, 2 on the first retry, and so on. */
   attempt: number;
   /**
+   * The tenant the job works for (the tenant of the request or job that queued it, or enqueue's tenantId), or null.
+   * ctx.db is scoped to it, and jobs and events queued from this job keep it.
+   */
+  tenantId: string | null;
+  /**
    * Write an audit log entry (needs AuditLog in createApp({ models })). Jobs have no signed-in user: pass the
    * userId of the user who asked for the work, or leave it out for work the system does on its own.
    */
@@ -67,6 +73,11 @@ export type JobInput<J> = J extends JobDef<infer I, any> ? I : never;
 export interface EnqueueOptions {
   /** Run no earlier than this time. Default: now. */
   runAt?: Date;
+  /**
+   * The tenant the job works for: its ctx.db is scoped to it (tenant-scoped models). Default: the tenant of the
+   * request or job that enqueues it, none from app.jobs. Pass null to queue it without a tenant.
+   */
+  tenantId?: string | null;
 }
 
 export type JobStatus = "pending" | "running" | "done" | "failed";
@@ -87,6 +98,8 @@ export interface JobRecord {
   lastError?: string;
   /** With createApp({ tracing }): the trace (W3C traceparent and tracestate) of the request or job that enqueued it, which its runs continue. */
   trace?: JobTraceContext;
+  /** The tenant the job works for (multi-tenancy): its ctx.db is scoped to it. */
+  tenantId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -287,7 +300,7 @@ export const STALE_AFTER_MS = 5 * 60_000;
 export const HEARTBEAT_MS = 30_000;
 export const STOPPED_MESSAGE = "The worker stopped while running this job (the process exited or lost its database connection).";
 
-const JOB_COLUMNS = `"id", "name", "input", "status", "attempts", "max_attempts", "run_at", "last_error", "created_at", "updated_at", "traceparent", "tracestate"`;
+const JOB_COLUMNS = `"id", "name", "input", "status", "attempts", "max_attempts", "run_at", "last_error", "created_at", "updated_at", "traceparent", "tracestate", "tenant_id"`;
 
 function fromRow(row: Record<string, unknown>): JobRecord {
   const record: JobRecord = {
@@ -306,6 +319,7 @@ function fromRow(row: Record<string, unknown>): JobRecord {
     record.trace = { traceparent: row.traceparent };
     if (typeof row.tracestate === "string") record.trace.tracestate = row.tracestate;
   }
+  if (typeof row.tenant_id === "string") record.tenantId = row.tenant_id;
   return record;
 }
 
@@ -330,10 +344,10 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
           "id" uuid PRIMARY KEY, "name" text NOT NULL, "input" jsonb NOT NULL, "status" text NOT NULL,
           "attempts" integer NOT NULL, "max_attempts" integer NOT NULL, "run_at" timestamptz NOT NULL,
           "last_error" text, "created_at" timestamptz NOT NULL, "updated_at" timestamptz NOT NULL,
-          "traceparent" text, "tracestate" text)`,
+          "traceparent" text, "tracestate" text, "tenant_id" text)`,
       );
-      // Tables created by Inferlo 0.5 and earlier get the trace columns.
-      await sql('ALTER TABLE "inferlo_jobs" ADD COLUMN IF NOT EXISTS "traceparent" text, ADD COLUMN IF NOT EXISTS "tracestate" text');
+      // Tables created by earlier versions get the trace (Inferlo 0.6) and tenant (0.7) columns.
+      await sql('ALTER TABLE "inferlo_jobs" ADD COLUMN IF NOT EXISTS "traceparent" text, ADD COLUMN IF NOT EXISTS "tracestate" text, ADD COLUMN IF NOT EXISTS "tenant_id" text');
       await sql('CREATE INDEX IF NOT EXISTS "inferlo_jobs_due_idx" ON "inferlo_jobs" ("status", "run_at")');
     } catch {
       // Two instances creating the table at the same moment: the other one won.
@@ -350,8 +364,8 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
   return {
     async add(r) {
       await table();
-      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT ("id") DO NOTHING`, [
-        r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt, r.trace?.traceparent ?? null, r.trace?.tracestate ?? null,
+      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT ("id") DO NOTHING`, [
+        r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt, r.trace?.traceparent ?? null, r.trace?.tracestate ?? null, r.tenantId ?? null,
       ]);
     },
     async claim(now, limit, names) {
@@ -489,10 +503,11 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
   };
 
   const events = createEvents(subscriptions, {
-    async enqueue(def, input, id, from) {
+    async enqueue(def, input, id, from, tenantId) {
       const queued = record(registered(def), input, undefined, id);
       const trace = from ?? runtime.tracing?.capture();
       if (runtime.tracing && trace?.traceparent) queued.trace = trace;
+      if (tenantId) queued.tenantId = tenantId;
       await runtime.store.add(queued);
       return id;
     },
@@ -512,9 +527,11 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
       if (options.runAt !== undefined && (!(options.runAt instanceof Date) || Number.isNaN(options.runAt.getTime()))) {
         throw new InferloError("IL6009", `runAt for job "${def.name}" must be a valid Date.`, { fix: "Pass runAt: new Date(Date.now() + 60_000) or leave it out to run now." });
       }
+      const tenantId = options.tenantId === undefined || options.tenantId === null ? undefined : checkTenantId(options.tenantId);
       const queued = record(def, input, options.runAt, crypto.randomUUID());
       const trace = runtime.tracing?.capture();
       if (trace?.traceparent) queued.trace = trace;
+      if (tenantId) queued.tenantId = tenantId;
       await runtime.store.add(queued);
       return queued;
     },
@@ -587,7 +604,10 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
     const heartbeat = touch ? setInterval(() => void touch(record.id).catch(() => {}), runtime.heartbeatMs ?? HEARTBEAT_MS) : undefined;
     try {
       if (!def) throw new InferloError("IL6010", `"${record.name}" is not a registered job.`, { fix: "Add the job to createApp({ jobs: [...] }) in the process that runs jobs." });
-      await def.handler({ input: parse(def, record.input), db: runtime.db, ai: runtime.ai, jobs, events, cache: runtime.cache, id: record.id, attempt: record.attempts, audit: runtime.audit({ name: record.name, id: record.id }) });
+      const tenantId = record.tenantId ?? null;
+      const scoped = tenantId ? withTenant({ jobs, events }, tenantId) : { jobs, events };
+      const db = tenantId ? ((runtime.db as unknown as DbHelpers).$tenant(tenantId) as unknown as AppDb) : runtime.db;
+      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id }) });
       await runtime.store.update(record.id, { status: "done" });
       return "done";
     } catch (error) {
@@ -607,4 +627,15 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
   }
 
   return jobs;
+}
+
+/**
+ * ctx.jobs and ctx.events for one tenant: jobs and events queued through them carry the tenant unless the call
+ * names another (tenantId) or none (null). Internal: used for requests and jobs with a tenant.
+ */
+export function withTenant(base: { jobs: Jobs; events: Events }, tenantId: string): { jobs: Jobs; events: Events } {
+  return {
+    jobs: { enqueue: (job, input, options = {}) => base.jobs.enqueue(job, input, { ...options, tenantId: options.tenantId === undefined ? tenantId : options.tenantId }) },
+    events: { publish: (event, payload, options = {}) => base.events.publish(event, payload, { ...options, tenantId: options.tenantId === undefined ? tenantId : options.tenantId }) },
+  };
 }

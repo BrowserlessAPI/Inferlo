@@ -576,7 +576,9 @@ auth: bearer(verifyKey, { tenant: (user) => user.orgId }),
 
 A tenant id is a non-empty string of at most 200 characters; anything else raises IL4027. A request without a user, or with a user who has no tenant (`null` or `undefined`), cannot use tenant-scoped tables: the call raises IL4027 (a 500, because the route should not reach it), and other tables work.
 
-**Outside requests** (`app.db`, jobs, scripts, tests, the `db` passed to `auth.resolve`) there is no current tenant, so tenant-scoped tables raise IL4027 until you say which tenant:
+**Jobs** get the tenant of the request (or job) that queued them, also through events: their `ctx.db` is scoped to it, so a job queued from a route needs no tenant id in its input (see [jobs](jobs.md#enqueue)). `app.jobs.enqueue(job, input, { tenantId })` and `app.events.publish(event, payload, { tenantId })` set it elsewhere.
+
+**Outside requests and jobs** (`app.db`, scripts, tests, the `db` passed to `auth.resolve`) there is no current tenant, so tenant-scoped tables raise IL4027 until you say which tenant:
 
 ```ts
 await app.db.$tenant("acme").projects.insert({ name: "Apollo", slug: "apollo" });
@@ -1387,11 +1389,12 @@ Anywhere else, with `app.jobs.enqueue(job, input)`.
 - Pass the job itself, not its name, so the input is typed and checked by TypeScript.
 - The input is validated against the job's schema when it is enqueued (IL1001 if it does not match) and again when the job runs. It is stored as JSON, so pass ids, not rows: dates arrive as ISO strings and `t.date()` turns them back into `Date`.
 - `enqueue(job, input, { runAt: new Date(Date.now() + 60_000) })` runs the job no earlier than `runAt`.
-- `enqueue` returns the job record: `{ id, name, input, status, attempts, maxAttempts, runAt, lastError?, createdAt, updatedAt }`. `app.jobs.get(id)` reads it again. `status` is `"pending"`, `"running"`, `"done"` or `"failed"`.
+- **Tenants** (multi-tenant apps, see [multi-tenancy](database.md#multi-tenancy)): a job queued by a request whose user has a tenant gets that tenant, and so do the jobs of events it publishes and the follow-ups a job queues. The job's `ctx.db` is scoped to it and `ctx.tenantId` names it. From `app.jobs`, pass it: `enqueue(job, input, { tenantId: "acme" })`; `{ tenantId: null }` queues a job without a tenant. The tenant is stored with the job in every store (`memory`, `database`, `redis`) and travels with events between services.
+- `enqueue` returns the job record: `{ id, name, input, status, attempts, maxAttempts, runAt, lastError?, tenantId?, createdAt, updatedAt }`. `app.jobs.get(id)` reads it again. `status` is `"pending"`, `"running"`, `"done"` or `"failed"`.
 
 ## Handlers
 
-The handler receives `{ input, db, ai, jobs, cache, audit, id, attempt }` (`cache` is the app cache, see [Caching](caching.md)). `attempt` is 1 on the first run. `jobs.enqueue` inside a job queues follow-up jobs. There is no signed-in user: pass the user id in the input and use `for: userId` on AI calls. `ai.generate({ tools })` only works in route handlers (IL5009).
+The handler receives `{ input, db, ai, jobs, events, cache, audit, id, attempt, tenantId }` (`cache` is the app cache, see [Caching](caching.md)). `attempt` is 1 on the first run. `jobs.enqueue` inside a job queues follow-up jobs. There is no signed-in user: pass the user id in the input and use `for: userId` on AI calls. `ai.generate({ tools })` only works in route handlers (IL5009).
 
 Throw to fail an attempt. A failed job runs again after 10 seconds, then 20, 40, and so on (at most one hour between attempts), until its retries are used up; then its status is `"failed"` and the error is logged. `lastError` holds the last error message. Make handlers safe to run twice: a retry runs the whole handler again.
 

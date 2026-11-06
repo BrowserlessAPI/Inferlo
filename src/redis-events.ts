@@ -104,6 +104,7 @@ export function redisEventTransport(client: RedisClient, options: RedisEventTran
       payload: value,
       publishedAt: Number.isNaN(at.getTime()) ? new Date() : at,
       ...(traceparent ? { trace: { traceparent, ...(tracestate ? { tracestate } : {}) } } : {}),
+      ...(fields.get("tenantId") ? { tenantId: fields.get("tenantId") } : {}),
     };
   };
 
@@ -127,6 +128,7 @@ export function redisEventTransport(client: RedisClient, options: RedisEventTran
       const fields = ["id", message.id, "payload", JSON.stringify(message.payload ?? null), "publishedAt", message.publishedAt.toISOString()];
       if (message.trace?.traceparent) fields.push("traceparent", message.trace.traceparent);
       if (message.trace?.tracestate) fields.push("tracestate", message.trace.tracestate);
+      if (message.tenantId) fields.push("tenantId", message.tenantId);
       await client.sendCommand(["XADD", stream(message.name), "MAXLEN", "~", String(maxLength), "*", ...fields]);
     },
 

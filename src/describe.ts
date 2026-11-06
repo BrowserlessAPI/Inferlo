@@ -39,7 +39,8 @@ export interface AppDescription {
   /** Feature modules (createApp({ modules })): what each contains, depends on and offers other modules. */
   modules: { name: string; description?: string; imports: string[]; models: string[]; routes: string[]; jobs: string[]; provides: string[] }[];
   /** module: the feature module that owns the model, when it is in one. */
-  models: { name: string; module?: string; fields: Record<string, FieldDescription> }[];
+  /** tenant: true for tenant-scoped models (model(name, fields, { tenant: true })), whose rows ctx.db filters by the current tenant. */
+  models: { name: string; module?: string; tenant?: true; fields: Record<string, FieldDescription> }[];
   /** API versions from apiVersion("v1", routes), oldest first, with the path of each version's OpenAPI document. */
   versions: { name: string; openapi: string | false }[];
   /** Named permissions from createApp({ permissions }), with the roles of roles rules. */
@@ -125,9 +126,10 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       jobs: app.jobs.list.filter((j) => info.jobModule.get(j.name) === m.name).map((j) => j.name),
       provides: Object.keys(m.provides),
     })),
-    models: app.models.map((m: { name: string; fields: Record<string, AnySchema> }) => ({
+    models: app.models.map((m: { name: string; tenant?: boolean; fields: Record<string, AnySchema> }) => ({
       name: m.name,
       ...(info.modelOwner.has(m.name) ? { module: info.modelOwner.get(m.name) } : {}),
+      ...(m.tenant ? { tenant: true as const } : {}),
       fields: Object.fromEntries([
         ["id", { type: "uuid", required: false, nullable: false, column: "id", description: "Set automatically" }],
         ...Object.entries(m.fields).map(([k, s]) => [k, field(k, s)]),

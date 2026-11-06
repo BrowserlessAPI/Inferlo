@@ -11,6 +11,7 @@
  * retries, the memory, database and Redis stores, the worker and tracing work as for any job. The queued jobs get
  * ids derived from the event id, so publishing the same event id again (a repeated delivery) queues nothing new.
  */
+import { checkTenantId } from "./db/table.ts";
 import { InferloError } from "./errors.ts";
 import type { JobDef, JobInput } from "./jobs.ts";
 import { ValidationError, type AnySchema, type Infer, type InferInput } from "./schema.ts";
@@ -49,6 +50,11 @@ export interface OnDef<E extends EventDef = EventDef, J extends JobDef = JobDef>
 export interface PublishOptions {
   /** The event id. Default: a new UUID. Publishing the same id again queues no job twice (for outboxes and redelivery). */
   id?: string;
+  /**
+   * The tenant the event belongs to: the subscribed jobs get it (their ctx.db is scoped to it). Default: the tenant
+   * of the request or job that publishes it, none from app.events. Pass null to publish it without a tenant.
+   */
+  tenantId?: string | null;
 }
 
 export interface PublishedEvent {
@@ -93,6 +99,8 @@ export interface EventMessage {
   publishedAt: Date;
   /** With createApp({ tracing }): the trace the event was published in, which the subscribed jobs continue. */
   trace?: JobTraceContext;
+  /** The tenant the event belongs to (multi-tenancy), which the subscribed jobs get. */
+  tenantId?: string;
 }
 
 /**
@@ -204,7 +212,7 @@ export async function eventJobId(eventId: string, jobName: string): Promise<stri
 
 export interface EventsRuntime {
   /** Queue one job with a fixed id (returning its id), continuing the given trace or the active one. */
-  enqueue(job: JobDef, input: unknown, id: string, trace?: JobTraceContext): Promise<string>;
+  enqueue(job: JobDef, input: unknown, id: string, trace?: JobTraceContext, tenantId?: string): Promise<string>;
   transport?: EventTransport;
   /** The active trace when an event is published, sent with it. */
   capture?(): JobTraceContext | undefined;
@@ -249,11 +257,11 @@ export function createEvents(subscriptions: readonly OnDef[], runtime: EventsRun
     return Object.fromEntries(keys.filter((k) => k in payload).map((k) => [k, (payload as Record<string, unknown>)[k]]));
   };
   /** Queue the jobs subscribed to one event in this app. */
-  const queueJobs = async (name: string, id: string, payload: unknown, trace?: JobTraceContext): Promise<string[]> => {
+  const queueJobs = async (name: string, id: string, payload: unknown, trace?: JobTraceContext, tenantId?: string): Promise<string[]> => {
     const jobs: string[] = [];
     for (const s of subscriptions) {
       if (s.event.name !== name) continue;
-      jobs.push(await enqueue(s.job, inputFor(s, payload), await eventJobId(id, s.job.name), trace));
+      jobs.push(await enqueue(s.job, inputFor(s, payload), await eventJobId(id, s.job.name), trace, tenantId));
     }
     return jobs;
   };
@@ -271,7 +279,9 @@ export function createEvents(subscriptions: readonly OnDef[], runtime: EventsRun
       runtime.logger?.error(`event "${message.name}" dropped`, error);
       return;
     }
-    await queueJobs(message.name, message.id, parsed.value, message.trace);
+    // A tenant id that is not valid is dropped rather than trusted: the jobs then run without a tenant.
+    const tenantId = typeof message.tenantId === "string" && message.tenantId.length > 0 && message.tenantId.length <= 200 ? message.tenantId : undefined;
+    await queueJobs(message.name, message.id, parsed.value, message.trace, tenantId);
   };
 
   return {
@@ -287,6 +297,7 @@ export function createEvents(subscriptions: readonly OnDef[], runtime: EventsRun
       if (options.id !== undefined && (typeof options.id !== "string" || options.id.length === 0 || options.id.length > 200)) {
         throw invalid(`The id for event "${def.name}" must be a non-empty string of at most 200 characters.`, "Leave it out for a new UUID, or pass the id of the record the event comes from (an outbox row).");
       }
+      const tenantId = options.tenantId === undefined || options.tenantId === null ? undefined : checkTenantId(options.tenantId);
       const parsed = def.payload.safeParse(payload);
       if (!parsed.ok) throw new ValidationError(parsed.issues, `payload for event "${def.name}"`);
       const id = options.id ?? crypto.randomUUID();
@@ -295,12 +306,12 @@ export function createEvents(subscriptions: readonly OnDef[], runtime: EventsRun
         // Every service (this one too) queues its jobs when it receives the event; their ids are known already.
         const trace = runtime.capture?.();
         const json = JSON.parse(JSON.stringify(parsed.value ?? null)) as unknown;
-        await transport.send({ id, name: def.name, payload: json, publishedAt, ...(trace?.traceparent ? { trace } : {}) });
+        await transport.send({ id, name: def.name, payload: json, publishedAt, ...(trace?.traceparent ? { trace } : {}), ...(tenantId ? { tenantId } : {}) });
         const jobs: string[] = [];
         for (const s of subscriptions) if (s.event.name === def.name) jobs.push(await eventJobId(id, s.job.name));
         return { id, name: def.name, publishedAt, jobs };
       }
-      return { id, name: def.name, publishedAt, jobs: await queueJobs(def.name, id, parsed.value) };
+      return { id, name: def.name, publishedAt, jobs: await queueJobs(def.name, id, parsed.value, undefined, tenantId) };
     },
   };
 }

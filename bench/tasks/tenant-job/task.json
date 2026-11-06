@@ -1,0 +1,4 @@
+{
+  "title": "Background job for a tenant-scoped model",
+  "prompt": "Projects belong to the user's organisation (a tenant-scoped model). Renaming a project must happen in a background job, not during the request. Create src/jobs.ts with a job named \"rename-project\" whose input is { projectId (uuid), name (string, 1 to 100 characters) } and that renames that project. Register the jobs module in src/app.ts. Add `export const renameProject` to src/routes/projects.ts: POST /projects/:id/rename with body { name }, which queues the job and answers 202 with { queued: true }. A user must never be able to rename a project of another organisation."
+}
