@@ -1,0 +1,4 @@
+{
+  "title": "Broadcast to WebSocket rooms",
+  "prompt": "Add live announcements. Create src/routes/live.ts with two exports. `export const watch`: a WebSocket route at /live for signed-in users; each message is { room } (a string of 1 to 100 characters); the socket joins that room and gets { watching: room } back. `export const announce`: POST /announcements for admins only, with the body { room, text } (room 1 to 100 characters, text 1 to 500), that sends { type: \"announcement\", text } to every socket that joined the room and answers { sent: true }. Register the routes module in src/app.ts."
+}

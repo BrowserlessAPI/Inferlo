@@ -19,6 +19,7 @@ import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
 import { createEvents, isOn, type AppEvents, type EventTransport, type Events, type OnDef } from "./events.ts";
 import type { AppDb } from "./route.ts";
+import { createSocketHub, type SocketHub, type Sockets } from "./sockets.ts";
 import { ValidationError, type AnySchema, type Infer, type InferInput } from "./schema.ts";
 import type { JobTraceContext, JobTracing } from "./tracing.ts";
 
@@ -42,6 +43,8 @@ export interface JobContext<Input> {
   events: Events;
   /** The app cache, the same as ctx.cache in routes and app.cache. */
   cache: Cache;
+  /** Send to WebSocket rooms of this process (the job's tenant's rooms with a tenant): await sockets.broadcast(room, data). */
+  sockets: Sockets;
   /** Job id. */
   id: string;
   /** 1 on the first run, 2 on the first retry, and so on. */
@@ -417,6 +420,9 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
  * Pick the job store for createApp({ jobQueue }). Raises IL6011 for an unknown store, IL6012 for "database" without
  * Postgres. "redis" uses the redis option, a function that returns the Redis store (or throws IL6031 without a client).
  */
+/** Rooms for createJobs runtimes without WebSockets: broadcasts reach no one. */
+const noSockets = createSocketHub();
+
 export function jobStoreFor(config: JobQueueConfig | undefined, adapter: Adapter, redis?: () => JobStore): JobStore {
   const store = config?.store ?? "memory";
   if (store === "memory") return memoryJobStore();
@@ -429,6 +435,8 @@ export interface JobRuntime {
   db: AppDb;
   ai: AI;
   cache: Cache;
+  /** WebSocket rooms (app.sockets). */
+  sockets?: SocketHub;
   /** Builds ctx.audit for one run. */
   audit(job: { name: string; id: string; tenantId: string | null }): Audit;
   store: JobStore;
@@ -607,7 +615,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
       const tenantId = record.tenantId ?? null;
       const scoped = tenantId ? withTenant({ jobs, events }, tenantId) : { jobs, events };
       const db = tenantId ? ((runtime.db as unknown as DbHelpers).$tenant(tenantId) as unknown as AppDb) : runtime.db;
-      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id, tenantId }) });
+      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, sockets: (runtime.sockets ?? noSockets).forTenant(tenantId), id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id, tenantId }) });
       await runtime.store.update(record.id, { status: "done" });
       return "done";
     } catch (error) {

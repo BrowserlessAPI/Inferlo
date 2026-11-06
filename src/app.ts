@@ -14,6 +14,7 @@ import { callTool, handleMcp, toolDefinition } from "./mcp.ts";
 import type { AnyModel } from "./model.ts";
 import { buildOpenAPI } from "./openapi.ts";
 import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef, type Socket } from "./route.ts";
+import { createSocketHub, type AppSockets } from "./sockets.ts";
 import { bunUpgrader, denoUpgrader, upgraders, upgrades, validKey, type SocketListener, type SocketTransport } from "./websocket.ts";
 import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
@@ -251,6 +252,8 @@ export interface App<Models extends readonly AnyModel[]> {
   readonly events: AppEvents;
   /** The app cache, the same as ctx.cache: await app.cache.getOrSet(key, { ttlMs, tags }, compute), app.cache.invalidate(tag). */
   readonly cache: Cache;
+  /** WebSocket rooms: await app.sockets.broadcast(room, data, { tenantId }) sends to the sockets that joined it in this process. */
+  readonly sockets: AppSockets;
   /** Standard fetch handler: export default app works on Bun, Deno and Cloudflare Workers. */
   fetch(req: Request, ...rest: unknown[]): Promise<Response>;
   /** In-process request for tests: await app.request("/tickets", { method: "POST", json: {...}, as: user }). */
@@ -524,12 +527,14 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     if (!config.name) throw invalidTransport('events transport "redis" needs createApp({ name }): each service reads events as its own consumer group, named after the app.');
     eventTransport = redisEventTransport(redis, { group: config.name });
   } else eventTransport = transportOption;
+  const socketHub = createSocketHub();
   const jobs = createJobs(
     collectJobs(jobSources),
     {
       db: db as never,
       ai,
       cache,
+      sockets: socketHub,
       audit: (run) => createAudit(models, redactor, () => db as never, { userId: null, tenantId: run.tenantId, source: `job ${run.name}` }),
       store: jobStoreFor(config.jobQueue, adapter, () => {
         if (!redis) throw redisMissing("jobQueue");
@@ -718,9 +723,15 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     const opts = def.options as RouteDef["options"] & { message?: AnySchema };
     const closed = new AbortController();
     let open = true;
+    const member = {
+      sendText: (text: string) => {
+        if (open) transport.send(text);
+      },
+    };
     const finish = () => {
       closed.abort();
       sockets.delete(shutdown);
+      socketHub.drop(member);
     };
     const end = (code: number, reason: string) => {
       if (!open) return;
@@ -730,6 +741,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     };
     const shutdown = () => end(1001, "Server shutting down");
     sockets.add(shutdown);
+    socketHub.open(member);
+    const scope = tenantScope(user);
     const socket: Socket = {
       id: crypto.randomUUID(),
       send: (data) => {
@@ -741,6 +754,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         }
         end(code, reason);
       },
+      join: (room) => socketHub.join(member, room, tenantOf(scope)),
+      leave: (room) => socketHub.leave(member, room, tenantOf(scope)),
       stream: async (result) => {
         if (!result || typeof (result as Partial<StreamResult>)[Symbol.asyncIterator] !== "function" || typeof (result as Partial<StreamResult>).usage !== "function") {
           throw new InferloError("IL2013", "socket.stream() takes the result of ai.stream(...).", { fix: 'Pass the stream itself: await socket.stream(ai.stream({ model: "fast", prompt })).' });
@@ -756,8 +771,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         return { text, usage };
       },
     };
-    const scope = tenantScope(user);
     let socketDb: Db<Models> | undefined;
+    let socketRooms: ReturnType<typeof socketHub.forTenant> | undefined;
     let queues: { jobs: Jobs; events: Events } | undefined;
     const tenantQueues = () => (queues ??= typeof scope === "object" ? withTenant({ jobs, events }, scope.tenant) : { jobs, events });
 
@@ -797,6 +812,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             return tenantQueues().events;
           },
           cache,
+          get sockets() {
+            return (socketRooms ??= socketHub.forTenant(tenantOf(scope)));
+          },
           get audit() {
             const value = createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, tenantId: tenantOf(scope), source: `WS ${def.path}`, requestId });
             Object.defineProperty(ctx, "audit", { value, enumerable: true });
@@ -1038,6 +1056,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             return tenantQueues().events;
           },
           cache,
+          get sockets() {
+            return socketHub.forTenant(tenantOf(tenantScope(user)));
+          },
           req,
           url,
           headers: req.headers,
@@ -1221,6 +1242,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     jobs,
     events,
     cache,
+    sockets: { broadcast: socketHub.broadcast, count: socketHub.count },
 
     get closing() {
       return closing;

@@ -18,6 +18,7 @@ import type { Audit } from "./audit.ts";
 import type { Cache, RouteCache } from "./cache.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
+import type { Sockets } from "./sockets.ts";
 import type { AnySchema, Infer, InferInput, ObjectSchema } from "./schema.ts";
 
 /**
@@ -119,6 +120,8 @@ export interface Context<Body, Query, Params, User> {
   events: Events;
   /** The app cache: await cache.getOrSet(key, { ttlMs: 60_000, tags: ["tickets"] }, compute), cache.invalidate("tickets"). */
   cache: Cache;
+  /** Send to WebSocket rooms: await sockets.broadcast(`project:${id}`, data), to the user's tenant's room with a tenant. */
+  sockets: Sockets;
   req: Request;
   url: URL;
   headers: Headers;
@@ -245,6 +248,13 @@ export interface Socket {
   /** Close the connection: code 1000 (normal) by default. */
   close(code?: number, reason?: string): void;
   /**
+   * Join a room, so sockets.broadcast(room, data) reaches this client. Rooms are per tenant: with a signed-in user
+   * who has a tenant, the room is that tenant's. A closed socket leaves every room.
+   */
+  join(room: string): void;
+  /** Leave a room joined with socket.join(room). */
+  leave(room: string): void;
+  /**
    * Stream a model's answer to this client: await socket.stream(ai.stream({ model: "fast", prompt })) sends
    * { type: "text", text } for each chunk as it arrives, then { type: "done", usage }, and resolves with the full
    * text and usage. Streams from ctx.ai stop when the socket closes (ctx.signal).
@@ -265,6 +275,8 @@ export interface SocketContext<Message, Query, Params, User> {
   jobs: Jobs;
   events: Events;
   cache: Cache;
+  /** Send to WebSocket rooms, this client's included when it joined: await sockets.broadcast(room, data). */
+  sockets: Sockets;
   /** Write an audit log entry with the user and this connection's request id. */
   audit: Audit;
   /** Aborted when the socket closes. ctx.ai calls use it automatically. */

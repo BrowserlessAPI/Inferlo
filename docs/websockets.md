@@ -42,6 +42,35 @@ export const assistant = route
 
 The client receives `{ "type": "text", "text": "..." }` for each chunk, then `{ "type": "done", "usage": { ... } }`. When the model call fails, the error message (`{ "error": { "code": "IL5006", ... } }`) follows the chunks already sent. Streams from `ctx.ai` are cancelled when the socket closes (`ctx.signal`), so a client that leaves stops the model call and its cost. `socket.stream` takes only the result of `ai.stream(...)` (IL2013 otherwise).
 
+## Rooms and broadcast
+
+`socket.join(room)` adds a socket to a room, and `sockets.broadcast(room, data)` sends `data` as JSON to every socket in it. `ctx.sockets` is in HTTP routes, WebSocket handlers and jobs, and `app.sockets` everywhere else, so a route that saves a change can tell everyone watching:
+
+```ts
+// src/routes/projects.ts
+export const watch = route
+  .ws("/projects/:id/live", { params: t.object({ id: t.uuid() }), message: t.object({ text: t.string().min(1).max(2000) }) })
+  .handle(async ({ message, params, socket, sockets, user, db }) => {
+    await db.projects.get(params.id); // 404 for a project the user cannot see (ctx.db is tenant-scoped)
+    socket.join(`project:${params.id}`);
+    await sockets.broadcast(`project:${params.id}`, { type: "comment", from: user.id, text: message.text });
+  });
+
+export const update = route
+  .patch("/projects/:id", { params: t.object({ id: t.uuid() }), body: t.object({ name: t.string().max(80) }) })
+  .handle(async ({ params, body, db, sockets }) => {
+    const project = await db.projects.update(params.id, body);
+    await sockets.broadcast(`project:${params.id}`, { type: "project.updated", project });
+    return project;
+  });
+```
+
+- **Rooms are names you choose.** Name them after what they are about, with its id (`project:${id}`), and check that the user may see it before `socket.join`. A room name is a string of 1 to 200 characters (IL2014 otherwise). A socket can join any number of rooms; `socket.leave(room)` leaves one, and a closed socket leaves them all.
+- **Rooms follow the tenant**, like `ctx.db`: a socket opened by a user with a tenant joins that tenant's room, and `ctx.sockets.broadcast` in a request or job with a tenant reaches only that tenant's sockets. `app.sockets.broadcast(room, data, { tenantId })` names the tenant (no tenant by default), and `{ tenantId }` works in `ctx.sockets` too.
+- **The sender is included.** A handler that broadcasts to a room its own socket joined gets the message too, so every client renders from the same messages.
+- **This process only.** Broadcasts reach the sockets open in the process that sends them: one server, or a job run by `app.jobs.start()` in that server. Across instances, and from `inferlo worker`, they arrive with the Redis transport (next release). `app.sockets.count()` and `app.sockets.count(room, { tenantId })` count the open sockets of this process.
+- `broadcast` needs data that can be sent as JSON (IL2014 for `undefined`) and resolves once the message is sent.
+
 ## Connecting
 
 The request that opens the socket goes through the same steps as an HTTP request, before the upgrade: middleware, `auth.resolve`, the route's `auth` and `permission`, `rateLimit`, and the `params` and `query` schemas. A client that fails one of them gets the HTTP error answer (401, 403, 422, 429) and no socket.
@@ -60,7 +89,8 @@ The handler runs once per message with:
 | `message` | The message, parsed from JSON and validated against `message` (any JSON value without a schema) |
 | `params`, `query` | From the URL that opened the socket |
 | `user` | The signed-in user (null only on public routes) |
-| `socket` | `socket.send(data)` sends JSON to this client, `socket.stream(ai.stream(...))` streams a model's answer, `socket.close(code?, reason?)` closes it, `socket.id` is a random id |
+| `socket` | `socket.send(data)` sends JSON to this client, `socket.stream(ai.stream(...))` streams a model's answer, `socket.join(room)` and `socket.leave(room)` join and leave rooms, `socket.close(code?, reason?)` closes it, `socket.id` is a random id |
+| `sockets` | `sockets.broadcast(room, data)` sends to the sockets in a room (see [Rooms and broadcast](#rooms-and-broadcast)) |
 | `db`, `ai`, `jobs`, `events`, `cache`, `audit` | As in HTTP routes; `db` is scoped to the user's tenant, `audit` entries record the user and `WS <path>` |
 | `signal` | Aborted when the socket closes; `ctx.ai` calls use it |
 | `requestId`, `url`, `headers` | Of the request that opened the socket |

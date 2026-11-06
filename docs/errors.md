@@ -66,6 +66,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2013
 **socket.stream() needs an AI stream.** `ctx.socket.stream(result)` sends a model's answer chunk by chunk, so it takes the result of `ai.stream(...)`: `await socket.stream(ai.stream({ model: "fast", prompt }))`. To send other data, use `socket.send(data)`. See [Streaming AI answers](websockets.md#streaming-ai-answers).
 
+### IL2014
+**Invalid room or broadcast.** A room name in `socket.join(room)`, `socket.leave(room)` or `sockets.broadcast(room, data)` must be a string of 1 to 200 characters, and `broadcast` needs data that can be sent as JSON (not `undefined`). Name rooms after what they are about, with its id: `` socket.join(`project:${params.id}`) ``. See [Rooms and broadcast](websockets.md#rooms-and-broadcast).
+
 ## Auth (3xxx)
 
 ### IL3001
