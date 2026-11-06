@@ -47,6 +47,13 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL2007
 **The request took too long (503).** The route did not finish (reading the body and running the handler) within its time limit: `createApp({ requestTimeoutMs })` (default 60000 ms) or the route's own `timeoutMs`. `ctx.signal` is aborted, model calls through `ctx.ai` are cancelled, and new `ctx.db` queries fail with this code. Make the handler faster, move slow work to a [background job](jobs.md), or raise the limit for that route: `route.post(path, { timeoutMs: 120_000 })`. See [request timeouts](security.md#request-timeouts).
+
+### IL2008
+**A call to another service failed.** `client.call(route, ...)` from `serviceClient` got an error status from the other service, no answer within `timeoutMs`, or a network error. `remoteStatus` has the other service's status (0 when no answer came) and `remoteCode` its error code; unhandled, your service answers 502 and logs the details. Catch it for statuses you expect (`if (error instanceof ServiceCallError && error.remoteStatus === 404) throw notFound()`), check `baseUrl` and `token`, and see the other service's logs for the request id. See [Service-to-service calls](services.md).
+
+### IL2009
+**Invalid serviceClient() options or call.** `serviceClient({ baseUrl, token, headers, timeoutMs, retries, fetch })` needs an http or https `baseUrl` without a query string, a positive `timeoutMs` and a whole number of `retries` from 0 to 10. `client.call(route, input)` needs a route made with `route.<method>(...).handle(...)` and a value for every `:param` in its path. See [Service-to-service calls](services.md).
+
 ## Auth (3xxx)
 
 ### IL3001

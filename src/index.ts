@@ -16,7 +16,7 @@ export { apiVersion } from "./api-version.ts";
 export type { ApiVersionOptions } from "./api-version.ts";
 
 export { route, isRoute } from "./route.ts";
-export type { Register, Context, RouteDef, RouteOptions, Auth, Method, ToolOptions, AppUser, AppDb, AppPermission } from "./route.ts";
+export type { Register, Context, RouteDef, RouteInput, RouteOptions, Auth, Method, ToolOptions, AppUser, AppDb, AppPermission } from "./route.ts";
 
 export { t, Schema, ObjectSchema, ArraySchema, RefSchema, ValidationError, toJSONSchema } from "./schema.ts";
 export type { Infer, InferInput, Issue, JSONSchema, ParseResult, Shape, AnySchema } from "./schema.ts";
@@ -85,6 +85,8 @@ export { env, setEnv } from "./env.ts";
 export { config } from "./config.ts";
 export type { Config, ConfigOptions } from "./config.ts";
 export { InferloError, httpError, notFound, forbidden, badRequest, docsUrl } from "./errors.ts";
+export { serviceClient, ServiceCallError } from "./service-client.ts";
+export type { ServiceClient, ServiceClientOptions, CallInput, CallOptions, CallContext, CallResult, TypedRoute } from "./service-client.ts";
 export { serve, toNodeHandler, fromNodeRequest } from "./serve.ts";
 export type { ServeOptions, Server, NodeRequest, NodeResponse, NodeHandler, NodeHandlerOptions, FromNodeRequestOptions } from "./serve.ts";
 export { INFERLO_VERSION } from "./describe.ts";

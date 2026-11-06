@@ -1,0 +1,4 @@
+{
+  "title": "Call another service",
+  "prompt": "The billing service is a separate Inferlo app at http://billing.internal; its routes are in src/billing/routes.ts. Add src/clients.ts exporting `billing`, a client for the billing service that sends the bearer token from the BILLING_TOKEN environment variable (add it to src/config.ts as a secret, default \"\"). Then add src/routes/limits.ts exporting a GET /limits route that asks billing for the signed-in user's plan with getPlan and returns { plan, maxNotes } (free: 10, pro: 1000). If billing has no account for the user (404), the plan is free. Forward this request's id to billing."
+}

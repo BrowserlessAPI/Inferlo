@@ -17,7 +17,7 @@ import type { Audit } from "./audit.ts";
 import type { Cache, RouteCache } from "./cache.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
-import type { AnySchema, Infer, ObjectSchema } from "./schema.ts";
+import type { AnySchema, Infer, InferInput, ObjectSchema } from "./schema.ts";
 
 /**
  * Register your app's models and user type once, so every handler is fully typed:
@@ -142,6 +142,16 @@ export interface Context<Body, Query, Params, User> {
 }
 
 export type AnyContext = Context<any, any, any, any>;
+
+/**
+ * What a caller sends to a route, before validation (defaults not yet applied): the body, query and path params.
+ * Type only ($input on the route returned by handle()), used by serviceClient for typed calls.
+ */
+export interface RouteInput<Path extends string, B, Q, P> {
+  body: B extends AnySchema ? InferInput<B> : undefined;
+  query: Q extends AnySchema ? InferInput<Q> : Record<string, string | undefined>;
+  params: P extends AnySchema ? InferInput<P> : PathParams<Path>;
+}
 export type Handler<C, R> = (ctx: C) => R | Promise<R>;
 
 export interface RouteDef {
@@ -178,9 +188,10 @@ export class RouteBuilder<Path extends string, B extends AnySchema | undefined, 
       >,
       R
     >,
-  ): RouteDef & { readonly $response: Awaited<R> } {
+  ): RouteDef & { readonly $response: Awaited<R>; readonly $input: RouteInput<Path, B, Q, P> } {
     return { kind: "inferlo.route", method: this.method, path: this.path, options: this.options, handler: handler as Handler<AnyContext, unknown> } as unknown as RouteDef & {
       readonly $response: Awaited<R>;
+      readonly $input: RouteInput<Path, B, Q, P>;
     };
   }
 }
