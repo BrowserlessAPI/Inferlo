@@ -16,8 +16,9 @@ import { buildOpenAPI } from "./openapi.ts";
 import { collectRoutes, type AnyContext, type AppDb, type AppUser, type Method, type RouteDef } from "./route.ts";
 import { checkRedisClient, pingRedis, redisCacheStore, redisMissing, redisPrefix, redisRateLimitStore, type RedisClient } from "./redis.ts";
 import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimitResult, windowMs, type RateLimitConfig, type RateLimitStore } from "./rate-limit.ts";
-import { clientIp, clientIps } from "./client-ip.ts";
+import { clientIp, clientIps, clientSignals } from "./client-ip.ts";
 import { redisJobStore } from "./redis-jobs.ts";
+import { knownBodies } from "./response-body.ts";
 import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
 import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
@@ -344,7 +345,10 @@ function withHeader(response: Response, name: string, value: string): Response {
 
 function json(data: unknown, status: number, headers: Headers): Response {
   headers.set("content-type", "application/json; charset=utf-8");
-  return new Response(JSON.stringify(data), { status, headers });
+  const text = JSON.stringify(data);
+  const response = new Response(text, { status, headers });
+  knownBodies.set(response, text);
+  return response;
 }
 
 export function createApp<const Models extends readonly AnyModel[] = [], const Modules extends readonly AnyModule[] = []>(
@@ -686,7 +690,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       const limit = opts.timeoutMs === undefined ? requestTimeoutMs : opts.timeoutMs;
       // timeout aborts when the route takes too long; signal (ctx.signal) also when the client disconnects.
       const timeout = new AbortController();
-      const signal = AbortSignal.any([req.signal, timeout.signal]);
+      // Combined on first use: AbortSignal.any is costly, and most handlers never read ctx.signal.
+      let combined: AbortSignal | undefined;
+      const signal = () => (combined ??= AbortSignal.any([clientSignals.get(req) ?? req.signal, timeout.signal]));
       let requestDb: Db<Models> | undefined;
       const run = async (): Promise<Response> => {
         // Auth
@@ -776,8 +782,15 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             // Built on first use: after a timeout, new queries fail with IL2007 instead of running.
             return (requestDb ??= bindDb(models, guardAdapter(adapter, timeout.signal))) as never;
           },
-          ai: toolsFor(req, signal),
-          signal,
+          // ctx.ai and ctx.audit are built on first use too, so routes that do not use them pay nothing.
+          get ai() {
+            const value = toolsFor(req, signal());
+            Object.defineProperty(ctx, "ai", { value, enumerable: true });
+            return value;
+          },
+          get signal() {
+            return signal();
+          },
           requestId,
           jobs,
           cache,
@@ -793,7 +806,11 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             handlerHeaders.push([name.toLowerCase(), value]);
           },
           waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e, { requestId }))),
-          audit: createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, source: `${def.method} ${def.path}`, requestId }),
+          get audit() {
+            const value = createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, source: `${def.method} ${def.path}`, requestId });
+            Object.defineProperty(ctx, "audit", { value, enumerable: true });
+            return value;
+          },
         };
         const result = await def.handler(ctx);
         if (result instanceof Response) {

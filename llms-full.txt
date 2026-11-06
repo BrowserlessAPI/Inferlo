@@ -4211,17 +4211,26 @@ Every framework serves the same two routes from its own Node.js process (`bench/
 
 ## Results
 
-Measured on 2026-11-05 with Inferlo 0.6.0 (Fastify 5.12, Hono 4.13, Express 5.3, NestJS 12.3), Node.js 22.23.4 on Linux x64, Intel Xeon @ 2.10GHz with 2 CPUs; 50 connections, 10 s per route after a 3 s warm-up. The load generator shares the 2 CPUs with the server, so the fastest frameworks are partly limited by it.
+Measured on 2026-11-05 with Inferlo from the main branch after performance part 2a (Fastify 5.12, Hono 4.13, Express 5.3, NestJS 12.3), Node.js 22.23.4 on Linux x64, Intel Xeon @ 2.10GHz with 2 CPUs; 50 connections, 10 s per route after a 3 s warm-up. The load generator shares the 2 CPUs with the server, so the fastest frameworks are partly limited by it.
 
 | Framework | `GET /hello` req/s | p99 ms | `POST /echo` req/s | p99 ms |
 |---|---:|---:|---:|---:|
-| Inferlo | 11,894 | 13 | 8,494 | 19 |
-| Fastify | 65,825 | 2 | 37,689 | 2 |
-| Hono | 65,363 | 1 | 33,241 | 3 |
-| Express | 12,068 | 9 | 10,004 | 11 |
-| NestJS | 10,899 | 12 | 9,464 | 12 |
+| Inferlo | 14,306 | 9 | 10,070 | 13 |
+| Fastify | 57,727 | 2 | 37,438 | 3 |
+| Hono | 60,899 | 2 | 33,337 | 3 |
+| Express | 11,706 | 11 | 10,602 | 11 |
+| NestJS | 10,593 | 12 | 8,019 | 15 |
 
-Inferlo is currently at the level of Express and NestJS and well behind Fastify and Hono. A CPU profile of the request pipeline shows where the time goes: garbage collection, an `AbortSignal.any` per request for `ctx.signal`, and per-request objects that most handlers never use. Closing that gap is on the [roadmap](../ROADMAP.md) (performance part 2), followed by a CI check that fails when a change makes Inferlo slower (part 3). This page is updated with every new measurement.
+Inferlo is at the level of Express and NestJS and behind Fastify and Hono.
+
+### History
+
+| Date | Change | Inferlo `GET /hello` req/s | `POST /echo` req/s |
+|---|---|---:|---:|
+| 2026-11-05 | First measurement (Inferlo 0.6.0) | 11,894 | 8,494 |
+| 2026-11-05 | Part 2a: `ctx.signal`, `ctx.ai` and `ctx.audit` built on first use; the client's disconnect signal kept next to the Request instead of inside it; JSON answers written in one piece with `Content-Length` | 14,306 | 10,070 |
+
+Each row was measured on the machine above, in the same run as the other frameworks. What is left, from CPU profiles: building a full Web `Request` and `Headers` for every Node.js request, reading the body through a Web stream, and garbage collection of those objects. Closing that gap is on the [roadmap](../ROADMAP.md) (performance part 2b), followed by a CI check that fails when a change makes Inferlo slower (part 3). This page is updated with every new measurement.
 
 Numbers depend on the machine, the Node.js version and the load. Compare frameworks within one run, and run the benchmark on hardware like your production servers before drawing conclusions.
 

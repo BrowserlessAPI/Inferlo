@@ -1,6 +1,13 @@
 /** Client IP addresses of incoming requests, recorded by serve() (Node) where the Request cannot carry them. */
 export const clientIps = new WeakMap<Request, string>();
 
+/**
+ * Signals that abort when the client of a Node.js request disconnects, recorded by toNodeHandler and serve().
+ * They are kept next to the Request instead of passed as its signal, because a Request built with a signal
+ * follows it through a weak reference, which costs more than the rest of the conversion. ctx.signal uses them.
+ */
+export const clientSignals = new WeakMap<Request, AbortSignal>();
+
 /** True in the Cloudflare Workers runtime (workerd), where navigator.userAgent is "Cloudflare-Workers". */
 function onWorkers(): boolean {
   return (globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent === "Cloudflare-Workers";

@@ -260,3 +260,69 @@ describe("toNodeHandler({ fallthrough: true })", () => {
     assert.doesNotThrow(() => toNodeHandler({ fetch: async () => new Response() }));
   });
 });
+
+describe("toNodeHandler fast paths", () => {
+  const listen = async (handler: Host) => {
+    const server = http.createServer(handler);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return { server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}` };
+  };
+
+  test("JSON answers are sent in one piece with Content-Length, and other bodies still stream", async () => {
+    const streamed = route.get("/stream", { auth: "public" }).handle(() => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode("a")); c.enqueue(new TextEncoder().encode("b")); c.close(); } })));
+    const unicode = route.get("/unicode", { auth: "public" }).handle(() => ({ text: "Grüße, 世界" }));
+    const fast = createApp({ routes: [{ ping, streamed, unicode }], logger: { info() {}, error() {} } });
+    const { server, url } = await listen(toNodeHandler(fast) as unknown as Host);
+    try {
+      const res = await fetch(`${url}/unicode`);
+      const text = await res.text();
+      assert.equal(res.headers.get("content-length"), String(Buffer.byteLength(text)));
+      assert.deepEqual(JSON.parse(text), { text: "Grüße, 世界" });
+      assert.ok(res.headers.get("x-request-id"));
+      const head = await fetch(`${url}/ping`, { method: "HEAD" });
+      assert.equal(head.status, 200);
+      assert.equal(await head.text(), "");
+      const stream = await fetch(`${url}/stream`);
+      assert.equal(stream.headers.get("content-length"), null);
+      assert.equal(await stream.text(), "ab");
+      const missing = await fetch(`${url}/nothing`);
+      assert.equal(missing.status, 404);
+      assert.equal(((await missing.json()) as { error: { code: string } }).error.code, "IL2001");
+    } finally {
+      server.close();
+    }
+  });
+
+  test("ctx.signal is aborted when the HTTP client disconnects, and is only built when used", async () => {
+    let aborted: (() => void) | undefined;
+    const sawAbort = new Promise<void>((resolve) => (aborted = resolve));
+    let started: (() => void) | undefined;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const wait = route.get("/wait", { auth: "public" }).handle(async ({ signal }) => {
+      signal.addEventListener("abort", () => aborted!(), { once: true });
+      started!();
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return { late: true };
+    });
+    let same = false;
+    const lazy = route.get("/lazy", { auth: "public" }).handle((ctx) => {
+      same = ctx.ai === ctx.ai && ctx.signal === ctx.signal && ctx.audit === ctx.audit;
+      return { aborted: ctx.signal.aborted };
+    });
+    const slowApp = createApp({ routes: [{ wait, lazy }], logger: { info() {}, error() {} } });
+    const { server, url } = await listen(toNodeHandler(slowApp) as unknown as Host);
+    try {
+      assert.deepEqual(await (await fetch(`${url}/lazy`)).json(), { aborted: false });
+      assert.ok(same, "ctx.ai, ctx.signal and ctx.audit are the same object on every read");
+      const client = new AbortController();
+      const request = fetch(`${url}/wait`, { signal: client.signal }).catch(() => undefined);
+      await running;
+      client.abort();
+      await request;
+      await Promise.race([sawAbort, new Promise((_, reject) => setTimeout(() => reject(new Error("ctx.signal was not aborted")), 1500))]);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+});

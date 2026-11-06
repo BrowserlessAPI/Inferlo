@@ -9,7 +9,8 @@ import { createRedactor } from "./redact.ts";
 import type { App } from "./app.ts";
 import { appAnswers } from "./request-matcher.ts";
 import { InferloError } from "./errors.ts";
-import { clientIps } from "./client-ip.ts";
+import { clientIps, clientSignals } from "./client-ip.ts";
+import { knownBodies } from "./response-body.ts";
 
 export interface ServeOptions {
   port?: number;
@@ -191,6 +192,13 @@ export function fromNodeRequest(req: NodeRequest, options: FromNodeRequestOption
   return buildRequest(req, path, options.signal);
 }
 
+const encoder = new TextEncoder();
+/** UTF-8 length of a string, with Buffer where the runtime has it (Node.js, Bun). */
+function byteLength(text: string): number {
+  const B = (globalThis as { Buffer?: { byteLength(text: string): number } }).Buffer;
+  return B ? B.byteLength(text) : encoder.encode(text).byteLength;
+}
+
 /** Write a Web Response (status, headers with every Set-Cookie, streamed body) to a Node response. */
 export async function writeResponse(res: NodeResponse, response: Response, method: string): Promise<void> {
   const outHeaders: Record<string, string | string[]> = {};
@@ -200,6 +208,13 @@ export async function writeResponse(res: NodeResponse, response: Response, metho
   });
   const cookies = response.headers.getSetCookie?.() ?? [];
   if (cookies.length) outHeaders["set-cookie"] = cookies;
+  // A JSON answer Inferlo built from a string: headers and body in one write, with its length.
+  const known = knownBodies.get(response);
+  if (known !== undefined && !response.bodyUsed && method !== "HEAD" && outHeaders["content-length"] === undefined && outHeaders["transfer-encoding"] === undefined) {
+    outHeaders["content-length"] = String(byteLength(known));
+    res.writeHead(response.status, outHeaders);
+    return void res.end(known);
+  }
   res.writeHead(response.status, outHeaders);
   if (!response.body || method === "HEAD") return void res.end();
   const reader = response.body.getReader();
@@ -234,7 +249,8 @@ export function toNodeHandler(app: Pick<App<any>, "fetch">, options: NodeHandler
       res.on("close", () => {
         if (!res.writableFinished) controller.abort();
       });
-      const request = buildRequest(req, path ?? (req.url ?? "/"), controller.signal);
+      const request = buildRequest(req, path ?? (req.url ?? "/"));
+      clientSignals.set(request, controller.signal);
       const response = await app.fetch(request);
       await writeResponse(res, response, request.method);
     } catch (error) {

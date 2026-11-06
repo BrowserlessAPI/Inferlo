@@ -37,7 +37,8 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Redis part 1: `createApp({ redis })` with a connected `redis` client, `rateLimit: { store: "redis" }` (one atomic script per hit) and a built-in `redis` readiness check, tested on Redis 6.2, 7.2 and latest and on the oldest supported and latest `redis` package
 - [x] Redis part 2: Redis job queue, `jobQueue: { store: "redis" }`, with the same guarantees as the database queue (claimed once, retries, stuck jobs picked up again, cron ticks queued once across instances)
 - [x] Performance part 1: published, reproducible throughput and latency benchmarks against Fastify, Hono, Express and NestJS (`npm run bench:perf`, docs/performance.md)
-- [ ] Performance part 2: close the gap to Fastify and Hono found by part 1 (no `AbortSignal.any` and no AI tool binding per request unless the handler uses them, fewer per-request allocations), with the results updated in docs/performance.md
+- [x] Performance part 2a: no `AbortSignal.any`, AI tool binding or audit writer per request unless the handler uses them, the client's disconnect signal kept outside the Request, and JSON answers written in one piece on Node.js (+20% throughput)
+- [ ] Performance part 2b: close the remaining gap to Fastify and Hono on Node.js (a lighter Request and Headers bridge in `toNodeHandler`, body reading without a Web stream, cheaper secure headers), with the results updated in docs/performance.md
 - [ ] Performance part 3: a performance regression check in CI (Inferlo's throughput relative to Fastify on the same runner, so runner speed does not matter)
 - [ ] Microservices: service-to-service calls with typed clients, and message transports (NATS, RabbitMQ, Kafka) for events between services
 - [ ] GraphQL support generated from models and routes (optional module)
