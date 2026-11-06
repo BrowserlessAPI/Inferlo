@@ -46,6 +46,8 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Microservices part 3b: events between services: a transport interface (`createApp({ events: { transport } })`) and a Redis Streams transport (at-least-once delivery, one consumer group per service, delivered to the same `on(event, job)` subscriptions, tested on the oldest supported and latest Redis)
 - [ ] Microservices part 4: NATS, RabbitMQ and Kafka event transports as separate entry points (peer dependencies), each tested on its oldest supported and latest versions
 - [ ] GraphQL support generated from models and routes (optional module)
+- [ ] File uploads part 1: `t.file({ maxBytes, types })` in multipart bodies (`body: t.object({ avatar: t.file(...) })`), streamed with size and type limits checked before the handler runs, documented in OpenAPI
+- [ ] File uploads part 2: a storage interface (`createApp({ storage })`) with local disk and S3-compatible stores (signed download URLs, no AWS SDK dependency), tested against MinIO on its oldest supported and latest versions
 - [x] Multi-tenancy part 1: `tenant` scoping for models (`model("tickets", { ... }, { tenant: true })`) so every query, insert and update in `ctx.db` is filtered by and stamped with the current tenant from the auth result, with no way to forget the filter
 - [x] Multi-tenancy part 2a: jobs (the tenant travels with the job, also through events and between services) and `inferlo describe` showing which models are tenant-scoped
 - [x] Multi-tenancy part 2b: tenant-aware rate limits (`by: "tenant"`), cache keys (`cache: { by: "tenant" }`) and audit entries (the tenant recorded with each entry)
@@ -135,7 +137,6 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [ ] `inferlo db migrate` part 4e: reference changes behind `--allow-change` (`onDelete` and target table: replace the foreign key constraint)
 - [ ] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [ ] Response validation in development mode (warn when a handler returns data that does not match `response`)
-- [ ] File uploads: `t.file()` for multipart bodies with size and type limits, and a storage interface (local disk and S3-compatible)
 - [ ] Email: `mail({ smtp })` helper with templates, used by jobs
 - [ ] OAuth login helpers: GitHub and Google, built on cookie sessions
 - [x] OpenTelemetry tracing for requests, database queries and AI calls (observability parts 3 and 4a)
