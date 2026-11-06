@@ -16,6 +16,8 @@ jobs:
   node:
     name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -46,7 +48,9 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: node --version
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm run typecheck
       - run: npm test
       - run: node scripts/build-llms.ts --check
@@ -56,6 +60,8 @@ jobs:
   postgres:
     name: PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +85,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - name: Server version
         run: node -e "const {Client}=require('pg');const c=new Client({connectionString:process.env.INFERLO_TEST_DATABASE_URL});c.connect().then(()=>c.query('show server_version')).then(r=>{console.log('PostgreSQL',r.rows[0].server_version);return c.end()})"
       - run: npm test
@@ -87,6 +95,8 @@ jobs:
   redis:
     name: Redis ${{ matrix.redis }}, redis package ${{ matrix.client }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -114,7 +124,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save redis@${{ matrix.client }}
       - run: node -p "'redis package ' + require('./node_modules/redis/package.json').version"
       - name: Server version
@@ -127,18 +139,24 @@ jobs:
     # bench/perf/limits.json, so a slower change is caught whatever the speed of the runner.
     name: Performance regression check
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm run bench:perf:check
 
   typescript:
     name: TypeScript ${{ matrix.typescript }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -150,7 +168,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save typescript@${{ matrix.typescript }}
       - run: npx tsc --version
       - run: npm run typecheck
@@ -159,6 +179,8 @@ jobs:
   hono:
     name: Hono ${{ matrix.hono }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -170,7 +192,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save hono@${{ matrix.hono }}
       - run: node -p "'Hono ' + require('./node_modules/hono/package.json').version"
       - run: npm run typecheck
@@ -179,6 +203,8 @@ jobs:
   express:
     name: Express ${{ matrix.express }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -191,7 +217,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save express@${{ matrix.express }}
       - run: node -p "'Express ' + require('./node_modules/express/package.json').version"
       - run: npm run typecheck
@@ -200,6 +228,8 @@ jobs:
   fastify:
     name: Fastify ${{ matrix.fastify }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -211,7 +241,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save fastify@${{ matrix.fastify }}
       - run: node -p "'Fastify ' + require('./node_modules/fastify/package.json').version"
       - run: npm run typecheck
@@ -220,6 +252,8 @@ jobs:
   hapi:
     name: hapi ${{ matrix.hapi }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -232,7 +266,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save @hapi/hapi@${{ matrix.hapi }}
       - run: node -p "'hapi ' + require('./node_modules/@hapi/hapi/package.json').version"
       - run: npm run typecheck
@@ -241,6 +277,8 @@ jobs:
   azure:
     name: Azure Functions ${{ matrix.azure }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -253,7 +291,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save @azure/functions@${{ matrix.azure }}
       - run: node -p "'@azure/functions ' + require('./node_modules/@azure/functions/package.json').version"
       - run: npm run typecheck
@@ -262,6 +302,8 @@ jobs:
   cloudflare-workers:
     name: Cloudflare Workers (Miniflare ${{ matrix.miniflare }})
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -274,7 +316,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save miniflare@${{ matrix.miniflare }}
       - run: node -p "'miniflare ' + require('./node_modules/miniflare/package.json').version"
       - run: npm run typecheck
@@ -283,6 +327,8 @@ jobs:
   cloud-run-functions:
     name: Cloud Run functions (Functions Framework ${{ matrix.framework }})
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -294,7 +340,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save @google-cloud/functions-framework@${{ matrix.framework }}
       - run: node -p "'Functions Framework ' + JSON.parse(require('fs').readFileSync('node_modules/@google-cloud/functions-framework/package.json', 'utf8')).version"
       - run: npm run typecheck
@@ -303,6 +351,8 @@ jobs:
   elysia:
     name: Elysia ${{ matrix.elysia }} on ${{ matrix.runtime }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -320,7 +370,9 @@ jobs:
         if: matrix.runtime == 'bun'
         with:
           bun-version: latest
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save elysia@${{ matrix.elysia }}
       - run: node -p "'Elysia ' + require('./node_modules/elysia/package.json').version"
       - run: npm run typecheck
@@ -332,6 +384,8 @@ jobs:
   nestjs:
     name: NestJS ${{ matrix.nestjs }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -343,7 +397,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save @nestjs/common@${{ matrix.nestjs }} @nestjs/core@${{ matrix.nestjs }} @nestjs/platform-express@${{ matrix.nestjs }}
       - run: node -p "'NestJS ' + require('./node_modules/@nestjs/core/package.json').version"
       - run: npm run typecheck
@@ -352,6 +408,8 @@ jobs:
   trpc:
     name: tRPC ${{ matrix.trpc }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -363,7 +421,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save @trpc/server@${{ matrix.trpc }}
       - run: node -p "'tRPC ' + require('./node_modules/@trpc/server/package.json').version"
       - run: npm run typecheck
@@ -372,6 +432,8 @@ jobs:
   tsed:
     name: Ts.ED ${{ matrix.tsed }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -383,7 +445,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: >-
           npm install --no-save
           @tsed/core@${{ matrix.tsed }} @tsed/di@${{ matrix.tsed }} @tsed/schema@${{ matrix.tsed }}
@@ -398,6 +462,8 @@ jobs:
   adonisjs:
     name: AdonisJS ${{ matrix.adonisjs }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -410,7 +476,9 @@ jobs:
           # AdonisJS 7 needs Node.js 24.
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save @adonisjs/core@${{ matrix.adonisjs }}
       - run: node -p "'AdonisJS ' + require('./node_modules/@adonisjs/core/package.json').version"
       - run: npm run typecheck
@@ -419,6 +487,8 @@ jobs:
   ai-sdk:
     name: AI SDK (ai ${{ matrix.ai }}, provider ${{ matrix.provider }})
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -436,7 +506,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save ai@${{ matrix.ai }} @ai-sdk/openai-compatible@${{ matrix.provider }}
       - run: node -p "'ai ' + require('./node_modules/ai/package.json').version + ', @ai-sdk/openai-compatible ' + require('./node_modules/@ai-sdk/openai-compatible/package.json').version"
       - run: npm run typecheck
@@ -445,6 +517,8 @@ jobs:
   langchain:
     name: LangChain.js (@langchain/core ${{ matrix.langchain }})
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -457,7 +531,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save @langchain/core@${{ matrix.langchain }}
       - run: node -p "'@langchain/core ' + require('./node_modules/@langchain/core/package.json').version"
       - run: npm run typecheck
@@ -466,6 +542,8 @@ jobs:
   koa:
     name: Koa ${{ matrix.koa }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -478,7 +556,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save koa@${{ matrix.koa }}
       - run: node -p "'Koa ' + require('./node_modules/koa/package.json').version"
       - run: npm run typecheck
@@ -487,6 +567,8 @@ jobs:
   nextjs:
     name: Next.js ${{ matrix.next }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -499,7 +581,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save next@${{ matrix.next }}
       - run: node -p "'Next.js ' + require('./node_modules/next/package.json').version"
       - run: npm run typecheck
@@ -508,6 +592,8 @@ jobs:
   h3:
     name: h3 ${{ matrix.h3 }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -520,7 +606,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save h3@${{ matrix.h3 }}
       - run: node -p "'h3 ' + require('./node_modules/h3/package.json').version"
       - run: npm run typecheck
@@ -529,6 +617,8 @@ jobs:
   sveltekit:
     name: SvelteKit ${{ matrix.sveltekit }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -542,7 +632,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save --legacy-peer-deps @sveltejs/kit@${{ matrix.sveltekit }}
       - run: node -p "'SvelteKit ' + require('./node_modules/@sveltejs/kit/package.json').version"
       - run: npm run typecheck
@@ -551,6 +643,8 @@ jobs:
   astro:
     name: Astro ${{ matrix.astro }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -563,7 +657,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save --legacy-peer-deps astro@${{ matrix.astro }}
       - run: node -p "'Astro ' + require('./node_modules/astro/package.json').version"
       - run: npm run typecheck
@@ -572,6 +668,8 @@ jobs:
   react-router:
     name: React Router ${{ matrix.react_router }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -584,7 +682,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save react-router@${{ matrix.react_router }}
       - run: node -p "'React Router ' + require('./node_modules/react-router/package.json').version"
       - run: npm run typecheck
@@ -593,6 +693,8 @@ jobs:
   opentelemetry:
     name: OpenTelemetry API ${{ matrix.otel }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -605,7 +707,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save @opentelemetry/api@${{ matrix.otel }}
       - run: node -p "'OpenTelemetry API ' + require('./node_modules/@opentelemetry/api/package.json').version"
       - run: npm run typecheck
@@ -614,6 +718,8 @@ jobs:
   encore:
     name: Encore.ts ${{ matrix.encore }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -626,7 +732,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - run: npm install --no-save encore.dev@${{ matrix.encore }}
       - run: node -p "'encore.dev ' + JSON.parse(require('fs').readFileSync('node_modules/encore.dev/package.json', 'utf8')).version"
       - run: npm run typecheck
@@ -635,6 +743,8 @@ jobs:
   bun:
     name: Bun ${{ matrix.bun }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -658,12 +768,15 @@ jobs:
         with:
           bun-version: ${{ matrix.bun }}
       - run: bun --version
-      - run: bun install
+      - name: bun install
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 bun install && exit 0; echo "bun install attempt $attempt failed or stalled"; done; exit 1
       - run: bun test test/
 
   deno:
     name: Deno ${{ matrix.deno }}
     runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -693,7 +806,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
       - uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ matrix.deno }}
