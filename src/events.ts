@@ -14,6 +14,7 @@
 import { InferloError } from "./errors.ts";
 import type { JobDef, JobInput } from "./jobs.ts";
 import { ValidationError, type AnySchema, type Infer, type InferInput } from "./schema.ts";
+import type { JobTraceContext } from "./tracing.ts";
 
 export interface EventOptions<P extends AnySchema> {
   /** Schema of the payload. Checked when the event is published. */
@@ -54,7 +55,10 @@ export interface PublishedEvent {
   id: string;
   name: string;
   publishedAt: Date;
-  /** Ids of the jobs queued for it, one per subscription in this app. */
+  /**
+   * Ids of the jobs for it, one per subscription in this app. Without a transport they are queued now; with one,
+   * they are queued with these ids when this app receives the event.
+   */
   jobs: string[];
 }
 
@@ -69,6 +73,51 @@ export interface AppEvents extends Events {
   readonly list: readonly EventDef[];
   /** The subscriptions: on(event, job) values in createApp({ jobs }) and in modules. */
   readonly subscriptions: readonly OnDef[];
+  /** The transport that carries events between services (createApp({ events: { transport } })), or undefined: events stay in this app. */
+  readonly transport: string | undefined;
+  /**
+   * With a transport: take the events waiting for this app's subscriptions and queue their jobs, then return how
+   * many events were received. app.jobs.start() and inferlo worker call it on every poll; call it yourself in tests.
+   * Without a transport it returns 0.
+   */
+  receive(): Promise<number>;
+}
+
+/** One published event as a transport carries it. */
+export interface EventMessage {
+  /** The event id: the same id queues each subscribed job once, also when the transport delivers it twice. */
+  id: string;
+  name: string;
+  /** The validated payload, as JSON. */
+  payload: unknown;
+  publishedAt: Date;
+  /** With createApp({ tracing }): the trace the event was published in, which the subscribed jobs continue. */
+  trace?: JobTraceContext;
+}
+
+/**
+ * Carries events between services: createApp({ events: { transport } }). Inferlo has a Redis Streams transport
+ * built in (transport: "redis"); other brokers implement this interface.
+ */
+export interface EventTransport {
+  /** Shown as app.events.transport and in describe: "redis". */
+  readonly name: string;
+  /** Send one event to every service subscribed to its name. */
+  send(message: EventMessage): Promise<void>;
+  /**
+   * Deliver the waiting events with these names to deliver(), one at a time, and acknowledge each after deliver()
+   * resolves; an event whose deliver() rejects is delivered again later. Returns how many events were delivered.
+   */
+  receive(names: readonly string[], deliver: (message: EventMessage) => Promise<void>): Promise<number>;
+}
+
+export interface EventsConfig {
+  /**
+   * How events reach other services. Default: none, publishing queues the subscribed jobs of this app only.
+   * "redis": Redis Streams in the Redis of createApp({ redis }), one consumer group per app name, so every
+   * service subscribed to an event gets it once (at least once, with each job queued once).
+   */
+  transport?: "redis" | EventTransport;
 }
 
 const EVENT_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/;
@@ -153,9 +202,41 @@ export async function eventJobId(eventId: string, jobName: string): Promise<stri
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** app.events, built by createJobs: enqueue queues one job with a fixed id (returning its id). */
-export function createEvents(subscriptions: readonly OnDef[], enqueue: (job: JobDef, input: unknown, id: string) => Promise<string>): AppEvents {
+export interface EventsRuntime {
+  /** Queue one job with a fixed id (returning its id), continuing the given trace or the active one. */
+  enqueue(job: JobDef, input: unknown, id: string, trace?: JobTraceContext): Promise<string>;
+  transport?: EventTransport;
+  /** The active trace when an event is published, sent with it. */
+  capture?(): JobTraceContext | undefined;
+  logger?: { error(message: string, data?: unknown): void };
+}
+
+/** IL6033: an invalid events option or transport. */
+export function invalidTransport(message: string): InferloError {
+  return new InferloError("IL6033", message, {
+    fix: 'Use createApp({ name: "billing", redis, events: { transport: "redis" } }), or pass an object with name, send(message) and receive(names, deliver).',
+  });
+}
+
+/** Checks createApp({ events }) and returns the custom transport, "redis", or undefined. */
+export function checkEventsConfig(config: EventsConfig | undefined): EventsConfig["transport"] {
+  if (config === undefined) return undefined;
+  if (typeof config !== "object" || config === null) throw invalidTransport("createApp({ events }) must be an object such as { transport: \"redis\" }.");
+  for (const key of Object.keys(config)) if (key !== "transport") throw invalidTransport(`Unknown events option "${key}". createApp({ events }) takes transport.`);
+  const t = config.transport;
+  if (t === undefined || t === "redis") return t;
+  if (typeof t !== "object" || t === null || typeof t.name !== "string" || !t.name || typeof t.send !== "function" || typeof t.receive !== "function") {
+    throw invalidTransport(`Invalid events transport ${typeof t === "string" ? JSON.stringify(t) : "object"}: use "redis" or an object with name, send(message) and receive(names, deliver).`);
+  }
+  return t;
+}
+
+/** app.events, built by createJobs. */
+export function createEvents(subscriptions: readonly OnDef[], runtime: EventsRuntime): AppEvents {
+  const { enqueue, transport } = runtime;
   const list = checkSubscriptions(subscriptions);
+  const byName = new Map(list.map((e) => [e.name, e]));
+  const names = list.map((e) => e.name);
   // A job may take part of the payload (input: t.object({ orderId })): it gets only the fields its input has.
   const fields = new Map<OnDef, string[] | undefined>();
   for (const s of subscriptions) {
@@ -167,9 +248,40 @@ export function createEvents(subscriptions: readonly OnDef[], enqueue: (job: Job
     if (!keys || typeof payload !== "object" || payload === null || Array.isArray(payload)) return payload;
     return Object.fromEntries(keys.filter((k) => k in payload).map((k) => [k, (payload as Record<string, unknown>)[k]]));
   };
+  /** Queue the jobs subscribed to one event in this app. */
+  const queueJobs = async (name: string, id: string, payload: unknown, trace?: JobTraceContext): Promise<string[]> => {
+    const jobs: string[] = [];
+    for (const s of subscriptions) {
+      if (s.event.name !== name) continue;
+      jobs.push(await enqueue(s.job, inputFor(s, payload), await eventJobId(id, s.job.name), trace));
+    }
+    return jobs;
+  };
+
+  /** An event from the transport: checked against this app's definition, then its jobs are queued. */
+  const deliver = async (message: EventMessage): Promise<void> => {
+    const def = byName.get(message.name);
+    if (!def) return; // not subscribed here (a transport may deliver more than it was asked for)
+    const parsed = def.payload.safeParse(message.payload);
+    if (!parsed.ok) {
+      // Delivering it again cannot help: log it (without the payload, which may hold personal data) and acknowledge it.
+      const error = new InferloError("IL6034", `Received event "${message.name}" (id ${message.id}) does not match this service's payload schema and was dropped: ${new ValidationError(parsed.issues, "payload").message}`, {
+        fix: "Publish and subscribe with the same event definition, from a shared package, and change payloads compatibly (add optional fields only).",
+      });
+      runtime.logger?.error(`event "${message.name}" dropped`, error);
+      return;
+    }
+    await queueJobs(message.name, message.id, parsed.value, message.trace);
+  };
+
   return {
     list,
     subscriptions,
+    transport: transport?.name,
+    async receive() {
+      if (!transport || !names.length) return 0;
+      return transport.receive(names, deliver);
+    },
     async publish(def, payload, options = {}) {
       if (!isEvent(def)) throw invalid("events.publish() needs an event made with event(name, { payload }).", "Pass the event and its payload: await events.publish(orderPaid, { orderId }).");
       if (options.id !== undefined && (typeof options.id !== "string" || options.id.length === 0 || options.id.length > 200)) {
@@ -179,12 +291,16 @@ export function createEvents(subscriptions: readonly OnDef[], enqueue: (job: Job
       if (!parsed.ok) throw new ValidationError(parsed.issues, `payload for event "${def.name}"`);
       const id = options.id ?? crypto.randomUUID();
       const publishedAt = new Date();
-      const jobs: string[] = [];
-      for (const s of subscriptions) {
-        if (s.event.name !== def.name) continue;
-        jobs.push(await enqueue(s.job, inputFor(s, parsed.value), await eventJobId(id, s.job.name)));
+      if (transport) {
+        // Every service (this one too) queues its jobs when it receives the event; their ids are known already.
+        const trace = runtime.capture?.();
+        const json = JSON.parse(JSON.stringify(parsed.value ?? null)) as unknown;
+        await transport.send({ id, name: def.name, payload: json, publishedAt, ...(trace?.traceparent ? { trace } : {}) });
+        const jobs: string[] = [];
+        for (const s of subscriptions) if (s.event.name === def.name) jobs.push(await eventJobId(id, s.job.name));
+        return { id, name: def.name, publishedAt, jobs };
       }
-      return { id, name: def.name, publishedAt, jobs };
+      return { id, name: def.name, publishedAt, jobs: await queueJobs(def.name, id, parsed.value) };
     },
   };
 }

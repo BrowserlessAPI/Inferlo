@@ -120,7 +120,7 @@ jobs:
       - name: Server version
         run: node -e "require('redis').createClient({url:process.env.INFERLO_TEST_REDIS_URL}).connect().then(async c=>{console.log((await c.info('server')).match(/redis_version:(\S+)/)[0]);await c.close()})"
       - run: npm run typecheck
-      - run: node --test --test-reporter=spec test/redis.test.ts test/rate-limit.test.ts test/cache.test.ts test/health.test.ts test/jobs-queue.test.ts
+      - run: node --test --test-reporter=spec test/redis.test.ts test/rate-limit.test.ts test/cache.test.ts test/health.test.ts test/jobs-queue.test.ts test/events-transport.test.ts
 
   performance:
     # Fails when Inferlo's throughput relative to Fastify's (same runner, same run) drops below the floors in

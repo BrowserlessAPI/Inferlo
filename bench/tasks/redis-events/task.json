@@ -1,0 +1,5 @@
+{
+  "title": "Send events to other services through Redis",
+  "prompt": "The notes app is one of several services, and the others need to know when a note is deleted. Create src/events.ts exporting `noteDeleted`, an event named \"note.deleted\" whose payload is { noteId, ownerId } (both uuids), and publish it from the DELETE /notes/:id handler after the note is deleted. When the REDIS_URL environment variable is set, connect to it with the redis package (add REDIS_URL to the app's config as an optional secret) and send published events to the other services through Redis. Without REDIS_URL, events stay in the app. Use Inferlo's built-in Redis event transport; do not write your own.",
+  "packages": ["redis"]
+}

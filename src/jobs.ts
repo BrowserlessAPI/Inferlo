@@ -16,7 +16,7 @@ import type { Cache } from "./cache.ts";
 import { cronTickId, isCron, type CronDef } from "./cron.ts";
 import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
-import { createEvents, isOn, type AppEvents, type Events, type OnDef } from "./events.ts";
+import { createEvents, isOn, type AppEvents, type EventTransport, type Events, type OnDef } from "./events.ts";
 import type { AppDb } from "./route.ts";
 import { ValidationError, type AnySchema, type Infer, type InferInput } from "./schema.ts";
 import type { JobTraceContext, JobTracing } from "./tracing.ts";
@@ -143,7 +143,10 @@ export interface AppJobs extends Jobs {
   get(id: string): Promise<JobRecord | null>;
   /** Run every job that is due now (or at options.now), one after another, including follow-ups they enqueue, then return. For tests and scripts. */
   runDue(options?: { now?: Date }): Promise<RunResult>;
-  /** Run due jobs in this process every pollMs (default 1000) until stop() is called. Also queues each cron's job at every tick after the start. */
+  /**
+   * Run due jobs in this process every pollMs (default 1000) until stop() is called. Also queues each cron's job at
+   * every tick after the start, and with an events transport, the jobs of the events it receives.
+   */
   start(options?: { pollMs?: number }): Worker;
 }
 
@@ -424,6 +427,8 @@ export interface JobRuntime {
   onRun?(name: string, outcome: keyof RunResult, durationMs: number): void;
   /** With createApp({ tracing }): a span per attempt that continues the trace the job was enqueued in. */
   tracing?: JobTracing;
+  /** With createApp({ events: { transport } }): carries published events between services. */
+  eventTransport?: EventTransport;
 }
 
 /** app.jobs plus what the framework tests reach directly. */
@@ -483,12 +488,17 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
     }
   };
 
-  const events = createEvents(subscriptions, async (def, input, id) => {
-    const queued = record(registered(def), input, undefined, id);
-    const trace = runtime.tracing?.capture();
-    if (trace?.traceparent) queued.trace = trace;
-    await runtime.store.add(queued);
-    return id;
+  const events = createEvents(subscriptions, {
+    async enqueue(def, input, id, from) {
+      const queued = record(registered(def), input, undefined, id);
+      const trace = from ?? runtime.tracing?.capture();
+      if (runtime.tracing && trace?.traceparent) queued.trace = trace;
+      await runtime.store.add(queued);
+      return id;
+    },
+    transport: runtime.eventTransport,
+    capture: runtime.tracing ? () => runtime.tracing!.capture() : undefined,
+    logger: runtime.logger,
   });
 
   const jobs: InternalJobs = {
@@ -536,6 +546,8 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
               await queueCrons(cronFrom, now);
               cronFrom = now;
             }
+            // Events from other services (createApp({ events: { transport } })) queue their jobs first.
+            if (events.transport) await events.receive().catch((error: unknown) => runtime.logger.error("event receive error", error));
             await jobs.runDue();
           } catch (error) {
             runtime.logger.error("job worker error", error);

@@ -20,7 +20,8 @@ import { clientIp, clientIps, clientSignals, keepEventStreamOpen, platformWaitUn
 import { redisJobStore } from "./redis-jobs.ts";
 import { knownBodies } from "./response-body.ts";
 import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
-import type { AppEvents } from "./events.ts";
+import { checkEventsConfig, invalidTransport, type AppEvents, type EventsConfig, type EventTransport } from "./events.ts";
+import { redisEventTransport } from "./redis-events.ts";
 import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
@@ -123,6 +124,11 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   jobs?: JobSource[];
   /** Where queued jobs are kept: { store: "memory" } (default) or { store: "database" } (Postgres table inferlo_jobs, shared by every instance). */
   jobQueue?: JobQueueConfig;
+  /**
+   * Events between services: { transport: "redis" } sends published events through Redis Streams (needs redis and
+   * name), so every service with an on(event, job) subscription gets them. Default: events stay in this app.
+   */
+  events?: EventsConfig;
   /**
    * Where ctx.cache and app.cache keep entries: { store: "memory" } (default), { store: "database" } (Postgres
    * table inferlo_cache) or { store: "redis" } (createApp({ redis })), both shared by every instance.
@@ -496,6 +502,14 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   for (const m of modules) for (const j of collectJobs(m.jobs)) jobModule.set(j.name, m.name);
   const moduleInfo: ModuleInfo = { modules, routeModule, modelOwner, jobModule };
   const jobSources: JobSource[] = [...(config.jobs ?? []), ...modules.flatMap((m) => m.jobs)];
+  const transportOption = checkEventsConfig(config.events);
+  let eventTransport: EventTransport | undefined;
+  if (transportOption === "redis") {
+    if (!redis) throw new InferloError("IL6031", 'events transport "redis" needs a Redis client, but createApp has no redis option.', { fix: 'Create and connect a client with the redis package: const redis = await createClient({ url: process.env.REDIS_URL }).connect(); then createApp({ name: "billing", redis, events: { transport: "redis" } }).' });
+    // The app name is the consumer group: two services with one name would split each other's events.
+    if (!config.name) throw invalidTransport('events transport "redis" needs createApp({ name }): each service reads events as its own consumer group, named after the app.');
+    eventTransport = redisEventTransport(redis, { group: config.name });
+  } else eventTransport = transportOption;
   const jobs = createJobs(
     collectJobs(jobSources),
     {
@@ -511,6 +525,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       logger,
       onRun: metrics ? (name, outcome, ms) => metrics.job(name, outcome, ms / 1000) : undefined,
       tracing: appTracing ? jobTracing(appTracing, "inferlo-app", config.version ?? "0.0.0") : undefined,
+      eventTransport,
     },
     collectCrons(jobSources),
     collectSubscriptions(jobSources),

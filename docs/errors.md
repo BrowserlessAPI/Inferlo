@@ -291,6 +291,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6032
 **Invalid event or event subscription.** `event(name, { payload, summary })` needs a name of lowercase words of letters, digits and dashes separated by dots (`"order.paid"`) and a payload schema; retries belong to the jobs. `on(event, job)` needs an event and a job whose input accepts the payload: use `input: orderPaid.payload`, or an object with some of its fields. In one app, each event name has one definition (export it once and import it), and each job is subscribed to an event once. `events.publish(event, payload, { id })` takes an id of 1 to 200 characters. See [Events](jobs.md#events).
 
+### IL6033
+**Invalid events option or transport.** `createApp({ events })` takes `{ transport }`, either `"redis"` (Redis Streams, which needs `createApp({ redis })`, IL6031, and a `name`, because each service reads as its own consumer group named after the app) or an object that implements `EventTransport`: `{ name, send(message), receive(names, deliver) }`. Example: `createApp({ name: "billing", redis, events: { transport: "redis" } })`. See [Events between services](jobs.md#between-services).
+
+### IL6034
+**A received event was dropped.** An event from the transport did not match this service's payload schema, so its jobs were not queued; the log line names the event, its id and the problem (not the payload). Delivering it again cannot help, so it is acknowledged. Publish and subscribe with the same event definition, from a shared package, and change payloads compatibly (add optional fields only). See [Events between services](jobs.md#between-services).
+
 ## Environment (7xxx)
 
 ### IL7001

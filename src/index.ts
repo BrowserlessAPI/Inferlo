@@ -70,7 +70,7 @@ export type { RedisClient } from "./redis.ts";
 export { job, isJob, retryDelayMs } from "./jobs.ts";
 export { cron, isCron } from "./cron.ts";
 export { event, isEvent, on } from "./events.ts";
-export type { AppEvents, EventDef, EventOptions, EventPayload, Events, OnDef, PublishedEvent, PublishOptions } from "./events.ts";
+export type { AppEvents, EventDef, EventMessage, EventOptions, EventPayload, Events, EventsConfig, EventTransport, OnDef, PublishedEvent, PublishOptions } from "./events.ts";
 export type { CronDef } from "./cron.ts";
 export type { JobTraceContext } from "./tracing.ts";
 export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, JobQueueConfig, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";

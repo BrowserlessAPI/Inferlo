@@ -16,6 +16,7 @@ export const app = createApp({
   rateLimit: { store: "redis" },   // route rateLimit counts, shared by every instance
   cache: { store: "redis" },       // ctx.cache, app.cache and cached routes
   jobQueue: { store: "redis" },    // background jobs and cron ticks
+  events: { transport: "redis" },  // events to and from other services (Redis Streams)
   health: true,                    // GET /ready also checks that Redis answers
 });
 ```
@@ -52,10 +53,22 @@ export const app = createApp({
 
 Use a Redis that keeps its data (AOF or RDB persistence, or a managed Redis with persistence), or queued jobs are lost when Redis restarts. `jobQueue: { store: "redis" }` without `createApp({ redis })` raises IL6031.
 
+## Events
+
+`createApp({ name, redis, events: { transport: "redis" } })` sends published events to other services through Redis Streams (see [Events between services](jobs.md#between-services)):
+
+- Each event name has one stream, `inferlo:events:<event name>`, shared by every app on the Redis (without the app prefix, so services find each other's events). `events.publish` adds one entry (`XADD`) with the fields `id`, `payload` (JSON), `publishedAt` and, with tracing, `traceparent` and `tracestate`.
+- Each service reads with a consumer group named after its `createApp({ name })`, created at the end of the stream the first time the service receives. Each instance is one consumer in the group (`XREADGROUP`, without blocking, on every worker poll), so the instances of a service share its events.
+- An entry is acknowledged (`XACK`) after its jobs are queued. An entry read but not acknowledged for 30 seconds is claimed by another instance (`XAUTOCLAIM`), so the events of a crashed instance are not lost. Consumers of stopped instances (nothing pending, idle for an hour) are removed from the group.
+- Streams are trimmed to about 100,000 entries each (`XADD ... MAXLEN ~`), so a subscriber that is down for a very long time can miss the oldest events.
+- A deleted stream or group (`FLUSHDB`) is created again on the next poll.
+
+As for the job queue, use a Redis that keeps its data, or events not yet received are lost when Redis restarts.
+
 ## Readiness
 
 With `createApp({ redis, health: true })`, `GET /ready` has a built-in `redis` check that sends `PING`, next to `database` and `ai` (see [Health and readiness](deploy.md#health-and-readiness)). A down or slow Redis makes the instance not ready instead of failing requests. Your own check cannot also be called `redis` (IL6014).
 
 ## Supported versions
 
-CI runs the Redis tests (rate limits, cache, job queue with cron ticks, and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
+CI runs the Redis tests (rate limits, cache, job queue with cron ticks, events transport, and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.

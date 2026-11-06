@@ -118,14 +118,40 @@ export const subscriptions = [on(orderPaid, sendReceipt), on(orderPaid, addPoint
 await ctx.events.publish(orderPaid, { orderId: order.id, amount: order.total });
 ```
 
-- `events.publish(event, payload)` validates the payload (a `ValidationError`, 422 in a route) and queues every job subscribed to the event, then returns `{ id, name, publishedAt, jobs }` (the queued job ids). The jobs run like any job: in `app.jobs.start()` or `inferlo worker`, with retries, in the memory, database or Redis queue, and in `app.jobs.runDue()` in tests. Publishing an event no job subscribes to is fine: it queues nothing.
+- `events.publish(event, payload)` validates the payload (a `ValidationError`, 422 in a route) and queues every job subscribed to the event (with a transport, see below, every service queues its own), then returns `{ id, name, publishedAt, jobs }` (the queued job ids). The jobs run like any job: in `app.jobs.start()` or `inferlo worker`, with retries, in the memory, database or Redis queue, and in `app.jobs.runDue()` in tests. Publishing an event no job subscribes to is fine: it queues nothing.
 - `app.events.publish(...)` publishes from scripts and tests. In jobs, `ctx.events` is the same.
 - Registering `on(event, job)` (in `createApp({ jobs })` or a module's `jobs`) registers its job too. Use the event's payload as the job's input (`input: orderPaid.payload`); a job whose input is an object with fewer fields gets only those fields, and a job that requires a field the payload does not have raises IL6032, as does an invalid event name, two different events with the same name, or the same job subscribed twice to one event.
 - Each queued job's id is derived from the event id and the job name, so publishing the same event id again queues nothing new: pass `{ id }` to make publishing idempotent, for example with the id of the row the event comes from (`events.publish(orderPaid, payload, { id: order.id })`). Handlers should still be idempotent, since a job can run again after a crash.
 - With `createApp({ tracing })`, the subscribed jobs continue the trace of the request that published the event.
 - `app.events.list` and `app.events.subscriptions` list the events and subscriptions, and `inferlo describe` shows each event with its payload schema and jobs.
 
-Events between services, through a message broker (Redis Streams first, then NATS, RabbitMQ and Kafka), are planned next; they will deliver to the same `on(event, job)` subscriptions.
+### Between services
+
+With `createApp({ events: { transport } })`, published events go to every service with an `on(event, job)` subscription for them, through a message broker. Redis Streams is built in:
+
+```ts
+// in each service: shop (publishes order.paid), billing and mail (subscribe to it)
+const redis = await createClient({ url: settings.REDIS_URL }).connect();   // from the redis package
+
+export const app = createApp({
+  name: "billing",                     // also the consumer group: one per service
+  redis,
+  jobs: [jobs],                        // on(orderPaid, createInvoice)
+  events: { transport: "redis" },
+});
+```
+
+- Share the event definitions between services (a small package or a shared folder), so publisher and subscribers check payloads with the same schema.
+- `events.publish(event, payload)` validates the payload and sends it; it does not queue jobs itself. Every service, the publishing one too, queues the jobs of its own subscriptions when it receives the event. `publish` still returns the ids those jobs will have in this app.
+- Services receive events while a worker runs (`app.jobs.start()` or `inferlo worker`), on every poll before due jobs run. `await app.events.receive()` receives the waiting events once (scripts and tests) and returns how many.
+- Delivery is at least once: an event is acknowledged after its jobs are queued, and an event an instance read but did not acknowledge (it crashed) is delivered again after 30 seconds. Since job ids come from the event id, a repeated delivery queues nothing new.
+- Each service gets each event once, however many instances it runs: the instances of one service (same `name`) share its events. That is why the Redis transport needs `createApp({ name })` (IL6033 without it).
+- A service only gets the events published after it first received from the transport (its worker's first poll creates its consumer group), so start subscribers before you rely on their events.
+- A received event whose payload does not match the subscriber's schema is logged with IL6034 (without the payload) and dropped, since delivering it again cannot help. Change payloads compatibly: add optional fields, and remove a field only after every subscriber stopped requiring it.
+- With `createApp({ tracing })`, the trace of the publishing request travels with the event, so the subscribed jobs in other services are part of the same trace.
+- `app.events.transport` is `"redis"` (or your transport's name), shown as `eventTransport` in `inferlo describe`. An unknown transport or option raises IL6033; `transport: "redis"` without `createApp({ redis })` raises IL6031.
+
+Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`); NATS, RabbitMQ and Kafka transports are planned as separate entry points.
 
 ## Where jobs are kept
 
