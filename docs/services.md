@@ -54,6 +54,21 @@ A call that does not succeed rejects with `ServiceCallError` (code IL2008, an `I
 - `retries` (default 0) repeats idempotent calls (GET, PUT, DELETE) after a network error, a timeout, or a 502, 503 or 504 answer, waiting 100 ms, 200 ms, 400 ms and so on. POST and PATCH are never repeated, since the first attempt may have been applied.
 - Invalid options and a missing path parameter raise IL2009.
 
+## Tracing across services
+
+With OpenTelemetry tracing, a request that calls other services is one trace. Pass the OpenTelemetry API to the client, as for `createApp({ tracing })`:
+
+```ts
+import * as otel from "@opentelemetry/api";
+
+export const tickets = serviceClient({ baseUrl: settings.TICKETS_URL, token: settings.TICKETS_TOKEN, tracing: { api: otel } });
+```
+
+- Every attempt gets a client span named after the method and the route's path (`GET /tickets/:id`), a child of the active span (the caller's request or job), with `http.request.method`, `url.full` (without the query string, so query values are never recorded), `url.template`, `server.address`, `server.port` and `http.response.status_code`. A repeated attempt has `http.request.resend_count`.
+- The call sends the client span's trace context in the `traceparent` header (and whatever else the propagator your OpenTelemetry SDK registers writes, such as `tracestate`). A receiving Inferlo app with `createApp({ tracing })` continues the trace: its server span is a child of the call's span.
+- An error answer sets the error status with the HTTP status as `error.type` (`"404"`); a timeout sets `"timeout"`, a cancelled call `"cancelled"`, and a network error the error's name.
+- Without `tracing`, no span is started and no trace header is sent. Without an OpenTelemetry SDK, the API's no-op tracer is used. See [Tracing](observability.md#tracing-opentelemetry).
+
 ## Testing
 
 Pass the other app's `fetch` to call it in the same process, without a network:
@@ -63,4 +78,4 @@ import { app as ticketsApp } from "../../tickets/src/app.ts";
 const tickets = serviceClient({ baseUrl: "http://tickets.test", token: "test-token", fetch: ticketsApp.fetch });
 ```
 
-Events between services through message transports (NATS, RabbitMQ, Kafka) are planned as later parts of this feature.
+Events between services through message transports (Redis Streams, NATS, RabbitMQ, Kafka) are planned as later parts of this feature.

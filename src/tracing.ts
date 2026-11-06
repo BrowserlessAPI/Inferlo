@@ -74,7 +74,7 @@ export interface RequestTracing {
 }
 
 /** Checks a tracing option (createApp or createAI) and returns it, or undefined without tracing. */
-export function checkTracing(option: unknown, where: "createApp" | "createAI"): TracingConfig | undefined {
+export function checkTracing(option: unknown, where: "createApp" | "createAI" | "serviceClient"): TracingConfig | undefined {
   if (option === undefined || option === false) return undefined;
   const config = option as TracingConfig;
   const api = config?.api as OtelApi | undefined;
@@ -128,8 +128,12 @@ export interface ClientTracing {
   start(name: string, attributes: Attributes): OtelSpan;
   /** Runs fn inside a client span that is active while fn runs, and ends it; errors are recorded on it. */
   run<T>(name: string, attributes: Attributes, fn: (span: OtelSpan) => Promise<T>): Promise<T>;
-  /** Records an error on a span and ends it. */
-  fail(span: OtelSpan, error: unknown): void;
+  /** Records an error on a span and ends it. errorType overrides error.type (by default the error's code or name). */
+  fail(span: OtelSpan, error: unknown, errorType?: string): void;
+  /** Runs fn with span as the active span. */
+  within<T>(span: OtelSpan, fn: () => T): T;
+  /** Writes the trace context of span (W3C traceparent, through the registered propagator) into headers. */
+  inject(span: OtelSpan, headers: Record<string, string>): void;
   /** True while a span (a request's or a job's) is active. */
   inSpan(): boolean;
 }
@@ -138,10 +142,11 @@ export function clientTracing(config: TracingConfig, defaultName: string, versio
   const api = config.api;
   const tracer = api.trace.getTracer(config.tracerName ?? defaultName, version);
   const kind = api.SpanKind.CLIENT ?? CLIENT_KIND;
-  const fail = (span: OtelSpan, error: unknown) => {
+  const fail = (span: OtelSpan, error: unknown, errorType?: string) => {
     span.recordException(error instanceof Error ? error : String(error));
     const code = (error as { code?: unknown })?.code;
-    if (typeof code === "string") span.setAttribute("error.type", code);
+    if (errorType) span.setAttribute("error.type", errorType);
+    else if (typeof code === "string") span.setAttribute("error.type", code);
     else span.setAttribute("error.type", error instanceof Error ? error.name : "Error");
     span.setStatus({ code: api.SpanStatusCode.ERROR });
     span.end();
@@ -150,6 +155,10 @@ export function clientTracing(config: TracingConfig, defaultName: string, versio
   return {
     start,
     fail,
+    within: (span, fn) => api.context.with(api.trace.setSpan(api.context.active(), span), fn),
+    inject(span, headers) {
+      api.propagation.inject?.(api.trace.setSpan(api.context.active(), span), headers);
+    },
     async run(name, attributes, fn) {
       const span = start(name, attributes);
       let result;

@@ -41,7 +41,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [ ] Performance part 2b: close the remaining gap to Fastify and Hono on Node.js (a lighter Request and Headers bridge in `toNodeHandler`, body reading without a Web stream, cheaper secure headers), with the results updated in docs/performance.md
 - [x] Performance part 3: a performance regression check in CI (Inferlo's throughput relative to Fastify on the same runner, so runner speed does not matter)
 - [x] Microservices part 1: typed service-to-service calls with `serviceClient({ baseUrl, token, timeoutMs, retries }).call(route, { params, query, body, ctx })`, typed from the other service's route definitions, forwarding the request id and the caller's cancellation, with IL2008 errors that keep the remote status and code
-- [ ] Microservices part 2: W3C trace context (`traceparent`) forwarded by `serviceClient` calls when tracing is on, so a request is one trace across services, and the receiving service's spans join it
+- [x] Microservices part 2: W3C trace context (`traceparent`) forwarded by `serviceClient` calls when tracing is on, so a request is one trace across services, and the receiving service's spans join it
 - [ ] Microservices part 3: events between services: `event("order.paid", { payload: t.object(...) })`, `app.events.publish(...)` and subscribers with a transport interface, an in-process transport for tests and a Redis Streams transport (at-least-once delivery, consumer groups)
 - [ ] Microservices part 4: NATS, RabbitMQ and Kafka event transports as separate entry points (peer dependencies), each tested on its oldest supported and latest versions
 - [ ] GraphQL support generated from models and routes (optional module)

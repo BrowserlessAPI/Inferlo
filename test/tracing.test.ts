@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { after, before, describe, test } from "node:test";
 import * as otel from "@opentelemetry/api";
 import { createAI, mockProvider, ProviderError } from "../src/ai/public.ts";
-import { bearer, createApp, InferloError, job, memory, model, route, t, type Adapter } from "../src/index.ts";
+import { bearer, createApp, InferloError, job, memory, model, notFound, route, serviceClient, ServiceCallError, t, type Adapter } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
 import { clientTracing, traceAdapter } from "../src/tracing.ts";
 
@@ -454,4 +454,105 @@ describe("tracing jobs", () => {
       }
     });
   }
+});
+
+describe("tracing calls between services", () => {
+  const quiet = { info: () => {}, error: () => {} };
+  const seen: (string | null)[] = [];
+  let unavailable = 0;
+  const getTicket = route.get("/tickets/:id", { auth: "public" }).handle(({ params, headers }) => {
+    seen.push(headers.get("traceparent"));
+    if (params.id === "missing") throw notFound();
+    return { id: params.id };
+  });
+  const flaky = route.get("/flaky", { auth: "public" }).handle(({ status }) => {
+    if (unavailable-- > 0) {
+      status(503);
+      return { error: { code: "IL9998", message: "busy" } };
+    }
+    return { ok: true };
+  });
+  const ticketsApp = createApp({ name: "tickets", routes: [{ getTicket, flaky }], tracing: { api: otel }, logger: quiet });
+
+  function callerApp(tracing: boolean) {
+    const tickets = serviceClient({ baseUrl: "http://tickets.internal/api", fetch: (req) => ticketsApp.fetch(new Request(req.url.replace("/api", ""), req)), retries: 1, ...(tracing ? { tracing: { api: otel } } : {}) });
+    const routes = {
+      show: route.get("/orders/:id", { auth: "public" }).handle(async (ctx) => ({ ticket: await tickets.call(getTicket, { params: { id: ctx.params.id }, ctx }) })),
+      flaky: route.get("/orders-flaky", { auth: "public" }).handle(async (ctx) => tickets.call(flaky, { ctx })),
+    };
+    return createApp({ name: "orders", routes: [routes], tracing: { api: otel }, logger: quiet });
+  }
+
+  test("a call is a client span under the request's span, and the other service's span joins the trace", async () => {
+    spans.length = 0;
+    seen.length = 0;
+    const res = await callerApp(true).fetch(new Request("http://orders.internal/orders/t-1"));
+    assert.equal(res.status, 200);
+    const caller = spans.find((s) => s.name === "GET /orders/:id")!;
+    const call = spans.find((s) => s.kind === otel.SpanKind.CLIENT)!;
+    const callee = spans.find((s) => s.name === "GET /tickets/:id" && s.kind === otel.SpanKind.SERVER)!;
+    assert.equal(call.name, "GET /tickets/:id");
+    assert.equal(call.parentSpanId, caller.context.spanId);
+    assert.equal(call.context.traceId, caller.context.traceId);
+    assert.equal(callee.parentSpanId, call.context.spanId, "the receiving service continues the trace from traceparent");
+    assert.equal(callee.context.traceId, caller.context.traceId);
+    assert.equal(seen[0], `00-${call.context.traceId}-${call.context.spanId}-01`);
+    assert.deepEqual(call.attributes, {
+      "http.request.method": "GET",
+      "url.full": "http://tickets.internal/api/tickets/t-1",
+      "url.template": "/tickets/:id",
+      "server.address": "tickets.internal",
+      "http.response.status_code": 200,
+    });
+    assert.equal(call.status.code, otel.SpanStatusCode.UNSET);
+    assert.ok(call.ended);
+  });
+
+  test("an error answer sets the error status with the HTTP status as error.type", async () => {
+    spans.length = 0;
+    const res = await callerApp(true).fetch(new Request("http://orders.internal/orders/missing"));
+    assert.equal(res.status, 502);
+    const call = spans.find((s) => s.kind === otel.SpanKind.CLIENT)!;
+    assert.equal(call.status.code, otel.SpanStatusCode.ERROR);
+    assert.equal(call.attributes["http.response.status_code"], 404);
+    assert.equal(call.attributes["error.type"], "404");
+    assert.ok(call.exceptions[0] instanceof ServiceCallError);
+    assert.ok(call.ended);
+  });
+
+  test("each attempt of a retried call gets its own span, the resend with http.request.resend_count", async () => {
+    spans.length = 0;
+    unavailable = 1;
+    const res = await callerApp(true).fetch(new Request("http://orders.internal/orders-flaky"));
+    assert.equal(res.status, 200);
+    const calls = spans.filter((s) => s.kind === otel.SpanKind.CLIENT);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]!.attributes["http.response.status_code"], 503);
+    assert.equal(calls[0]!.attributes["error.type"], "503");
+    assert.equal(calls[1]!.attributes["http.request.resend_count"], 1);
+    assert.equal(calls[1]!.attributes["http.response.status_code"], 200);
+    assert.ok(calls.every((s) => s.ended));
+  });
+
+  test("network errors record the exception and end the span", async () => {
+    spans.length = 0;
+    const client = serviceClient({ baseUrl: "http://down.internal", fetch: () => Promise.reject(new TypeError("fetch failed")), tracing: { api: otel } });
+    await assert.rejects(client.call(getTicket, { params: { id: "x" } }), (e: unknown) => e instanceof ServiceCallError && e.remoteStatus === 0);
+    const call = spans.find((s) => s.kind === otel.SpanKind.CLIENT)!;
+    assert.equal(call.status.code, otel.SpanStatusCode.ERROR);
+    assert.equal(call.attributes["error.type"], "TypeError");
+    assert.ok(call.ended);
+  });
+
+  test("without the tracing option no span is started and no traceparent is sent", async () => {
+    spans.length = 0;
+    seen.length = 0;
+    await callerApp(false).fetch(new Request("http://orders.internal/orders/t-2"));
+    assert.equal(spans.filter((s) => s.kind === otel.SpanKind.CLIENT).length, 0);
+    assert.equal(seen[0], null);
+  });
+
+  test("invalid tracing options raise IL6030", () => {
+    assert.throws(() => serviceClient({ baseUrl: "http://x.internal", tracing: {} as never }), (e: unknown) => e instanceof InferloError && e.code === "IL6030");
+  });
 });

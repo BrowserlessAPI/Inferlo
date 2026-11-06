@@ -8,10 +8,13 @@
  *   const ticket = await tickets.call(getTicket, { params: { id }, ctx });
  *
  * The route definition gives the method, the path and the types; nothing is generated and nothing is global.
- * Passing ctx forwards the request id (X-Request-Id) and cancels the call when the request is aborted.
+ * Passing ctx forwards the request id (X-Request-Id) and cancels the call when the request is aborted. With
+ * tracing: { api: otel }, every attempt is a client span that sends its W3C traceparent, so the other service's
+ * spans join the caller's trace.
  */
 import { InferloError } from "./errors.ts";
 import type { RouteDef } from "./route.ts";
+import { checkTracing, clientTracing, type ClientTracing, type OtelSpan, type TracingConfig } from "./tracing.ts";
 
 export interface ServiceClientOptions {
   /** Where the other service is reached, with any path prefix it is mounted under: "http://tickets.internal" or "https://api.example.com/v1". */
@@ -29,6 +32,12 @@ export interface ServiceClientOptions {
   retries?: number;
   /** The fetch to use. Default globalThis.fetch; pass otherApp.fetch to call an app in the same process (tests). */
   fetch?: (request: Request) => Promise<Response>;
+  /**
+   * OpenTelemetry tracing: import * as otel from "@opentelemetry/api", then tracing: { api: otel }. Every attempt
+   * gets a client span ("GET /tickets/:id") under the active span and sends its trace context (traceparent), so a
+   * receiving Inferlo app with createApp({ tracing }) continues the same trace.
+   */
+  tracing?: TracingConfig;
 }
 
 /** A route made with route.<method>(...).handle(...): carries the types of its input and answer. */
@@ -106,8 +115,8 @@ const sleep = (ms: number, signal: AbortSignal | undefined) =>
 export function serviceClient(options: ServiceClientOptions): ServiceClient {
   if (typeof options !== "object" || options === null) throw invalid("serviceClient() needs options.", 'Use serviceClient({ baseUrl: "http://tickets.internal" }).');
   for (const key of Object.keys(options)) {
-    if (!["baseUrl", "token", "headers", "timeoutMs", "retries", "fetch"].includes(key)) {
-      throw invalid(`serviceClient() has an unknown option "${key}".`, "The options are baseUrl, token, headers, timeoutMs, retries and fetch.");
+    if (!["baseUrl", "token", "headers", "timeoutMs", "retries", "fetch", "tracing"].includes(key)) {
+      throw invalid(`serviceClient() has an unknown option "${key}".`, "The options are baseUrl, token, headers, timeoutMs, retries, fetch and tracing.");
     }
   }
   let base: URL;
@@ -124,6 +133,8 @@ export function serviceClient(options: ServiceClientOptions): ServiceClient {
   if (!Number.isInteger(retries) || retries < 0 || retries > 10) throw invalid(`serviceClient() retries must be a whole number from 0 to 10, got ${String(options.retries)}.`, "Use retries: 2 for idempotent calls that may meet a restarting instance.");
   const doFetch = options.fetch ?? ((request: Request) => globalThis.fetch(request));
   const basePath = base.pathname.replace(/\/+$/, "");
+  const tracingConfig = checkTracing(options.tracing, "serviceClient");
+  const tracing: ClientTracing | undefined = tracingConfig ? clientTracing(tracingConfig, "inferlo") : undefined;
 
   return {
     async call(route: TypedRoute, input: CallInput<TypedRoute> = {} as CallInput<TypedRoute>) {
@@ -150,12 +161,24 @@ export function serviceClient(options: ServiceClientOptions): ServiceClient {
       for (let attempt = 1; ; attempt++) {
         const timeout = AbortSignal.timeout(timeoutMs);
         const combined = callerSignal ? AbortSignal.any([timeout, callerSignal]) : timeout;
+        let span: OtelSpan | undefined;
+        let headersSent = sent;
+        if (tracing) {
+          const attributes: Record<string, string | number> = { "http.request.method": method, "url.full": `${url.origin}${url.pathname}`, "url.template": route.path, "server.address": url.hostname };
+          if (url.port) attributes["server.port"] = Number(url.port);
+          if (attempt > 1) attributes["http.request.resend_count"] = attempt - 1;
+          span = tracing.start(`${method} ${route.path}`, attributes);
+          headersSent = { ...sent };
+          tracing.inject(span, headersSent);
+        }
         let response: Response;
         try {
-          response = await doFetch(new Request(url, { method, headers: sent, body: payload, signal: combined }));
+          const request = new Request(url, { method, headers: headersSent, body: payload, signal: combined });
+          response = await (span ? tracing!.within(span, () => doFetch(request)) : doFetch(request));
         } catch (error) {
-          if (callerSignal?.aborted) throw callerSignal.reason ?? error;
           const timedOut = timeout.aborted;
+          if (span) tracing!.fail(span, error, callerSignal?.aborted ? "cancelled" : timedOut ? "timeout" : undefined);
+          if (callerSignal?.aborted) throw callerSignal.reason ?? error;
           if (attempt < attempts) {
             await sleep(100 * 2 ** (attempt - 1), callerSignal);
             continue;
@@ -170,13 +193,16 @@ export function serviceClient(options: ServiceClientOptions): ServiceClient {
           (failure as { cause?: unknown }).cause = error;
           throw failure;
         }
+        span?.setAttribute("http.response.status_code", response.status);
         if (response.ok) {
+          span?.end();
           if (response.status === 204 || method === "HEAD") return undefined as never;
           const type = response.headers.get("content-type") ?? "";
           if (/^application\/(.+\+)?json\b/i.test(type)) return (await response.json()) as never;
           return response as never;
         }
         if (RETRY_STATUS.has(response.status) && attempt < attempts) {
+          if (span) tracing!.fail(span, new Error(`${where} answered ${response.status}.`), String(response.status));
           await response.body?.cancel();
           await sleep(100 * 2 ** (attempt - 1), callerSignal);
           continue;
@@ -188,7 +214,7 @@ export function serviceClient(options: ServiceClientOptions): ServiceClient {
           remote = undefined;
         }
         const code = typeof remote?.code === "string" ? remote.code : undefined;
-        throw new ServiceCallError(
+        const failure = new ServiceCallError(
           `${where} answered ${response.status}${code ? ` ${code}` : ""}${remote?.message ? `: ${remote.message}` : ""}.`,
           response.status,
           code,
@@ -199,6 +225,8 @@ export function serviceClient(options: ServiceClientOptions): ServiceClient {
               : "Check the input against the other service's route, or handle the answer: catch the error and read error.remoteStatus.",
           details({ status: response.status, code, attempts: attempt }),
         );
+        if (span) tracing!.fail(span, failure, String(response.status));
+        throw failure;
       }
     },
   } as ServiceClient;

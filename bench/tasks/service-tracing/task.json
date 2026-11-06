@@ -1,0 +1,5 @@
+{
+  "title": "Trace calls to another service",
+  "prompt": "Our platform collects traces with OpenTelemetry, and the billing service already traces its requests. Calls from src/clients.ts to billing should be part of the same trace: each call should get its own client span and send the trace context to billing. Use the @opentelemetry/api package; do not add an OpenTelemetry SDK, the platform starts one before the app.",
+  "packages": ["@opentelemetry/api"]
+}

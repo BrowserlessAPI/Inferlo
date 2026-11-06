@@ -176,6 +176,7 @@ Every `ai.generate`, `ai.stream` and `ai.embed` call gets a client span under th
 - The span is active while `generate` runs, so routes and function tools the model calls, and their database queries, become its children. A stream's span ends when the stream does.
 - A failed call (for example when every model failed) sets the error status, records the exception and sets `error.type` to the Inferlo error code (`IL5003`).
 - `createAI` on its own (`@browserlessapi/inferlo/ai`, in any framework) takes the same option: `createAI({ providers, models, tracing: { api: otel } })`. In an app, `createApp({ tracing })` turns it on for `ctx.ai` and `app.ai`.
+- Calls to other services with `serviceClient({ ..., tracing: { api: otel } })` get a client span per attempt and send its `traceparent`, so the receiving service's spans join the same trace. See [Tracing across services](services.md#tracing-across-services).
 
 ### Database queries
 
