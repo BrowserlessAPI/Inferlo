@@ -362,6 +362,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL4027
 **No tenant for a tenant-scoped table.** The table was made with `model(name, fields, { tenant: true })`, and this db client does not know which tenant to work for: a request without a signed-in user, a user without a tenant (`user.tenantId`, or what `auth.tenant(user)` returns, is `null` or `undefined`), or `app.db`, a job or a script. In routes, give signed-in users a tenant; elsewhere use `db.$tenant(tenantId)`, or `db.$allTenants()` to read across tenants (it cannot insert). Also raised when a tenant id is not a non-empty string of at most 200 characters.
 
+### IL4028
+**`db.$pgClient()` needs Postgres.** `$pgClient()` returns the `pg` pool (or a transaction's connection) for other libraries on the same database, such as Drizzle, so it only works with `postgres({ url })` or `postgres({ pool })` from `@browserlessapi/inferlo/postgres`. With `memory()` there is no pg client: use Inferlo models there, or a Postgres database in tests. See [Drizzle ORM](integrations.md#drizzle-orm).
+
 ## CLI (8xxx)
 
 ### IL8000

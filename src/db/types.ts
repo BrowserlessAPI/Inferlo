@@ -35,5 +35,7 @@ export interface Adapter {
   transaction?<T>(fn: (tx: Adapter) => Promise<T>): Promise<T>;
   /** Raw parameterised SQL (Postgres only). */
   sql?(text: string, params?: unknown[]): Promise<DbRecord[]>;
+  /** The pg client queries run on (Postgres only): the pool, or a transaction's connection. */
+  client?(): Promise<unknown>;
   close?(): Promise<void>;
 }

@@ -1,0 +1,4 @@
+{
+  "title": "One transaction for Inferlo and existing pg code",
+  "prompt": "The app shares its Postgres database with older code that uses Drizzle. Create src/routes/payments.ts with `export const payInvoice`: POST /invoices/:id/pay where id is an integer and the body is { cents } (an integer of at least 1). It must insert a Receipt (model receipts: invoiceId, cents) and call recordPayment(client, invoiceId, cents) from src/ledger.ts, both in the same database transaction, so that either both are saved or neither is. Answer 201 with the receipt. Register the routes module in src/app.ts."
+}

@@ -1,0 +1,34 @@
+import { model, t } from "@browserlessapi/inferlo";
+
+export const User = model("users", {
+  email: t.email().unique(),
+  name: t.string().max(80),
+  role: t.enum(["member", "admin"]).default("member"),
+});
+
+export const ApiKey = model("api_keys", {
+  userId: t.ref("users", { onDelete: "cascade" }),
+  hash: t.string().max(64).unique(),
+  label: t.string().max(80).default("default"),
+});
+
+export const Note = model("notes", {
+  title: t.string().min(1).max(200),
+  body: t.text().default(""),
+  ownerId: t.ref("users", { onDelete: "cascade" }),
+});
+
+// A receipt for a payment of one of the invoices the Drizzle part of the app owns.
+export const Receipt = model("receipts", { invoiceId: t.int(), cents: t.int().min(1) });
+
+// inferlo:models
+export const models = [User, ApiKey, Note, Receipt] as const;
+
+export type AppUser = { id: string; email: string; name: string; roles: string[] };
+
+declare module "@browserlessapi/inferlo" {
+  interface Register {
+    models: typeof models;
+    user: AppUser;
+  }
+}

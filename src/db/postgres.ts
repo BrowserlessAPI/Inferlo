@@ -308,6 +308,7 @@ function createPgAdapter(
     async sql(text, params = []) {
       return (await run(text, params)).rows;
     },
+    client,
     async transaction(fn) {
       const pool = (await client()) as PoolLike;
       if (typeof pool.connect !== "function") return fn(adapter);

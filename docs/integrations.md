@@ -943,6 +943,49 @@ export const assistant = route
 - `bindTools` also takes LangChain tools and OpenAI-style tool definitions.
 - `@langchain/core` is an optional peer dependency: install it (and `langchain` or `@langchain/langgraph` for agents) in your app. The core package never loads it. Tested with `@langchain/core` 0.3 (newest 0.3.x, maintained until December 2026) and the latest release (1.x). Invalid arguments raise IL5030.
 
+## Drizzle ORM
+
+An app that already uses [Drizzle](https://orm.drizzle.team) on Postgres can add Inferlo next to it, on the same database, without moving its tables. A tested example is in `examples/with-drizzle`.
+
+**One pool for both.** Create the `pg` pool once and give it to Drizzle and to `postgres({ pool })`:
+
+```ts
+// src/db.ts
+import pg from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import * as schema from "./schema.ts"; // your existing Drizzle schema
+
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
+export const orm = drizzle({ client: pool, schema });
+
+// src/app.ts
+export const app = createApp({ models, db: postgres({ pool }), routes, auth });
+```
+
+**Drizzle in routes and jobs.** Import `orm` where you need it, as any module: `await orm.select().from(invoices).where(eq(invoices.customerId, id))`. Inferlo adds no wrapper, so Drizzle queries do not get `ctx.db`'s request timeout or tenant filter; keep Inferlo models (`ctx.db`) for tables that need them. Errors from Drizzle are not Inferlo errors: they answer 500 with the details logged, never sent.
+
+**One transaction for both.** Start the transaction with Inferlo and run Drizzle on the transaction's connection, which `tx.$pgClient()` returns. Both commit together, and an error in either rolls both back:
+
+```ts
+export const createInvoice = route
+  .post("/invoices", { body: t.object({ customerId: t.int(), cents: t.int().min(1), reminder: t.string().max(500) }) })
+  .handle(({ body, db }) =>
+    db.$transaction(async (tx) => {
+      const txOrm = drizzle({ client: await tx.$pgClient<pg.PoolClient>(), schema });
+      const [invoice] = await txOrm.insert(invoices).values({ customerId: body.customerId, cents: body.cents }).returning();
+      const reminder = await tx.reminders.insert({ invoiceId: invoice.id, message: body.reminder });
+      return { invoice, reminder };
+    }),
+  );
+```
+
+- `db.$pgClient()` is the `pg.Pool` outside a transaction and the transaction's `pg.PoolClient` inside `$transaction` (pass the `pg` type you need: `tx.$pgClient<pg.PoolClient>()`). Any code that takes a pg client (Drizzle, Kysely, plain `pg` helpers) can use it. With `memory()` it raises IL4028.
+- Do not start the transaction with `orm.transaction(...)` and use Inferlo inside it: Inferlo would not see Drizzle's connection.
+
+**Migrations.** Each tool manages its own tables. `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create, so Drizzle's tables are safe. Give new Inferlo models names that Drizzle does not use, and tell drizzle-kit to leave Inferlo's tables alone with `tablesFilter` in `drizzle.config.ts` (list your Drizzle tables, or exclude Inferlo's: `tablesFilter: ["!reminders", "!inferlo_*", "!audit_log"]`), so `drizzle-kit push` never offers to drop them. Inferlo's built-in tables start with `inferlo_` (jobs, rate limits, cache, migrations) or are `audit_log`.
+
+Inferlo models can store the id of a Drizzle row as a plain field (`invoiceId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with `drizzle-orm` 0.44.0 and the latest release, on the oldest supported and the newest PostgreSQL.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).

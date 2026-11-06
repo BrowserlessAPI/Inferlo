@@ -571,13 +571,18 @@ function singular(name: string): string {
 /** db.<table> for every registered model, plus helpers. */
 export type Db<Models extends readonly AnyModel[]> = { [M in Models[number] as M["name"]]: Table<M, Models> } & DbHelpers;
 
+/** What db.$pgClient() returns by default: a pg.Pool or pg.PoolClient (pass the pg type you need as T). */
+export interface PgClient {
+  query(text: string, params?: unknown[]): Promise<{ rows: DbRecord[]; rowCount: number | null }>;
+}
+
 export interface DbHelpers {
   /** The underlying adapter. */
   readonly $adapter: Adapter;
   /** Create missing tables, columns and indexes. */
   $sync(options?: { dryRun?: boolean }): Promise<string[]>;
   /** Run fn in a transaction (Postgres). With memory() it simply runs fn. tx works for the same tenant as this client. */
-  $transaction<T>(fn: (tx: Db<any>) => Promise<T>): Promise<T>;
+  $transaction<T>(fn: (tx: this) => Promise<T>): Promise<T>;
   /**
    * A client for one tenant: tenant-scoped tables (model(name, fields, { tenant: true })) are filtered by
    * and stamped with tenantId. For jobs, scripts and tests: db.$tenant("acme").tickets.findMany().
@@ -589,6 +594,12 @@ export interface DbHelpers {
   readonly $tenantId: string | "all" | null;
   /** Raw parameterised SQL (Postgres): $sql("select * from tickets where id = $1", [id]). */
   $sql(text: string, params?: unknown[]): Promise<DbRecord[]>;
+  /**
+   * The pg client this db client's queries run on (Postgres): the pg.Pool, or inside $transaction the
+   * transaction's pg.PoolClient. For other libraries on the same database and transaction, such as Drizzle:
+   * drizzle({ client: await tx.$pgClient<PoolClient>() }). Raises IL4028 with other adapters.
+   */
+  $pgClient<T = PgClient>(): Promise<T>;
   $close(): Promise<void>;
 }
 
@@ -613,6 +624,10 @@ export function bindDb<const Models extends readonly AnyModel[]>(models: Models,
         if (!current.sql) throw new InferloError("IL4008", `Raw SQL is not supported by the ${current.dialect} adapter.`, { fix: "Use postgres() from @browserlessapi/inferlo/postgres." });
         return current.sql(text, params);
       },
+      $pgClient: (async () => {
+        if (!current.client) throw new InferloError("IL4028", `db.$pgClient() needs a Postgres database, but this app uses the ${current.dialect} adapter.`, { fix: 'Use postgres({ url }) or postgres({ pool }) from "@browserlessapi/inferlo/postgres" as createApp({ db }).' });
+        return current.client();
+      }) as DbHelpers["$pgClient"],
       $close: async () => current.close?.(),
     };
     Object.assign(db, helpers);
@@ -651,5 +666,6 @@ export function guardAdapter(adapter: Adapter, signal: AbortSignal): Adapter {
   };
   if (adapter.transaction) guarded.transaction = async (fn) => (check(), adapter.transaction!((tx) => fn(guardAdapter(tx, signal))));
   if (adapter.sql) guarded.sql = async (text, params) => (check(), adapter.sql!(text, params));
+  if (adapter.client) guarded.client = async () => (check(), adapter.client!());
   return guarded;
 }
