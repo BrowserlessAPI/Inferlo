@@ -39,7 +39,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Performance part 1: published, reproducible throughput and latency benchmarks against Fastify, Hono, Express and NestJS (`npm run bench:perf`, docs/performance.md)
 - [x] Performance part 2a: no `AbortSignal.any`, AI tool binding or audit writer per request unless the handler uses them, the client's disconnect signal kept outside the Request, and JSON answers written in one piece on Node.js (+20% throughput)
 - [ ] Performance part 2b: close the remaining gap to Fastify and Hono on Node.js (a lighter Request and Headers bridge in `toNodeHandler`, body reading without a Web stream, cheaper secure headers), with the results updated in docs/performance.md
-- [ ] Performance part 3: a performance regression check in CI (Inferlo's throughput relative to Fastify on the same runner, so runner speed does not matter)
+- [x] Performance part 3: a performance regression check in CI (Inferlo's throughput relative to Fastify on the same runner, so runner speed does not matter)
 - [ ] Microservices: service-to-service calls with typed clients, and message transports (NATS, RabbitMQ, Kafka) for events between services
 - [ ] GraphQL support generated from models and routes (optional module)
 - [x] Support policy: `docs/support.md` with semantic versioning, LTS releases after 1.0, deprecation rules and supported runtime versions

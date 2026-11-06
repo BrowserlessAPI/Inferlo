@@ -97,6 +97,8 @@ node scripts/build-llms.ts --check   # llms-full.txt is up to date
 
 If you change docs, run `npm run llms` to regenerate `llms-full.txt`.
 
+CI also runs `npm run bench:perf:check`, which fails when Inferlo's throughput relative to Fastify drops below a floor in `bench/perf/limits.json`. When a change makes Inferlo faster, raise the floors; never lower them to let a slower change through.
+
 ## How to make a change
 
 1. Work through ROADMAP.md from the top: up to three items per run, each as its own complete commit. Fix bugs you find first.

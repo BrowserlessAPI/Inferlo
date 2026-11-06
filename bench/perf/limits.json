@@ -1,0 +1,6 @@
+{
+  "minRatio": {
+    "GET /hello (JSON)": 0.15,
+    "POST /echo (validated JSON body)": 0.15
+  }
+}

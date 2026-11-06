@@ -122,6 +122,20 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/redis.test.ts test/rate-limit.test.ts test/cache.test.ts test/health.test.ts test/jobs-queue.test.ts
 
+  performance:
+    # Fails when Inferlo's throughput relative to Fastify's (same runner, same run) drops below the floors in
+    # bench/perf/limits.json, so a slower change is caught whatever the speed of the runner.
+    name: Performance regression check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run bench:perf:check
+
   typescript:
     name: TypeScript ${{ matrix.typescript }}
     runs-on: ubuntu-latest

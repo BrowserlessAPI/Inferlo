@@ -44,6 +44,22 @@ Inferlo is at the level of Express and NestJS and behind Fastify and Hono.
 | 2026-11-05 | First measurement (Inferlo 0.6.0) | 11,894 | 8,494 |
 | 2026-11-05 | Part 2a: `ctx.signal`, `ctx.ai` and `ctx.audit` built on first use; the client's disconnect signal kept next to the Request instead of inside it; JSON answers written in one piece with `Content-Length` | 14,306 | 10,070 |
 
-Each row was measured on the machine above, in the same run as the other frameworks. What is left, from CPU profiles: building a full Web `Request` and `Headers` for every Node.js request, reading the body through a Web stream, and garbage collection of those objects. Closing that gap is on the [roadmap](../ROADMAP.md) (performance part 2b), followed by a CI check that fails when a change makes Inferlo slower (part 3). This page is updated with every new measurement.
+Each row was measured on the machine above, in the same run as the other frameworks. What is left, from CPU profiles: building a full Web `Request` and `Headers` for every Node.js request, reading the body through a Web stream, and garbage collection of those objects. Closing that gap is on the [roadmap](../ROADMAP.md) (performance part 2b). This page is updated with every new measurement.
+
+## Regression check in CI
+
+Every push runs `npm run bench:perf:check` (bench/perf/check.ts) in the "Performance regression check" CI job. It measures Inferlo and Fastify on both routes in three rounds (5 s per route after a 2 s warm-up) and fails when Inferlo's throughput **relative to Fastify's** drops below the floor for a route in `bench/perf/limits.json`:
+
+```json
+{ "minRatio": { "GET /hello (JSON)": 0.15, "POST /echo (validated JSON body)": 0.15 } }
+```
+
+- Absolute requests per second depend on the runner, so they are never compared: both frameworks run on the same machine in the same run, and the speed of the runner cancels out.
+- Each round gives one Inferlo / Fastify ratio per route, and the check uses the median, so one noisy round does not decide the result. Errors or non-2xx answers under load fail the check.
+- A floor is only ever raised: when a change makes Inferlo faster, raise the floor (leaving room for runner noise, about a quarter below the ratios CI reports) so the gain is kept. A change that falls below a floor is profiled and made faster, not merged with a lower floor.
+
+The first floors are 0.15 for both routes, below the 0.26 to 0.36 measured on the machine above, while CI collects the ratios of its own runners; they are raised once those are known.
+
+Run it locally with `npm run bench:perf:check`, or `node bench/perf/check.ts --rounds 5 --duration 10` for a steadier result.
 
 Numbers depend on the machine, the Node.js version and the load. Compare frameworks within one run, and run the benchmark on hardware like your production servers before drawing conclusions.
