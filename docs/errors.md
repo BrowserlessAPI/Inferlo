@@ -288,6 +288,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6031
 **Redis client missing or invalid.** `createApp({ redis })` takes a connected Redis client with a `sendCommand` method: `const redis = await createClient({ url: process.env.REDIS_URL }).connect()` from the `redis` package (node-redis 5 or newer), or an ioredis client wrapped as `{ sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }`. `rateLimit: { store: "redis" }`, `cache: { store: "redis" }` and `jobQueue: { store: "redis" }` need `createApp({ redis })`. See [Redis](redis.md).
 
+### IL6032
+**Invalid event or event subscription.** `event(name, { payload, summary })` needs a name of lowercase words of letters, digits and dashes separated by dots (`"order.paid"`) and a payload schema; retries belong to the jobs. `on(event, job)` needs an event and a job whose input accepts the payload: use `input: orderPaid.payload`, or an object with some of its fields. In one app, each event name has one definition (export it once and import it), and each job is subscribed to an event once. `events.publish(event, payload, { id })` takes an id of 1 to 200 characters. See [Events](jobs.md#events).
+
 ## Environment (7xxx)
 
 ### IL7001

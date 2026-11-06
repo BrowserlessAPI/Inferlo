@@ -19,7 +19,8 @@ import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimit
 import { clientIp, clientIps, clientSignals, platformWaitUntil } from "./client-ip.ts";
 import { redisJobStore } from "./redis-jobs.ts";
 import { knownBodies } from "./response-body.ts";
-import { collectCrons, collectJobs, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
+import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFor, stopWorkers, type AppJobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
+import type { AppEvents } from "./events.ts";
 import type { Server } from "./serve.ts";
 import { ValidationError, type AnySchema } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
@@ -118,7 +119,7 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    */
   modules?: Modules;
   routes?: RouteSource[];
-  /** Background jobs and crons: jobs, cron(schedule, job) values, arrays or modules (import * as jobs from "./jobs.ts"). */
+  /** Background jobs, crons and event subscriptions: jobs, cron(schedule, job) and on(event, job) values, arrays or modules (import * as jobs from "./jobs.ts"). */
   jobs?: JobSource[];
   /** Where queued jobs are kept: { store: "memory" } (default) or { store: "database" } (Postgres table inferlo_jobs, shared by every instance). */
   jobQueue?: JobQueueConfig;
@@ -233,6 +234,8 @@ export interface App<Models extends readonly AnyModel[]> {
   readonly ai: AI;
   /** Background jobs: app.jobs.enqueue(job, input), app.jobs.start() to run them, app.jobs.runDue() in tests. */
   readonly jobs: AppJobs;
+  /** Events: app.events.publish(orderPaid, payload) queues the jobs subscribed with on(event, job) in createApp({ jobs }). */
+  readonly events: AppEvents;
   /** The app cache, the same as ctx.cache: await app.cache.getOrSet(key, { ttlMs, tags }, compute), app.cache.invalidate(tag). */
   readonly cache: Cache;
   /** Standard fetch handler: export default app works on Bun, Deno and Cloudflare Workers. */
@@ -510,7 +513,9 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       tracing: appTracing ? jobTracing(appTracing, "inferlo-app", config.version ?? "0.0.0") : undefined,
     },
     collectCrons(jobSources),
+    collectSubscriptions(jobSources),
   );
+  const events = jobs.events;
   const maxBody = config.maxBodySize ?? 1024 * 1024;
   const secureHeaders = resolveSecureHeaders(config.secureHeaders);
   const cors: CorsConfig | undefined = config.cors === true ? { origin: "*" } : config.cors || undefined;
@@ -793,6 +798,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           },
           requestId,
           jobs,
+          events,
           cache,
           req,
           url,
@@ -973,6 +979,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     db,
     ai,
     jobs,
+    events,
     cache,
 
     get closing() {

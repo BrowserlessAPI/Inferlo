@@ -16,6 +16,7 @@ import type { Cache } from "./cache.ts";
 import { cronTickId, isCron, type CronDef } from "./cron.ts";
 import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
+import { createEvents, isOn, type AppEvents, type Events, type OnDef } from "./events.ts";
 import type { AppDb } from "./route.ts";
 import { ValidationError, type AnySchema, type Infer, type InferInput } from "./schema.ts";
 import type { JobTraceContext, JobTracing } from "./tracing.ts";
@@ -36,6 +37,8 @@ export interface JobContext<Input> {
   ai: AI;
   /** Enqueue follow-up jobs. */
   jobs: Jobs;
+  /** Publish events: await events.publish(orderPaid, { orderId }) queues the jobs subscribed with on(event, job). */
+  events: Events;
   /** The app cache, the same as ctx.cache in routes and app.cache. */
   cache: Cache;
   /** Job id. */
@@ -204,8 +207,8 @@ export function isJob(value: unknown): value is JobDef {
   return typeof value === "object" && value !== null && (value as JobDef).kind === "inferlo.job";
 }
 
-/** Anything that contains jobs: a job, a cron, an array, or a module (import * as jobs from "./jobs.ts"). */
-export type JobSource = JobDef | CronDef | readonly JobSource[] | { readonly [name: string]: unknown };
+/** Anything that contains jobs: a job, a cron, an event subscription (on), an array, or a module (import * as jobs from "./jobs.ts"). */
+export type JobSource = JobDef | CronDef | OnDef | readonly JobSource[] | { readonly [name: string]: unknown };
 
 /** The jobs and crons in createApp({ jobs }). A cron's job is registered with it. */
 export function collectJobs(sources: readonly JobSource[] | undefined): JobDef[] {
@@ -216,9 +219,15 @@ export function collectCrons(sources: readonly JobSource[] | undefined): CronDef
   return collect(sources).crons;
 }
 
-function collect(sources: readonly JobSource[] | undefined): { jobs: JobDef[]; crons: CronDef[] } {
+/** The event subscriptions, on(event, job), in createApp({ jobs }). */
+export function collectSubscriptions(sources: readonly JobSource[] | undefined): OnDef[] {
+  return collect(sources).subscriptions;
+}
+
+function collect(sources: readonly JobSource[] | undefined): { jobs: JobDef[]; crons: CronDef[]; subscriptions: OnDef[] } {
   const out: JobDef[] = [];
   const crons: CronDef[] = [];
+  const subscriptions: OnDef[] = [];
   const seen = new Set<unknown>();
   const visit = (source: unknown) => {
     if (!source || typeof source !== "object" || seen.has(source)) return;
@@ -227,8 +236,11 @@ function collect(sources: readonly JobSource[] | undefined): { jobs: JobDef[]; c
     else if (isCron(source)) {
       crons.push(source);
       visit(source.job);
+    } else if (isOn(source)) {
+      subscriptions.push(source);
+      visit(source.job);
     } else if (Array.isArray(source)) source.forEach(visit);
-    else for (const value of Object.values(source)) if (isJob(value) || isCron(value) || Array.isArray(value)) visit(value);
+    else for (const value of Object.values(source)) if (isJob(value) || isCron(value) || isOn(value) || Array.isArray(value)) visit(value);
   };
   visit(sources);
   const names = new Map<string, JobDef>();
@@ -236,7 +248,7 @@ function collect(sources: readonly JobSource[] | undefined): { jobs: JobDef[]; c
     if (names.has(j.name)) throw new InferloError("IL6009", `Two jobs are named "${j.name}".`, { fix: "Give each job a unique name." });
     names.set(j.name, j);
   }
-  return { jobs: out, crons };
+  return { jobs: out, crons, subscriptions };
 }
 
 /** Jobs kept in this process. They are lost when it stops, so use it for development and tests. */
@@ -418,9 +430,11 @@ export interface JobRuntime {
 export interface InternalJobs extends AppJobs {
   /** Queue the job of each cron's latest tick in (from, to]. */
   queueCrons(from: Date, to: Date): Promise<void>;
+  /** app.events: publishing queues the jobs subscribed with on(event, job). */
+  readonly events: AppEvents;
 }
 
-export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: readonly CronDef[] = []): InternalJobs {
+export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: readonly CronDef[] = [], subscriptions: readonly OnDef[] = []): InternalJobs {
   const byName = new Map(list.map((j) => [j.name, j]));
   const names = list.map((j) => j.name);
   const running = new Set<Worker>();
@@ -469,9 +483,18 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
     }
   };
 
+  const events = createEvents(subscriptions, async (def, input, id) => {
+    const queued = record(registered(def), input, undefined, id);
+    const trace = runtime.tracing?.capture();
+    if (trace?.traceparent) queued.trace = trace;
+    await runtime.store.add(queued);
+    return id;
+  });
+
   const jobs: InternalJobs = {
     list,
     crons,
+    events,
     queueCrons,
     queue: runtime.queue ?? "memory",
     async enqueue(j, input, options = {}) {
@@ -552,7 +575,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
     const heartbeat = touch ? setInterval(() => void touch(record.id).catch(() => {}), runtime.heartbeatMs ?? HEARTBEAT_MS) : undefined;
     try {
       if (!def) throw new InferloError("IL6010", `"${record.name}" is not a registered job.`, { fix: "Add the job to createApp({ jobs: [...] }) in the process that runs jobs." });
-      await def.handler({ input: parse(def, record.input), db: runtime.db, ai: runtime.ai, jobs, cache: runtime.cache, id: record.id, attempt: record.attempts, audit: runtime.audit({ name: record.name, id: record.id }) });
+      await def.handler({ input: parse(def, record.input), db: runtime.db, ai: runtime.ai, jobs, events, cache: runtime.cache, id: record.id, attempt: record.attempts, audit: runtime.audit({ name: record.name, id: record.id }) });
       await runtime.store.update(record.id, { status: "done" });
       return "done";
     } catch (error) {

@@ -72,6 +72,8 @@ export interface AppDescription {
   jobs: { name: string; module?: string; summary?: string; retries: number; input: JSONSchema }[];
   /** Schedules from cron(schedule, job), in UTC. */
   crons: { schedule: string; job: string }[];
+  /** Events with subscriptions in this app, from on(event, job): the payload schema and the jobs each one queues. */
+  events: { name: string; summary?: string; payload: JSONSchema; jobs: string[] }[];
   /** Where queued jobs are kept. */
   jobQueue: "memory" | "database" | "redis";
   /** Where ctx.cache and app.cache keep entries. */
@@ -154,6 +156,12 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     jobQueue: app.jobs.queue,
     cache: app.cache.store,
     crons: app.jobs.crons.map((c) => ({ schedule: c.schedule, job: c.job.name })),
+    events: app.events.list.map((e) => ({
+      name: e.name,
+      ...(e.summary ? { summary: e.summary } : {}),
+      payload: e.payload.toJSONSchema(),
+      jobs: app.events.subscriptions.filter((s) => s.event === e).map((s) => s.job.name),
+    })),
     jobs: app.jobs.list.map((j) => ({ name: j.name, ...(info.jobModule.has(j.name) ? { module: info.jobModule.get(j.name) } : {}), ...(j.options.summary ? { summary: j.options.summary } : {}), retries: j.options.retries ?? 3, input: j.options.input.toJSONSchema() })),
   };
 }

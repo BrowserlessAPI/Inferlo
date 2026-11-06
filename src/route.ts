@@ -11,6 +11,7 @@
 import type { Deprecation } from "./deprecation.ts";
 import type { AI } from "./ai/index.ts";
 import type { Db } from "./db/table.ts";
+import type { Events } from "./events.ts";
 import type { Jobs } from "./jobs.ts";
 import type { AnyModel } from "./model.ts";
 import type { Audit } from "./audit.ts";
@@ -114,6 +115,8 @@ export interface Context<Body, Query, Params, User> {
   ai: AI;
   /** Queue background jobs: await jobs.enqueue(sendEmail, { to }). */
   jobs: Jobs;
+  /** Publish events: await events.publish(orderPaid, { orderId }) queues the jobs subscribed with on(event, job). */
+  events: Events;
   /** The app cache: await cache.getOrSet(key, { ttlMs: 60_000, tags: ["tickets"] }, compute), cache.invalidate("tickets"). */
   cache: Cache;
   req: Request;

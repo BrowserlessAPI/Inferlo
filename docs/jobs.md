@@ -88,6 +88,45 @@ export const nightly = cron("0 3 * * *", deleteOldSessions);   // every day at 0
 - Each tick gets a fixed job id, so with the database queue every instance can run the schedule and the job is still queued once per tick.
 - `cron.next(date)` returns the first tick after a date, and `app.jobs.crons` lists the crons. To test the work itself, enqueue the job: `await app.jobs.enqueue(deleteOldSessions, {})`, then `await app.jobs.runDue()`.
 
+## Events
+
+An event says that something happened (`order.paid`, `note.deleted`). The code that publishes it does not know who reacts; jobs subscribe to it with `on(event, job)`. Each subscribed job runs in the background with the event's payload, with its own retries.
+
+```ts
+// src/events.ts
+import { event, t } from "@browserlessapi/inferlo";
+
+export const orderPaid = event("order.paid", {
+  payload: t.object({ orderId: t.uuid(), amount: t.int().min(0) }),
+  summary: "An order was paid",   // shown in describe
+});
+```
+
+```ts
+// src/jobs.ts
+import { job, on } from "@browserlessapi/inferlo";
+import { orderPaid } from "./events.ts";
+
+export const sendReceipt = job("send-receipt", { input: orderPaid.payload }).handle(async ({ input, db }) => { ... });
+export const addPoints = job("add-points", { input: orderPaid.payload }).handle(async ({ input, db }) => { ... });
+
+export const subscriptions = [on(orderPaid, sendReceipt), on(orderPaid, addPoints)];
+```
+
+```ts
+// in a route handler (or a job, with ctx.events), after the change is saved
+await ctx.events.publish(orderPaid, { orderId: order.id, amount: order.total });
+```
+
+- `events.publish(event, payload)` validates the payload (a `ValidationError`, 422 in a route) and queues every job subscribed to the event, then returns `{ id, name, publishedAt, jobs }` (the queued job ids). The jobs run like any job: in `app.jobs.start()` or `inferlo worker`, with retries, in the memory, database or Redis queue, and in `app.jobs.runDue()` in tests. Publishing an event no job subscribes to is fine: it queues nothing.
+- `app.events.publish(...)` publishes from scripts and tests. In jobs, `ctx.events` is the same.
+- Registering `on(event, job)` (in `createApp({ jobs })` or a module's `jobs`) registers its job too. Use the event's payload as the job's input (`input: orderPaid.payload`); a job whose input is an object with fewer fields gets only those fields, and a job that requires a field the payload does not have raises IL6032, as does an invalid event name, two different events with the same name, or the same job subscribed twice to one event.
+- Each queued job's id is derived from the event id and the job name, so publishing the same event id again queues nothing new: pass `{ id }` to make publishing idempotent, for example with the id of the row the event comes from (`events.publish(orderPaid, payload, { id: order.id })`). Handlers should still be idempotent, since a job can run again after a crash.
+- With `createApp({ tracing })`, the subscribed jobs continue the trace of the request that published the event.
+- `app.events.list` and `app.events.subscriptions` list the events and subscriptions, and `inferlo describe` shows each event with its payload schema and jobs.
+
+Events between services, through a message broker (Redis Streams first, then NATS, RabbitMQ and Kafka), are planned next; they will deliver to the same `on(event, job)` subscriptions.
+
 ## Where jobs are kept
 
 By default the queue is kept in memory in the process that enqueues, so jobs are lost on restart and every instance runs its own. That is right for development and tests.
@@ -137,4 +176,4 @@ assert.deepEqual(await app.jobs.runDue(), { done: 1, retried: 0, failed: 0 });
 
 `runDue({ now })` runs the jobs that are due at that time, to test retries and `runAt` without waiting.
 
-`inferlo describe` lists jobs with their retries and input schema, and crons with their schedule.
+`inferlo describe` lists jobs with their retries and input schema, crons with their schedule, and events with their payload and subscribed jobs. To test the jobs of an event, publish it with `await app.events.publish(orderPaid, payload)`, then run `await app.jobs.runDue()`.

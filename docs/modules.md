@@ -16,7 +16,7 @@ export const billing = module("billing", {
   imports: [users],                 // modules billing depends on
   models: [Invoice],                // tables billing owns
   routes: [invoiceRoutes],          // like createApp({ routes })
-  jobs: [billingJobs],              // jobs and crons, like createApp({ jobs })
+  jobs: [billingJobs],              // jobs, crons and on(event, job), like createApp({ jobs })
   provides: { createInvoice, invoiceTotal }, // what other modules may use
 });
 ```

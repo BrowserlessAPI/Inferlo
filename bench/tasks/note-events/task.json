@@ -1,0 +1,4 @@
+{
+  "title": "Publish an event and handle it in a job",
+  "prompt": "When a note is deleted, other parts of the app need to react without slowing down the request. Create src/events.ts exporting `noteDeleted`, an event named \"note.deleted\" whose payload is { noteId, ownerId } (both uuids). Publish it from the DELETE /notes/:id handler after the note is deleted. Create src/jobs.ts with a job named \"notify-owner\" that handles that event (for now it only logs the note id with console.log), subscribe it to the event and register it in src/app.ts."
+}
