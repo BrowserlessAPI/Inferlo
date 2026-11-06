@@ -100,7 +100,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Cursor pagination helper: `db.x.paginate({ where, orderBy, cursor, limit })` returning `{ items, nextCursor }`
 - [x] Cookie sessions: `sessions({ secret })` auth helper with signed, HttpOnly cookies and CSRF protection for forms
 - [x] Structured request logging with request ids and timing, JSON output option (done as Observability part 1)
-- [ ] Deno support: run the test suite on Deno in CI (oldest supported and latest), fix anything that fails
+- [x] Deno support: run the test suite on Deno in CI (oldest supported and latest), fix anything that fails
 
 ## AI depth
 

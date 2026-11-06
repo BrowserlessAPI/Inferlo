@@ -290,8 +290,26 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
     return result;
   }
   if (g.Deno) {
-    const server = g.Deno.serve({ port, hostname }, (req, info) => app.fetch(req, info));
-    return { port: server.addr.port, close: () => server.shutdown() };
+    // shutdown() waits for every open request and streamed answer, with no way to cut them off. So each answer
+    // with a body is passed through a stream that the force closer can abort when app.close()'s timeout is up.
+    const open = new Set<AbortController>();
+    const server = g.Deno.serve({ port, hostname, onListen() {} }, async (req, info) => {
+      const response = await app.fetch(req, info);
+      if (!response.body) return response;
+      const abort = new AbortController();
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      open.add(abort);
+      void response.body
+        .pipeTo(writable, { signal: abort.signal })
+        .catch(() => {})
+        .finally(() => open.delete(abort));
+      return new Response(readable, { status: response.status, statusText: response.statusText, headers: response.headers });
+    });
+    const result: Server = { port: server.addr.port, close: () => server.shutdown() };
+    forceClosers.set(result, () => {
+      for (const abort of open) abort.abort();
+    });
+    return result;
   }
 
   const http = await import("node:http");
@@ -314,5 +332,5 @@ export async function serve(app: Pick<App<any>, "fetch">, options: ServeOptions 
   return result;
 }
 
-/** Closes every open connection of a Node server from serve(), for app.close() after its timeout. */
+/** Closes every open connection of a server from serve() (Node.js, Bun and Deno), for app.close() after its timeout. */
 export const forceClosers = new WeakMap<Server, () => void>();

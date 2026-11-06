@@ -2,7 +2,7 @@
 
 **The enterprise-ready TypeScript backend framework, with AI models built in.**
 
-Inferlo is a batteries-included TypeScript backend framework for production APIs, SaaS products and enterprise services, in the same class as NestJS, Fastify and AdonisJS. It gives you routing, validation, a typed database layer with PostgreSQL and migrations, auth, rate limiting, background jobs, cron, OpenAPI and secure defaults in one package with zero runtime dependencies, running on Node.js, Bun and edge runtimes.
+Inferlo is a batteries-included TypeScript backend framework for production APIs, SaaS products and enterprise services, in the same class as NestJS, Fastify and AdonisJS. It gives you routing, validation, a typed database layer with PostgreSQL and migrations, auth, rate limiting, background jobs, cron, OpenAPI and secure defaults in one package with zero runtime dependencies, running on Node.js, Bun, Deno and edge runtimes.
 
 What sets it apart is that AI models are part of the core, not a plugin: Anthropic, OpenAI, Gemini, local models through Ollama and any OpenAI-compatible server behind one API, with fallback between models, typed structured output, streaming, tool calling, image input and per-user usage and cost tracking, plus an MCP server built from your routes.
 
@@ -81,9 +81,9 @@ Inferlo is also designed so AI coding tools (Claude Code, Cursor, Codex, NeonCod
 
 ## Quick start
 
-Requires Node.js 22.18+ or Bun 1.3+. TypeScript runs directly with no build step.
+Requires Node.js 22.18+, Bun 1.3+ or Deno 2.9+. TypeScript runs directly with no build step.
 
-Every release is tested on Node.js 22.18, 22, 24, 26 and the current release; Bun 1.3.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
+Every release is tested on Node.js 22.18, 22, 24, 26 and the current release; Bun 1.3.0 and latest; Deno 2.9.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
 
 ```bash
 npx @browserlessapi/inferlo new my-app

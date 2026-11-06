@@ -634,3 +634,42 @@ jobs:
       - run: bun --version
       - run: bun install
       - run: bun test test/
+
+  deno:
+    name: Deno ${{ matrix.deno }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Deno supports only its newest minor release (LTS releases ended 2026-04-30): v2.9.0 = first release of the
+        # supported 2.9 line (oldest tested), vx.x.x = newest release.
+        deno: ["v2.9.0", "vx.x.x"]
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: inferlo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:latest
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      INFERLO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/inferlo_test
+      INFERLO_TEST_REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ matrix.deno }}
+      - run: deno --version
+      - run: npm run test:deno

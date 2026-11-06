@@ -50,6 +50,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 |---|---|---|
 | Node.js | 22.18 (`engines` in package.json) and the oldest LTS line still maintained | newest LTS and `current` |
 | Bun | 1.3.0 | `latest` |
+| Deno (`npm run test:deno`: the whole suite with the examples; Ts.ED with `--unsafe-proto`, which Ts.ED needs on Deno) | 2.9.0 (Deno supports only its newest minor line; its LTS releases ended 2026-04-30) | `latest` |
 | PostgreSQL | oldest major still supported upstream (14 until 2026-11-12, then 15) and every major after it | `latest` |
 | TypeScript | 5.9 | `latest` |
 | Redis (`createApp({ redis })`: rate limits, cache, job queue and events transport) | Redis 6.2 (oldest version still supported upstream, until 2027-04-01; 7.2 is tested too), `redis` package 5.0.0 (node-redis 4 gets no more releases) | `latest` (server and package) |
@@ -92,6 +93,7 @@ Rules:
 npm run typecheck                    # framework + examples
 npm test                             # node:test, includes examples
 bun test test/                       # Bun compatibility
+npm run test:deno                    # Deno compatibility (needs deno on PATH)
 INFERLO_TEST_DATABASE_URL=postgres://... npm test   # PostgreSQL adapter tests
 npm run build                        # emits dist/
 node scripts/build-llms.ts --check   # llms-full.txt is up to date

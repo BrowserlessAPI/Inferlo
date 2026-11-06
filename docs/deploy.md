@@ -117,6 +117,8 @@ process.on("SIGTERM", async () => {
 Deno.serve(app.fetch);
 ```
 
+Inferlo is tested on Deno 2.9.0 and the latest Deno: the whole test suite and the examples run on Deno in CI, with PostgreSQL and Redis. `app.listen()` on Deno uses `Deno.serve`, and `app.close({ timeoutMs })` cuts off answers that are still streaming when the timeout is up, as on Node.js and Bun. Packages from npm work as on Node.js (`npm:` specifiers or a `package.json` with `node_modules`).
+
 ## Cloudflare Workers and other edge runtimes
 
 ```ts

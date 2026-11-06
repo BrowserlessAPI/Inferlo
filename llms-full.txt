@@ -8,7 +8,7 @@ Generated from README.md and docs/. Source: https://github.com/BrowserlessAPI/In
 
 **The enterprise-ready TypeScript backend framework, with AI models built in.**
 
-Inferlo is a batteries-included TypeScript backend framework for production APIs, SaaS products and enterprise services, in the same class as NestJS, Fastify and AdonisJS. It gives you routing, validation, a typed database layer with PostgreSQL and migrations, auth, rate limiting, background jobs, cron, OpenAPI and secure defaults in one package with zero runtime dependencies, running on Node.js, Bun and edge runtimes.
+Inferlo is a batteries-included TypeScript backend framework for production APIs, SaaS products and enterprise services, in the same class as NestJS, Fastify and AdonisJS. It gives you routing, validation, a typed database layer with PostgreSQL and migrations, auth, rate limiting, background jobs, cron, OpenAPI and secure defaults in one package with zero runtime dependencies, running on Node.js, Bun, Deno and edge runtimes.
 
 What sets it apart is that AI models are part of the core, not a plugin: Anthropic, OpenAI, Gemini, local models through Ollama and any OpenAI-compatible server behind one API, with fallback between models, typed structured output, streaming, tool calling, image input and per-user usage and cost tracking, plus an MCP server built from your routes.
 
@@ -87,9 +87,9 @@ Inferlo is also designed so AI coding tools (Claude Code, Cursor, Codex, NeonCod
 
 ## Quick start
 
-Requires Node.js 22.18+ or Bun 1.3+. TypeScript runs directly with no build step.
+Requires Node.js 22.18+, Bun 1.3+ or Deno 2.9+. TypeScript runs directly with no build step.
 
-Every release is tested on Node.js 22.18, 22, 24, 26 and the current release; Bun 1.3.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
+Every release is tested on Node.js 22.18, 22, 24, 26 and the current release; Bun 1.3.0 and latest; Deno 2.9.0 and latest; PostgreSQL 14, 15, 16, 17, 18 and latest; and TypeScript 5.9 and latest.
 
 ```bash
 npx @browserlessapi/inferlo new my-app
@@ -161,7 +161,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). AI agents working on this repository: re
 
 # Getting started
 
-Inferlo needs Node.js 22.18 or newer (or Bun 1.3+). TypeScript runs directly, with no build step.
+Inferlo needs Node.js 22.18 or newer (or Bun 1.3+, or Deno 2.9+). TypeScript runs directly, with no build step.
 
 ## Create a project
 
@@ -4441,6 +4441,8 @@ process.on("SIGTERM", async () => {
 Deno.serve(app.fetch);
 ```
 
+Inferlo is tested on Deno 2.9.0 and the latest Deno: the whole test suite and the examples run on Deno in CI, with PostgreSQL and Redis. `app.listen()` on Deno uses `Deno.serve`, and `app.close({ timeoutMs })` cuts off answers that are still streaming when the timeout is up, as on Node.js and Bun. Packages from npm work as on Node.js (`npm:` specifiers or a `package.json` with `node_modules`).
+
 ## Cloudflare Workers and other edge runtimes
 
 ```ts
@@ -4647,7 +4649,8 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Node.js | 22.18 and newer (`engines` in package.json), every LTS line still maintained upstream and the current release |
 | Bun | 1.3.0 and newer |
 | Cloudflare Workers (`export default app`) | Compatibility date 2025-04-01 and later with `nodejs_compat`, tested in workerd through Miniflare 4.20250405.0 (the first Miniflare 4 release) and the latest Miniflare |
-| Deno and other runtimes with Web APIs | Work through `app.fetch`; not yet tested in CI (Deno is on the [roadmap](../ROADMAP.md)) |
+| Deno | 2.9.0 and newer (Deno supports only its newest minor line) |
+| Other runtimes with Web APIs | Work through `app.fetch`; not tested in CI |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
 | Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |
 | TypeScript | 5.9 and newer |

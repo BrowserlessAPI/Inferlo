@@ -1,6 +1,6 @@
 # Getting started
 
-Inferlo needs Node.js 22.18 or newer (or Bun 1.3+). TypeScript runs directly, with no build step.
+Inferlo needs Node.js 22.18 or newer (or Bun 1.3+, or Deno 2.9+). TypeScript runs directly, with no build step.
 
 ## Create a project
 

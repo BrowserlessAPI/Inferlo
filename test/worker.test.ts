@@ -98,7 +98,9 @@ describe("inferlo worker", () => {
       assert.ok(existsSync(log), `the job did not start: ${stdout} ${stderr}`);
       child.kill("SIGTERM");
       const code = await exited;
-      assert.equal(code, 0, stderr);
+      // Deno's node:child_process reports the signal passed to kill() (code null) even when the child handles it and
+      // exits with 0, so there the "stopped" line below shows the graceful exit.
+      if (!("Deno" in globalThis)) assert.equal(code, 0, stderr);
 
       const lines = stdout.trim().split("\n").map((l) => JSON.parse(l));
       assert.deepEqual(lines[0], { ok: true, event: "started", jobs: [name], queue: "database" });
