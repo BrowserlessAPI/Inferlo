@@ -1,0 +1,4 @@
+{
+  "title": "Stream AI answers over a WebSocket",
+  "prompt": "Add an AI assistant over a WebSocket. Create src/routes/assistant.ts with `export const assistant`: a WebSocket route at /assistant for signed-in users. Each message is { question } (a string of 1 to 2000 characters). For each question, stream the answer of the \"fast\" AI model alias to the client as it is generated, with usage tracked for the signed-in user. Register the routes module in src/app.ts."
+}

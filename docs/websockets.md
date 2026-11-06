@@ -27,6 +27,21 @@ socket.onmessage = (event) => console.log(JSON.parse(event.data));
 socket.onopen = () => socket.send(JSON.stringify({ text: "Hello" }));
 ```
 
+## Streaming AI answers
+
+`socket.stream(ai.stream(...))` sends a model's answer to the client as it is generated, and resolves with the full text and usage once it is done, so the handler can save it:
+
+```ts
+export const assistant = route
+  .ws("/assistant", { message: t.object({ question: t.string().min(1).max(2000) }), rateLimit: { max: 20, per: "minute" } })
+  .handle(async ({ message, ai, socket, user, db }) => {
+    const { text } = await socket.stream(ai.stream({ model: "fast", prompt: message.question, for: user.id }));
+    await db.answers.insert({ userId: user.id, question: message.question, text });
+  });
+```
+
+The client receives `{ "type": "text", "text": "..." }` for each chunk, then `{ "type": "done", "usage": { ... } }`. When the model call fails, the error message (`{ "error": { "code": "IL5006", ... } }`) follows the chunks already sent. Streams from `ctx.ai` are cancelled when the socket closes (`ctx.signal`), so a client that leaves stops the model call and its cost. `socket.stream` takes only the result of `ai.stream(...)` (IL2013 otherwise).
+
 ## Connecting
 
 The request that opens the socket goes through the same steps as an HTTP request, before the upgrade: middleware, `auth.resolve`, the route's `auth` and `permission`, `rateLimit`, and the `params` and `query` schemas. A client that fails one of them gets the HTTP error answer (401, 403, 422, 429) and no socket.
@@ -45,7 +60,7 @@ The handler runs once per message with:
 | `message` | The message, parsed from JSON and validated against `message` (any JSON value without a schema) |
 | `params`, `query` | From the URL that opened the socket |
 | `user` | The signed-in user (null only on public routes) |
-| `socket` | `socket.send(data)` sends JSON to this client, `socket.close(code?, reason?)` closes it, `socket.id` is a random id |
+| `socket` | `socket.send(data)` sends JSON to this client, `socket.stream(ai.stream(...))` streams a model's answer, `socket.close(code?, reason?)` closes it, `socket.id` is a random id |
 | `db`, `ai`, `jobs`, `events`, `cache`, `audit` | As in HTTP routes; `db` is scoped to the user's tenant, `audit` entries record the user and `WS <path>` |
 | `signal` | Aborted when the socket closes; `ctx.ai` calls use it |
 | `requestId`, `url`, `headers` | Of the request that opened the socket |

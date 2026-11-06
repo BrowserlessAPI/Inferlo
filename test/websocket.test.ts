@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import { after, before, describe, test } from "node:test";
-import { bearer, createApp, InferloError, memory, model, route, t, type Socket } from "../src/index.ts";
+import { bearer, createApp, InferloError, memory, mockProvider, model, route, t, type Socket } from "../src/index.ts";
 import { encodeClose, encodeFrame, FrameReader, OP_BINARY, OP_CONTINUATION, OP_PING, OP_TEXT } from "../src/websocket.ts";
 
 const quiet = { info: () => {}, error: () => {} };
@@ -45,8 +45,24 @@ const control = route
     throw new Error("secret detail");
   });
 
+const ask = route
+  .ws("/ask", { message: t.object({ prompt: t.string().max(500) }) })
+  .handle(async ({ message, ai, socket, user }) => {
+    if (message.prompt === "not a stream") return socket.stream({} as never);
+    const { text, usage } = await socket.stream(ai.stream({ model: "fast", prompt: message.prompt, for: user.id }));
+    return { type: "saved", length: text.length, outputTokens: usage.outputTokens };
+  });
+
 function makeApp(options: { maxBodySize?: number; cors?: { origin: string[] } } = {}) {
-  return createApp({ models: [Message], db: memory(), routes: [{ echo, members, open, limited, control }], auth, logger: quiet, ...options });
+  return createApp({
+    models: [Message],
+    db: memory(),
+    routes: [{ echo, members, open, limited, control, ask }],
+    auth,
+    logger: quiet,
+    ai: { providers: { mock: mockProvider({ respond: (r) => `You said: ${r.messages.at(-1)!.content}. A longer answer, streamed.` }) }, models: { fast: "mock:m" } },
+    ...options,
+  });
 }
 
 type Client = { ws: WebSocket; next(): Promise<any>; closed: Promise<{ code: number; reason: string }> };
@@ -234,6 +250,26 @@ describe("route.ws on a server from app.listen()", () => {
     assert.deepEqual(await c.closed, { code: 4000, reason: "bye" });
     // Sending on a closed socket does nothing.
     sockets.at(-1)!.send({ late: true });
+  });
+
+  test("socket.stream() streams a model's answer as text chunks, then done with usage", async () => {
+    const c = await connect(server.port, "/ask", "ada-token");
+    c.ws.send(JSON.stringify({ prompt: "hi" }));
+    const chunks: { type: string; text?: string; usage?: { outputTokens: number } }[] = [];
+    for (;;) {
+      const m = await c.next();
+      chunks.push(m);
+      if (m.type === "saved") break;
+    }
+    const texts = chunks.filter((m) => m.type === "text");
+    assert.ok(texts.length > 1, "several chunks");
+    assert.equal(texts.map((m) => m.text).join(""), "You said: hi. A longer answer, streamed.");
+    const done = chunks.find((m) => m.type === "done")!;
+    assert.ok(done.usage!.outputTokens > 0);
+    assert.deepEqual(chunks.at(-1), { type: "saved", length: 40, outputTokens: done.usage!.outputTokens });
+    c.ws.send(JSON.stringify({ prompt: "not a stream" }));
+    assert.equal((await c.next()).error.code, "IL2013");
+    c.ws.close();
   });
 
   test("binary messages close the socket with 1003", async () => {

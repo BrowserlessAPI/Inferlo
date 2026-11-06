@@ -9,7 +9,7 @@
  * Secure by default: routes require a signed-in user unless you set auth: "public".
  */
 import type { Deprecation } from "./deprecation.ts";
-import type { AI } from "./ai/index.ts";
+import type { AI, StreamResult, Usage } from "./ai/index.ts";
 import type { Db } from "./db/table.ts";
 import type { Events } from "./events.ts";
 import type { Jobs } from "./jobs.ts";
@@ -244,6 +244,12 @@ export interface Socket {
   send(data: unknown): void;
   /** Close the connection: code 1000 (normal) by default. */
   close(code?: number, reason?: string): void;
+  /**
+   * Stream a model's answer to this client: await socket.stream(ai.stream({ model: "fast", prompt })) sends
+   * { type: "text", text } for each chunk as it arrives, then { type: "done", usage }, and resolves with the full
+   * text and usage. Streams from ctx.ai stop when the socket closes (ctx.signal).
+   */
+  stream(result: StreamResult): Promise<{ text: string; usage: Usage }>;
 }
 
 export interface SocketContext<Message, Query, Params, User> {

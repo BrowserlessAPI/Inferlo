@@ -63,6 +63,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2012
 **Invalid WebSocket close code.** `ctx.socket.close(code, reason)` takes 1000 (normal closure, the default) or an application code from 3000 to 4999. The other codes are reserved by the WebSocket protocol for the server itself (1001 when the app shuts down, 1003, 1009).
 
+### IL2013
+**socket.stream() needs an AI stream.** `ctx.socket.stream(result)` sends a model's answer chunk by chunk, so it takes the result of `ai.stream(...)`: `await socket.stream(ai.stream({ model: "fast", prompt }))`. To send other data, use `socket.send(data)`. See [Streaming AI answers](websockets.md#streaming-ai-answers).
+
 ## Auth (3xxx)
 
 ### IL3001

@@ -2,7 +2,7 @@
  * createApp wires models, routes, database, auth and AI together and gives you a standard
  * fetch(Request) => Response handler that runs on Node, Bun, Deno and edge runtimes.
  */
-import { bindTools, createAI, type AI, type AIConfig, type Usage } from "./ai/index.ts";
+import { bindTools, createAI, type AI, type AIConfig, type StreamResult, type Usage } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
 import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
@@ -740,6 +740,20 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           throw new InferloError("IL2012", `Invalid WebSocket close code ${String(code)}.`, { fix: "Close with 1000 (normal), or an application code from 3000 to 4999: socket.close(4000, \"reason\")." });
         }
         end(code, reason);
+      },
+      stream: async (result) => {
+        if (!result || typeof (result as Partial<StreamResult>)[Symbol.asyncIterator] !== "function" || typeof (result as Partial<StreamResult>).usage !== "function") {
+          throw new InferloError("IL2013", "socket.stream() takes the result of ai.stream(...).", { fix: 'Pass the stream itself: await socket.stream(ai.stream({ model: "fast", prompt })).' });
+        }
+        let text = "";
+        // After the socket closes, sends do nothing; with ctx.ai the stream itself is cancelled by ctx.signal.
+        for await (const chunk of result) {
+          text += chunk;
+          socket.send({ type: "text", text: chunk });
+        }
+        const usage = await result.usage();
+        socket.send({ type: "done", usage });
+        return { text, usage };
       },
     };
     const scope = tenantScope(user);
