@@ -80,6 +80,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Vercel AI SDK UI (`toResponse({ format: "ai-sdk" })` for `useChat`) | `ai` package 5.0.0 and newer (UI message stream protocol v1) |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
+| Astro (`/astro`) | 5 (newest 5.x) and newer |
 | React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
 | AWS Lambda (`/lambda`): function URLs, API Gateway HTTP API and REST API | Node.js runtimes `nodejs22.x` and `nodejs24.x` (tested through the Node.js 22 and 24 jobs) |
 | Vercel Functions (`export default app`) and Netlify Functions 2.0 (`export default app.fetch`) | Vercel Node.js runtimes 22.x and 24.x, Netlify Functions on Node.js 22 and newer (tested through the Node.js 22 and 24 jobs) |

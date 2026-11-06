@@ -522,6 +522,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/sveltekit.test.ts "examples/with-sveltekit/test/*.test.ts"
 
+  astro:
+    name: Astro ${{ matrix.astro }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 5 = oldest tested (its newest 5.x; endpoints, APIContext and middleware are the same in 5, 6 and 7),
+        # latest = newest release. The tests render the endpoints with Astro's own container (astro/container).
+        astro: ["5", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --legacy-peer-deps astro@${{ matrix.astro }}
+      - run: node -p "'Astro ' + require('./node_modules/astro/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/astro.test.ts "examples/with-astro/test/*.test.ts"
+
   react-router:
     name: React Router ${{ matrix.react_router }}
     runs-on: ubuntu-latest

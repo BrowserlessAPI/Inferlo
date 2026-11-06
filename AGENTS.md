@@ -66,6 +66,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Next.js (`@browserlessapi/inferlo/nextjs`, examples/with-nextjs) | 15 (newest 15.x, still maintained upstream with backports) | `latest` (16) |
 | Nuxt, Nitro and h3 (`@browserlessapi/inferlo/h3`, examples/with-nitro) | h3 1 (newest 1.x: used by Nitro 2, Nuxt 3 and Nuxt 4, and still maintained) | `latest` (2, Nitro 3) |
 | SvelteKit (`@browserlessapi/inferlo/sveltekit`, examples/with-sveltekit) | 2 (newest 2.x, the line before SvelteKit 3) | `latest` (3) |
+| Astro (`@browserlessapi/inferlo/astro`, examples/with-astro) | 5 (newest 5.x; endpoints, the API context and middleware are the same in Astro 5, 6 and 7, and Astro 5 is still widely deployed) | `latest` (7) |
 | React Router, framework mode (`@browserlessapi/inferlo/react-router`, examples/with-react-router) | 7 (newest 7.x, still maintained upstream) | `latest` (8) |
 | AWS Lambda (`@browserlessapi/inferlo/lambda`, examples/with-lambda) | Lambda runtime `nodejs22.x` (oldest Node.js runtime Lambda supports that meets `engines`), covered by the Node.js 22 jobs; event payload formats 1.0 and 2.0 | `nodejs24.x`, covered by the Node.js 24 job |
 | Vercel Functions (`export default app`, examples/with-vercel) and Netlify Functions 2.0 (`export default app.fetch`, examples/with-netlify) | Vercel Node.js 22.x runtime and Netlify Node.js 22, covered by the Node.js 22 jobs; client address from `X-Real-IP` (Vercel) and `context.ip` (Netlify) | Vercel Node.js 24.x, covered by the Node.js 24 job |

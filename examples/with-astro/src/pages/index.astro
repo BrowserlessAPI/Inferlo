@@ -1,0 +1,10 @@
+---
+// A server-rendered page: Astro.locals.ai is set by src/middleware.ts.
+export const prerender = false;
+const { text: greeting } = await Astro.locals.ai.generate({ model: "fast", prompt: "Write a one-line greeting for a support form." });
+---
+<h1>{greeting}</h1>
+<form method="post" action="/classify">
+  <textarea name="text"></textarea>
+  <button>Classify</button>
+</form>

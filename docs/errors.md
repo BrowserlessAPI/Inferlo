@@ -192,6 +192,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5027
 **Unknown stream format.** `ai.stream(...).toResponse({ format })` takes `"sse"` (the default: Inferlo's `text` and `done` events) or `"ai-sdk"` (the AI SDK UI message stream protocol, for `useChat`). See [Chat UIs with the Vercel AI SDK](ai.md#chat-uis-with-the-vercel-ai-sdk-usechat).
 
+### IL5028
+**Invalid toAstroHandler() arguments.** `toAstroHandler(app, { prefix })` from `@browserlessapi/inferlo/astro` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `src/pages/api/[...path].ts`: `export const ALL = toAstroHandler(app, { prefix: "/api" })`. The handler it returns must be exported from an endpoint file in `src/pages`, so Astro calls it with an API context. See [Astro](integrations.md#astro).
+
 ## App configuration (6xxx)
 
 ### IL6001

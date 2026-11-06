@@ -1,0 +1,5 @@
+{
+  "title": "Serve the app and AI from Astro",
+  "prompt": "We are adding Inferlo to an Astro project. Create the endpoint file src/pages/api/[...path].ts so that every request under /api, for every HTTP method, is handled on the server (not prerendered) by the Inferlo app exported from src/app.ts with /api removed from the path: GET /api/health reaches the app's health endpoint and /api/openapi.json serves its OpenAPI document. Also create src/middleware.ts whose `onRequest` middleware gives every page, endpoint and action the app's AI client as context.locals.ai. Use Inferlo's Astro integration.",
+  "packages": ["astro"]
+}

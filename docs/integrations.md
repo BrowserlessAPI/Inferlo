@@ -5,7 +5,7 @@ You do not have to rewrite an existing app to use Inferlo. There are two ways in
 - **Use the AI module on its own:** `import { createAI } from "@browserlessapi/inferlo/ai"` in any framework (see [AI, "Use it without createApp"](ai.md)).
 - **Mount a whole Inferlo app** (routes, auth, validation, OpenAPI and the MCP server) under a path of your existing app, for example `/ai`. New features can live in Inferlo while the rest of the app stays where it is.
 
-An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, hapi uses `inferloPlugin` from `@browserlessapi/inferlo/hapi`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, React Router resource routes use `toReactRouterHandlers(app)`, AWS Lambda uses `toLambdaHandler(app)`, Cloudflare Workers and Vercel Functions take `export default app`, and Netlify Functions take `export default app.fetch`.
+An Inferlo app is a standard `fetch(Request) => Response` handler, so frameworks built on Web requests (Hono, ElysiaJS, Bun, Deno, Workers) mount `app.fetch` directly. Frameworks built on Node.js requests (Express, Fastify, NestJS, Encore.ts raw endpoints, plain `node:http`) use `toNodeHandler(app)`, hapi uses `inferloPlugin` from `@browserlessapi/inferlo/hapi`, Koa uses `toKoaMiddleware(app)`, Next.js route handlers use `toNextHandlers(app)`, Nitro, Nuxt and h3 server routes use `toH3Handler(app)`, SvelteKit rest routes use `toSvelteKitHandlers(app)`, Astro endpoints use `toAstroHandler(app)`, React Router resource routes use `toReactRouterHandlers(app)`, AWS Lambda uses `toLambdaHandler(app)`, Cloudflare Workers and Vercel Functions take `export default app`, and Netlify Functions take `export default app.fetch`.
 
 ## Node.js frameworks: toNodeHandler
 
@@ -577,6 +577,58 @@ export const actions = {
 `event.locals.ai` is typed: importing `@browserlessapi/inferlo/sveltekit` adds `ai` to SvelteKit's `App.Locals`, so you do not need to declare it in `src/app.d.ts`. Return `locals.ai.stream({ model, prompt }).toResponse()` from a `+server.ts` file to stream text to the browser (server-sent events). Anything that is not an AI client raises IL5014. Create the client in `src/lib/server` so SvelteKit never bundles it, or your API keys, for the browser.
 
 The [with-sveltekit example](../examples/with-sveltekit) does both, and CI tests it with SvelteKit 2 (newest 2.x) and the latest SvelteKit, using SvelteKit's own types.
+
+## Astro
+
+Astro 5 and newer. `@browserlessapi/inferlo/astro` has no runtime dependency on Astro and never loads Inferlo's router, database or jobs code by itself.
+
+Serve a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one catch-all endpoint:
+
+```ts
+// src/pages/api/[...path].ts
+import { toAstroHandler } from "@browserlessapi/inferlo/astro";
+import { app } from "../../lib/inferlo.ts"; // export const app = createApp({ ... })
+
+export const prerender = false;
+export const ALL = toAstroHandler(app, { prefix: "/api" });
+```
+
+- `toAstroHandler(app, { prefix })` returns one endpoint handler; export it as `ALL` so every method, including CORS preflights (`OPTIONS`) and `HEAD`, reaches Inferlo.
+- `export const prerender = false` makes the endpoint run on the server for every request (Astro prerenders routes at build time unless the project uses `output: "server"`). Server-rendered routes need an adapter: `npx astro add node` (or `vercel`, `netlify`, `cloudflare`).
+- `prefix` is the URL path of the endpoint's folder (`"/api"` for `src/pages/api/[...path].ts`, including `base` if you set one). It is removed before the app routes the request, so the app's `/summaries` answers at `/api/summaries`, and OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. Requests outside the prefix keep their path. Without `prefix`, requests reach the app unchanged.
+- `[...path]` also matches `/api` itself. Keep Astro's own pages and endpoints in other folders: Astro matches more specific routes first.
+- The client address from your adapter (`context.clientAddress`) is used for rate limits by IP. Behind a proxy, set `createApp({ trustProxy: true })` so `X-Forwarded-For` is used.
+- Astro's own origin check (`security.checkOrigin`) still runs first for form posts; JSON requests with a bearer token are not affected.
+- Anything that is not an app, or a `prefix` that does not start with `/`, raises IL5028.
+
+To use the AI module in pages, endpoints and actions, add the middleware that puts the client on every request as `context.locals.ai` (`Astro.locals.ai` in pages):
+
+```ts
+// src/middleware.ts
+import { inferloAI } from "@browserlessapi/inferlo/astro";
+import { ai } from "./lib/ai.ts"; // export const ai = createAI({ providers, models }) from "@browserlessapi/inferlo/ai", or app.ai
+
+export const onRequest = inferloAI(ai); // or sequence(inferloAI(ai), yourMiddleware) from "astro:middleware"
+```
+
+```ts
+// src/pages/classify.ts
+import type { APIRoute } from "astro";
+import { t } from "@browserlessapi/inferlo/ai";
+
+export const prerender = false;
+
+export const POST: APIRoute = async ({ request, locals }) => {
+  const text = String((await request.formData()).get("text") ?? "");
+  if (!text) return Response.json({ error: "Enter a message." }, { status: 400 });
+  const { object } = await locals.ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature", "question"]) }) });
+  return Response.json(object);
+};
+```
+
+`locals.ai` is typed: importing `@browserlessapi/inferlo/astro` adds `ai` to Astro's `App.Locals`, so you do not need to declare it in `src/env.d.ts`. Return `locals.ai.stream({ model, prompt }).toResponse()` from an endpoint to stream text to the browser (server-sent events). Anything that is not an AI client raises IL5014. Import the client only from server code (middleware, endpoints, the frontmatter of server-rendered pages and actions), so Astro never bundles it, or your API keys, for the browser.
+
+The [with-astro example](../examples/with-astro) does both, and CI tests it with Astro 5 (newest 5.x) and the latest Astro, rendering the endpoints with Astro's own container (`astro/container`).
 
 ## React Router (Remix)
 
