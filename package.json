@@ -169,6 +169,7 @@
     "@types/koa": "^3.0.3",
     "@types/node": "^22.18.0",
     "@types/pg": "^8.15.0",
+    "ai": "^7.0.163",
     "autocannon": "^8.0.0",
     "elysia": "^1.4.30",
     "encore.dev": "^1.58.8",
@@ -185,7 +186,8 @@
     "redis": "^6.3.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "zod": "^4.6.7"
   },
   "publishConfig": {
     "access": "public"

@@ -182,6 +182,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5026
 **Invalid toAzureHandler() arguments or request.** `toAzureHandler(app, { prefix })` from `@browserlessapi/inferlo/azure` needs the app returned by `createApp`; the only option is `prefix`, which starts with `/` (such as `"/api"`, Azure's default route prefix). The handler only takes HTTP trigger requests: register it with `azure.http(name, { route: "{*path}", handler })`. Other triggers such as queues, timers or blobs need their own handler. See [Azure Functions](integrations.md#azure-functions).
 
+### IL5027
+**Unknown stream format.** `ai.stream(...).toResponse({ format })` takes `"sse"` (the default: Inferlo's `text` and `done` events) or `"ai-sdk"` (the AI SDK UI message stream protocol, for `useChat`). See [Chat UIs with the Vercel AI SDK](ai.md#chat-uis-with-the-vercel-ai-sdk-usechat).
+
 ## App configuration (6xxx)
 
 ### IL6001

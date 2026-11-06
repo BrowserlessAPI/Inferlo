@@ -1,0 +1,4 @@
+{
+  "title": "Chat route for a useChat frontend",
+  "prompt": "Our React frontend uses useChat from @ai-sdk/react (Vercel AI SDK 5) and posts to /chat. Add src/routes/chat.ts exporting a POST /chat route that accepts the body useChat sends, answers the conversation with the \"fast\" AI model alias as a stream that useChat understands, and tracks AI usage for the signed-in user. Only signed-in users may call it."
+}

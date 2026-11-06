@@ -20,6 +20,7 @@ import { ProviderError, imageData, type Image, type Message, type Provider, type
 export * from "./providers.ts";
 export { tool, isTool, ToolBuilder } from "./tool.ts";
 export type { ToolDef, FunctionToolOptions, ToolContext } from "./tool.ts";
+export { uiChatBody, fromUIMessages, type UIChatMessage } from "./ui.ts";
 
 export interface Pricing {
   /** USD per million input tokens. */
@@ -145,13 +146,22 @@ export function bindTools(ai: AI, runner: ToolRunner, describe: (route: RouteDef
   return bound;
 }
 
+/** Options of StreamResult.toResponse: a ResponseInit (status, headers) and the stream format. */
+export interface StreamResponseInit extends ResponseInit {
+  /** "sse" (default): Inferlo's text and done events. "ai-sdk": the AI SDK UI message stream protocol, for useChat. */
+  format?: "sse" | "ai-sdk";
+}
+
 export interface StreamResult {
   /** Text chunks as they arrive. */
   [Symbol.asyncIterator](): AsyncIterator<string>;
   /** Full text once the stream finishes. */
   text(): Promise<string>;
-  /** A server-sent events Response for browsers (events: "text", then "done" with usage). */
-  toResponse(init?: ResponseInit): Response;
+  /**
+   * A server-sent events Response for browsers. The default format sends "text" events, then "done" with usage.
+   * format: "ai-sdk" speaks the AI SDK UI message stream protocol (v1), for useChat from @ai-sdk/react.
+   */
+  toResponse(init?: StreamResponseInit): Response;
   /** Usage once the stream finishes. */
   usage(): Promise<Usage>;
 }
@@ -583,22 +593,54 @@ export function createAI(config?: AIConfig): AI {
         },
         usage: () => usagePromise,
         toResponse(init) {
+          const { format = "sse", ...responseInit } = init ?? {};
+          if (format !== "sse" && format !== "ai-sdk") {
+            throw new InferloError("IL5027", `Unknown stream format "${String(format)}" in toResponse({ format }).`, {
+              fix: 'Use toResponse() for Inferlo\'s server-sent events, or toResponse({ format: "ai-sdk" }) for useChat from the Vercel AI SDK.',
+            });
+          }
           const encoder = new TextEncoder();
           const source = start();
+          const aiSdk = format === "ai-sdk";
+          const textId = aiSdk ? `text-${crypto.randomUUID()}` : "";
+          let opened = false;
+          // AI SDK UI message stream chunks are server-sent events with only a data field.
+          const chunk = (value: unknown) => encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
           const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              if (aiSdk) controller.enqueue(chunk({ type: "start" }));
+            },
             async pull(controller) {
               try {
                 const { value, done } = await source.next();
                 if (done) {
                   const usage = await usagePromise;
-                  controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ usage })}\n\n`));
+                  if (!aiSdk) controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ usage })}\n\n`));
+                  else {
+                    if (opened) controller.enqueue(chunk({ type: "text-end", id: textId }));
+                    controller.enqueue(chunk({ type: "finish" }));
+                    controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                  }
                   controller.close();
                   return;
                 }
-                controller.enqueue(encoder.encode(`event: text\ndata: ${JSON.stringify(value)}\n\n`));
+                if (!aiSdk) {
+                  controller.enqueue(encoder.encode(`event: text\ndata: ${JSON.stringify(value)}\n\n`));
+                  return;
+                }
+                if (!opened) {
+                  opened = true;
+                  controller.enqueue(chunk({ type: "text-start", id: textId }));
+                }
+                controller.enqueue(chunk({ type: "text-delta", id: textId, delta: value }));
               } catch (error) {
                 const code = error instanceof InferloError ? error.code : "IL9000";
-                controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ code })}\n\n`));
+                if (!aiSdk) controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ code })}\n\n`));
+                else {
+                  // Only the code reaches the browser; the details are logged below.
+                  controller.enqueue(chunk({ type: "error", errorText: `The model call failed (${code}).` }));
+                  controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                }
                 controller.close();
                 console.error("[inferlo] stream failed:", redactor.value(error));
               }
@@ -607,10 +649,13 @@ export function createAI(config?: AIConfig): AI {
               void source.return(undefined);
             },
           });
-          return new Response(body, {
-            ...init,
-            headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive", ...(init?.headers as Record<string, string>) },
-          });
+          const headers: Record<string, string> = { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" };
+          if (aiSdk) {
+            headers["content-type"] = "text/event-stream";
+            headers["x-vercel-ai-ui-message-stream"] = "v1";
+            headers["x-accel-buffering"] = "no";
+          }
+          return new Response(body, { ...responseInit, headers: { ...headers, ...(responseInit.headers as Record<string, string>) } });
         },
       };
     },

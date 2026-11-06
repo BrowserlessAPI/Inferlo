@@ -416,6 +416,27 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/adonisjs.test.ts "examples/with-adonisjs/test/*.test.ts"
 
+  ai-sdk:
+    name: AI SDK UI (ai ${{ matrix.ai }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 5.0.0 = oldest supported (the first release with the UI message stream protocol that useChat speaks;
+        # ai 4 is no longer maintained), latest = newest release.
+        ai: ["5.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save ai@${{ matrix.ai }}
+      - run: node -p "'ai ' + require('./node_modules/ai/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/ai-sdk-ui.test.ts
+
   koa:
     name: Koa ${{ matrix.koa }}
     runs-on: ubuntu-latest

@@ -182,6 +182,34 @@ export const chat = route
 
 `toResponse()` sends server-sent events: `text` events with JSON-encoded chunks, then a `done` event with usage. You can also iterate: `for await (const chunk of ai.stream(...))`, or `await stream.text()`.
 
+### Chat UIs with the Vercel AI SDK (useChat)
+
+`toResponse({ format: "ai-sdk" })` answers with the AI SDK UI message stream protocol, so `useChat` from `@ai-sdk/react` (or `@ai-sdk/vue`, `@ai-sdk/svelte`) talks to an Inferlo route directly. `uiChatBody` validates the body `useChat` sends, and `fromUIMessages` turns its messages into model messages:
+
+```ts
+import { fromUIMessages, route, uiChatBody } from "@browserlessapi/inferlo";
+
+export const chat = route
+  .post("/api/chat", { body: uiChatBody, rateLimit: { max: 30, per: "minute" } })
+  .handle(({ body, ai, user }) =>
+    ai.stream({ model: "fast", messages: fromUIMessages(body.messages), for: user.id }).toResponse({ format: "ai-sdk" }),
+  );
+```
+
+```tsx
+// In the browser (React). useChat posts to /api/chat by default.
+import { useChat } from "@ai-sdk/react";
+
+const { messages, sendMessage, status } = useChat();
+```
+
+- **Body.** `uiChatBody` accepts what `useChat` sends (`{ id, messages, trigger, ... }`) and keeps each message's `role` (`system`, `user` or `assistant`) and its parts' `type` and `text`; ids, metadata and other fields are dropped. It allows 1 to 500 messages, 100 parts per message and 100,000 characters per text part. Combine it with a route's `rateLimit` and the AI module's budgets.
+- **Messages.** `fromUIMessages(messages)` joins the text parts of each message and leaves out other parts (files, reasoning, tool calls, data parts); messages without text are dropped. Add your own system message in front: `messages: [{ role: "system", content: "..." }, ...fromUIMessages(body.messages)]`. A client can send any role, including `system`, so filter with `.filter((m) => m.role !== "system")` when callers must not change your instructions.
+- **Stream.** The answer is one text part: `start`, `text-start`, `text-delta` chunks, `text-end`, `finish`, then `[DONE]`, with the `x-vercel-ai-ui-message-stream: v1` header. If the model call fails, the stream ends with an `error` chunk that carries only the error code (`The model call failed (IL5006).`); details stay in your logs. Usage is recorded on the server (`onUsage`, budgets), not sent to the browser.
+- **Auth.** The route is private by default: `useChat({ transport: new DefaultChatTransport({ api: "/api/chat", headers: { authorization: "Bearer " + token } }) })` sends a token, and cookie sessions work without extra options.
+- **Versions.** Tested with the `ai` package 5.0.0 (the first release with this protocol) and the latest release, through its `DefaultChatTransport`, the transport `useChat` uses. Nothing from the `ai` package is loaded by Inferlo.
+- An unknown `format` raises IL5027.
+
 ## Embeddings
 
 ```ts

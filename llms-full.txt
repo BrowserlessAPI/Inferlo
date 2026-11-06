@@ -1217,6 +1217,34 @@ export const chat = route
 
 `toResponse()` sends server-sent events: `text` events with JSON-encoded chunks, then a `done` event with usage. You can also iterate: `for await (const chunk of ai.stream(...))`, or `await stream.text()`.
 
+### Chat UIs with the Vercel AI SDK (useChat)
+
+`toResponse({ format: "ai-sdk" })` answers with the AI SDK UI message stream protocol, so `useChat` from `@ai-sdk/react` (or `@ai-sdk/vue`, `@ai-sdk/svelte`) talks to an Inferlo route directly. `uiChatBody` validates the body `useChat` sends, and `fromUIMessages` turns its messages into model messages:
+
+```ts
+import { fromUIMessages, route, uiChatBody } from "@browserlessapi/inferlo";
+
+export const chat = route
+  .post("/api/chat", { body: uiChatBody, rateLimit: { max: 30, per: "minute" } })
+  .handle(({ body, ai, user }) =>
+    ai.stream({ model: "fast", messages: fromUIMessages(body.messages), for: user.id }).toResponse({ format: "ai-sdk" }),
+  );
+```
+
+```tsx
+// In the browser (React). useChat posts to /api/chat by default.
+import { useChat } from "@ai-sdk/react";
+
+const { messages, sendMessage, status } = useChat();
+```
+
+- **Body.** `uiChatBody` accepts what `useChat` sends (`{ id, messages, trigger, ... }`) and keeps each message's `role` (`system`, `user` or `assistant`) and its parts' `type` and `text`; ids, metadata and other fields are dropped. It allows 1 to 500 messages, 100 parts per message and 100,000 characters per text part. Combine it with a route's `rateLimit` and the AI module's budgets.
+- **Messages.** `fromUIMessages(messages)` joins the text parts of each message and leaves out other parts (files, reasoning, tool calls, data parts); messages without text are dropped. Add your own system message in front: `messages: [{ role: "system", content: "..." }, ...fromUIMessages(body.messages)]`. A client can send any role, including `system`, so filter with `.filter((m) => m.role !== "system")` when callers must not change your instructions.
+- **Stream.** The answer is one text part: `start`, `text-start`, `text-delta` chunks, `text-end`, `finish`, then `[DONE]`, with the `x-vercel-ai-ui-message-stream: v1` header. If the model call fails, the stream ends with an `error` chunk that carries only the error code (`The model call failed (IL5006).`); details stay in your logs. Usage is recorded on the server (`onUsage`, budgets), not sent to the browser.
+- **Auth.** The route is private by default: `useChat({ transport: new DefaultChatTransport({ api: "/api/chat", headers: { authorization: "Bearer " + token } }) })` sends a token, and cookie sessions work without extra options.
+- **Versions.** Tested with the `ai` package 5.0.0 (the first release with this protocol) and the latest release, through its `DefaultChatTransport`, the transport `useChat` uses. Nothing from the `ai` package is loaded by Inferlo.
+- An unknown `format` raises IL5027.
+
 ## Embeddings
 
 ```ts
@@ -2668,6 +2696,10 @@ export const inferloApp = api.raw({ expose: true, method: "*", path: "/inferlo/*
 - Request bodies are streamed from Encore to Inferlo, and Inferlo's responses (AI streaming included) stream back.
 
 The [with-encore example](../examples/with-encore) does both. Its tests run the endpoints with the real `encore.dev` package and Encore's own raw request and response classes (the Encore runtime itself only exists inside the Encore CLI), and CI runs them with encore.dev 1.51.0 and the latest encore.dev.
+
+## Vercel AI SDK UI (useChat)
+
+Chat UIs built with `useChat` from `@ai-sdk/react` (and the Vue and Svelte versions) talk to an Inferlo route directly: `ai.stream(...).toResponse({ format: "ai-sdk" })` speaks the AI SDK UI message stream protocol, and `uiChatBody` with `fromUIMessages` reads what `useChat` sends. Works in any framework above, since it is a plain route. See [Chat UIs with the Vercel AI SDK](ai.md#chat-uis-with-the-vercel-ai-sdk-usechat). Tested with the `ai` package 5.0.0 and the latest release.
 
 ## Other web-standard frameworks
 
@@ -4391,6 +4423,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Encore.ts (`toNodeHandler` in a raw endpoint, `/ai` in services) | encore.dev 1.51.0 and newer |
 | Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
+| Vercel AI SDK UI (`toResponse({ format: "ai-sdk" })` for `useChat`) | `ai` package 5.0.0 and newer (UI message stream protocol v1) |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
@@ -4591,6 +4624,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5026
 **Invalid toAzureHandler() arguments or request.** `toAzureHandler(app, { prefix })` from `@browserlessapi/inferlo/azure` needs the app returned by `createApp`; the only option is `prefix`, which starts with `/` (such as `"/api"`, Azure's default route prefix). The handler only takes HTTP trigger requests: register it with `azure.http(name, { route: "{*path}", handler })`. Other triggers such as queues, timers or blobs need their own handler. See [Azure Functions](integrations.md#azure-functions).
+
+### IL5027
+**Unknown stream format.** `ai.stream(...).toResponse({ format })` takes `"sse"` (the default: Inferlo's `text` and `done` events) or `"ai-sdk"` (the AI SDK UI message stream protocol, for `useChat`). See [Chat UIs with the Vercel AI SDK](ai.md#chat-uis-with-the-vercel-ai-sdk-usechat).
 
 ## App configuration (6xxx)
 

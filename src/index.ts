@@ -39,7 +39,7 @@ export type {
   PlanMigrationOptions,
 } from "./db/migrate.ts";
 
-export { createAI, cosineSimilarity, extractJson, openai, openaiCompatible, anthropic, gemini, ollama, mockProvider, ProviderError } from "./ai/index.ts";
+export { createAI, cosineSimilarity, extractJson, openai, openaiCompatible, anthropic, gemini, ollama, mockProvider, ProviderError, uiChatBody, fromUIMessages } from "./ai/index.ts";
 export { tool, isTool, ToolBuilder } from "./ai/tool.ts";
 export type { ToolDef, FunctionToolOptions, ToolContext } from "./ai/tool.ts";
 export type {
@@ -48,6 +48,8 @@ export type {
   GenerateOptions,
   GenerateResult,
   StreamResult,
+  StreamResponseInit,
+  UIChatMessage,
   Usage,
   Pricing,
   Provider,

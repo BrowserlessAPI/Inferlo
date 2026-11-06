@@ -75,7 +75,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Migration guides part 1: from Express to Inferlo, route by route at the same URLs (docs/migrate-from-express.md, with a test of the setup it recommends)
 - [x] Migration guides part 2: from NestJS to Inferlo (modules, providers, guards, pipes and DTOs)
 - [x] Migration guides part 3: from Hono to Inferlo
-- [ ] Vercel AI SDK UI: `ai.stream(...).toResponse({ format: "ai-sdk" })` speaks the AI SDK UI message stream protocol, so `useChat` from `@ai-sdk/react` talks to an Inferlo route directly, tested on the oldest supported and latest `ai` package
+- [x] Vercel AI SDK UI: `ai.stream(...).toResponse({ format: "ai-sdk" })` speaks the AI SDK UI message stream protocol, so `useChat` from `@ai-sdk/react` talks to an Inferlo route directly, tested on the oldest supported and latest `ai` package
 - [ ] Astro: `export const ALL = toAstroHandler(app, { prefix: "/api" })` in a catch-all endpoint (`src/pages/api/[...path].ts`) and `locals.ai` from an `inferloAI(ai)` middleware, tested on Astro 5 and the latest Astro
 - [x] Vercel and Netlify Functions: `export default app` (web-standard `fetch` handler) tested with the Vercel Node.js runtime and Netlify Functions 2.0 request shapes, with streaming AI answers and the client address from their forwarded headers
 - [ ] Deno Deploy and Bun: `Deno.serve(app.fetch)` and `Bun.serve({ routes })` guides with streaming and graceful shutdown, tested together with the Deno support item
