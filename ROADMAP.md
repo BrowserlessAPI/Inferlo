@@ -46,6 +46,10 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Microservices part 3b: events between services: a transport interface (`createApp({ events: { transport } })`) and a Redis Streams transport (at-least-once delivery, one consumer group per service, delivered to the same `on(event, job)` subscriptions, tested on the oldest supported and latest Redis)
 - [ ] Microservices part 4: NATS, RabbitMQ and Kafka event transports as separate entry points (peer dependencies), each tested on its oldest supported and latest versions
 - [ ] GraphQL support generated from models and routes (optional module)
+- [ ] Multi-tenancy part 1: `tenant` scoping for models (`model("tickets", { tenant: true })`) so every query, insert and update in `ctx.db` is filtered by and stamped with the current tenant from the auth result, with no way to forget the filter
+- [ ] Multi-tenancy part 2: tenant-aware rate limits, cache keys, jobs (the tenant travels with the job) and audit entries, and `inferlo describe` showing which models are tenant-scoped
+- [ ] WebSockets part 1: `route.ws(path, { auth, message: schema }).handle(...)` with the same auth, validation and rate limits as HTTP routes, on Node.js, Bun and Deno
+- [ ] WebSockets part 2: rooms and broadcast across instances through Redis, and streaming AI answers over a socket
 - [x] Support policy: `docs/support.md` with semantic versioning, LTS releases after 1.0, deprecation rules and supported runtime versions
 
 ### Works with other frameworks (top priority)
@@ -84,6 +88,9 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Vercel and Netlify Functions: `export default app` (web-standard `fetch` handler) tested with the Vercel Node.js runtime and Netlify Functions 2.0 request shapes, with streaming AI answers and the client address from their forwarded headers
 - [x] Deno Deploy and Bun part 1: Bun: a `Bun.serve({ routes, fetch: app.fetch })` guide with the client address, streaming and graceful shutdown, tested on Bun 1.3.0 and latest, `app.close()` letting streamed answers from `app.listen()` finish on Bun instead of cutting them off, and AI streams kept open past Bun's `idleTimeout`
 - [x] Deno Deploy and Bun part 2: Deno Deploy: a `Deno.serve(app.fetch)` guide with streaming and graceful shutdown, tested together with the Deno support item
+- [ ] AI SDK providers: any Vercel AI SDK language or embedding model (`@ai-sdk/*`, `LanguageModelV2` and later) usable as an Inferlo provider (`aiSdk(openai("gpt-5"))` in `createAI({ providers })`), so every provider the AI SDK supports works with aliases, fallback, usage tracking and tools, tested on the oldest supported and latest `ai` package
+- [ ] Drizzle and Prisma: adopt Inferlo next to an existing Drizzle or Prisma database (the client available in routes and jobs, its transactions shared, and Inferlo models on the same Postgres), with a guide and examples tested on the oldest supported and latest versions
+- [ ] LangChain.js: Inferlo AI aliases as a LangChain chat model and Inferlo tools (routes and `tool()`) as LangChain tools, tested on the oldest supported and latest `@langchain/core`
 
 ### Core
 
@@ -122,10 +129,8 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [ ] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [ ] Response validation in development mode (warn when a handler returns data that does not match `response`)
 - [ ] File uploads: `t.file()` for multipart bodies with size and type limits, and a storage interface (local disk and S3-compatible)
-- [ ] WebSockets: `route.ws(path, ...)` with the same auth as HTTP routes
 - [ ] Email: `mail({ smtp })` helper with templates, used by jobs
 - [ ] OAuth login helpers: GitHub and Google, built on cookie sessions
-- [ ] Multi-tenancy: `tenant` scoping for models and routes, so every query is filtered by the current tenant
 - [x] OpenTelemetry tracing for requests, database queries and AI calls (observability parts 3 and 4a)
 - [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)
 - [ ] SQLite adapter for small apps and tests (tested on the oldest supported and latest versions)
