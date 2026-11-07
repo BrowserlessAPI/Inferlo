@@ -7,7 +7,6 @@ import { createClient } from "redis";
 import { bearer, createApp, InferloError, job, memory, route, t, type AppUser, type RedisClient, type RedisSubscriber } from "../src/index.ts";
 
 const REDIS_URL = process.env.INFERLO_TEST_REDIS_URL;
-const skip = !REDIS_URL && "set INFERLO_TEST_REDIS_URL";
 const quiet = { info() {}, error() {} };
 const run = `ws${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 const users = new Map<string, { id: string; tenantId?: string }>([
@@ -68,7 +67,8 @@ async function quietFor(client: Client, waitMs = 200): Promise<unknown> {
   return Promise.race([client.next(), new Promise((r) => setTimeout(() => r("nothing"), waitMs))]);
 }
 
-describe("WebSocket broadcasts through Redis", { skip }, () => {
+// describe.skip, because Bun 1.3.0 ignores { skip } on describe.
+(REDIS_URL ? describe : describe.skip)("WebSocket broadcasts through Redis", () => {
   const clients: { close(): Promise<unknown> }[] = [];
   const connectRedis = async () => {
     const client = await createClient({ url: REDIS_URL }).connect();
