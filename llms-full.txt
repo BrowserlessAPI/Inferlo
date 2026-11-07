@@ -3247,12 +3247,64 @@ export const createInvoice = route
   );
 ```
 
-- `db.$pgClient()` is the `pg.Pool` outside a transaction and the transaction's `pg.PoolClient` inside `$transaction` (pass the `pg` type you need: `tx.$pgClient<pg.PoolClient>()`). Any code that takes a pg client (Drizzle, Kysely, plain `pg` helpers) can use it. With `memory()` it raises IL4028.
+- `db.$pgClient()` is the `pg.Pool` outside a transaction and the transaction's `pg.PoolClient` inside `$transaction` (pass the `pg` type you need: `tx.$pgClient<pg.PoolClient>()`). Any code that takes a pg client (Drizzle, [Kysely](#kysely), plain `pg` helpers) can use it. With `memory()` it raises IL4028.
 - Do not start the transaction with `orm.transaction(...)` and use Inferlo inside it: Inferlo would not see Drizzle's connection.
 
 **Migrations.** Each tool manages its own tables. `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create, so Drizzle's tables are safe. Give new Inferlo models names that Drizzle does not use, and tell drizzle-kit to leave Inferlo's tables alone with `tablesFilter` in `drizzle.config.ts` (list your Drizzle tables, or exclude Inferlo's: `tablesFilter: ["!reminders", "!inferlo_*", "!audit_log"]`), so `drizzle-kit push` never offers to drop them. Inferlo's built-in tables start with `inferlo_` (jobs, rate limits, cache, migrations) or are `audit_log`.
 
 Inferlo models can store the id of a Drizzle row as a plain field (`invoiceId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with `drizzle-orm` 0.44.0 and the latest release, on the oldest supported and the newest PostgreSQL.
+
+## Kysely
+
+An app that already uses [Kysely](https://kysely.dev) on Postgres can add Inferlo next to it, on the same database, without moving its tables. A tested example is in `examples/with-kysely`.
+
+**One pool for both.** Create the `pg` pool once and give it to Kysely's `PostgresDialect` and to `postgres({ pool })`:
+
+```ts
+// src/db.ts
+import pg from "pg";
+import { Kysely, PostgresDialect } from "kysely";
+import type { Database } from "./database.ts"; // your existing Kysely table types
+
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
+export const kysely = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+
+// src/app.ts
+export const app = createApp({ models, db: postgres({ pool }), routes, jobs, auth });
+```
+
+**Kysely in routes and jobs.** Import `kysely` where you need it, as any module: `await kysely.selectFrom("shipments").selectAll().where("warehouse_id", "=", id).execute()`. Inferlo adds no wrapper, so Kysely queries do not get `ctx.db`'s request timeout or tenant filter; keep Inferlo models (`ctx.db`) for tables that need them. Check for missing rows and throw `notFound()` (404, IL4001); Kysely's own errors (such as `NoResultError` from `executeTakeFirstOrThrow`) answer 500 with the details logged, never sent.
+
+**One transaction for both.** Start the transaction with Inferlo and run Kysely on the transaction's connection, which `tx.$pgClient()` returns. Kysely takes a pool, so give it a pool of that one connection that never releases it. Both commit together, and an error in either rolls both back:
+
+```ts
+/** Kysely on one connection, such as the connection of an Inferlo transaction. Kysely never releases it. */
+export function kyselyOn(client: pg.PoolClient): Kysely<Database> {
+  const connection = { query: client.query.bind(client) as pg.PoolClient["query"], release() {} };
+  const pool = { connect: async () => connection, end: async () => {}, options: {} };
+  return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+}
+
+export const createShipment = route
+  .post("/shipments", { body: t.object({ warehouseId: t.int(), reference: t.string().min(1).max(40) }) })
+  .handle(({ body, db }) =>
+    db.$transaction(async (tx) => {
+      const txKysely = kyselyOn(await tx.$pgClient<pg.PoolClient>());
+      const shipment = await txKysely.insertInto("shipments").values({ warehouse_id: body.warehouseId, reference: body.reference }).returning(["id", "reference"]).executeTakeFirstOrThrow();
+      const event = await tx.tracking_events.insert({ shipmentId: shipment.id, status: "created" });
+      return { shipment, event };
+    }),
+  );
+```
+
+- Do not start the transaction with `kysely.transaction()` and use Inferlo inside it: Inferlo would not see Kysely's connection. Do not call `destroy()` on a `kyselyOn(...)` instance; the connection belongs to the transaction, which Inferlo commits or rolls back and returns to the pool.
+- `{ options: {} }` is for Kysely 0.29 and later, which reads the pool's options; Kysely 0.28 ignores it.
+
+**Migrations.** Each tool manages its own tables. `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create, so Kysely's tables and its `kysely_migration` and `kysely_migration_lock` tables are safe. Kysely's `Migrator` runs only its own migrations and never compares the database with a schema, so it leaves Inferlo's tables alone. Give new Inferlo models table names your Kysely migrations do not use; Inferlo's built-in tables start with `inferlo_` (jobs, rate limits, cache, migrations) or are `audit_log`. Kysely's table types are written by hand (or generated with a tool such as kysely-codegen); add Inferlo's tables to them only if Kysely should query them too.
+
+**Shutting down.** Close in order: `await app.close()` (stops requests and jobs), then `await kysely.destroy()`, which ends the shared pool. Inferlo never ends a pool you created.
+
+Inferlo models can store the id of a Kysely row as a plain field (`shipmentId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with `kysely` 0.28.0 and the latest release, on the oldest supported and the newest PostgreSQL.
 
 ## Prisma
 
@@ -5140,6 +5192,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | LangChain.js (`/langchain`: `toLangChainModel`, `toLangChainTools`) | `@langchain/core` 0.3 (newest 0.3.x) and 1.x |
 | Vercel AI SDK providers (`aiSdk(provider)`) | `@ai-sdk/*` provider packages for `ai` 5 and newer (language model specifications v2, v3 and v4); tested with `@ai-sdk/openai-compatible` 1.0.0, 2 and the latest |
 | Drizzle ORM (next to Inferlo on one Postgres database, `db.$pgClient()`) | `drizzle-orm` 0.44.0 and newer |
+| Kysely (next to Inferlo on one Postgres database, `db.$pgClient()`) | `kysely` 0.28.0 and newer |
 | Prisma (next to Inferlo on one Postgres database, through `@prisma/adapter-pg`) | Prisma 6 (with `engineType = "client"`) and 7 |
 | TypeORM (next to Inferlo on one Postgres database) | TypeORM 0.3 (newest 0.3.x) and 1.x |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |

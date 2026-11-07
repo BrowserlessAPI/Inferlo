@@ -133,7 +133,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc && tsc --noEmit -p examples/with-adonisjs && tsc --noEmit -p examples/with-tsed && tsc --noEmit -p examples/with-encore && tsc --noEmit -p examples/with-koa && tsc --noEmit -p examples/with-nextjs && tsc --noEmit -p examples/with-nitro && tsc --noEmit -p examples/with-sveltekit && tsc --noEmit -p examples/with-react-router && tsc --noEmit -p examples/with-lambda && tsc --noEmit -p examples/with-hapi && tsc --noEmit -p examples/with-azure && tsc --noEmit -p examples/with-cloud-run-functions && tsc --noEmit -p examples/with-cloudflare-workers && tsc --noEmit -p examples/with-vercel && tsc --noEmit -p examples/with-netlify && tsc --noEmit -p examples/with-astro && tsc --noEmit -p examples/with-drizzle && tsc --noEmit -p examples/with-typeorm && node examples/with-prisma/generate.ts && tsc --noEmit -p examples/with-prisma",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/helpdesk && tsc --noEmit -p examples/with-hono && tsc --noEmit -p examples/with-express && tsc --noEmit -p examples/with-fastify && tsc --noEmit -p examples/with-elysia && tsc --noEmit -p examples/with-nestjs && tsc --noEmit -p examples/with-trpc && tsc --noEmit -p examples/with-adonisjs && tsc --noEmit -p examples/with-tsed && tsc --noEmit -p examples/with-encore && tsc --noEmit -p examples/with-koa && tsc --noEmit -p examples/with-nextjs && tsc --noEmit -p examples/with-nitro && tsc --noEmit -p examples/with-sveltekit && tsc --noEmit -p examples/with-react-router && tsc --noEmit -p examples/with-lambda && tsc --noEmit -p examples/with-hapi && tsc --noEmit -p examples/with-azure && tsc --noEmit -p examples/with-cloud-run-functions && tsc --noEmit -p examples/with-cloudflare-workers && tsc --noEmit -p examples/with-vercel && tsc --noEmit -p examples/with-netlify && tsc --noEmit -p examples/with-astro && tsc --noEmit -p examples/with-drizzle && tsc --noEmit -p examples/with-typeorm && tsc --noEmit -p examples/with-kysely && node examples/with-prisma/generate.ts && tsc --noEmit -p examples/with-prisma",
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\" \"examples/*/test/*.test.ts\"",
     "test:bun": "bun test test/",
     "test:deno": "deno test -A --no-check --ignore=test/tsed.test.ts test/ && deno test -A --no-check --ignore=examples/with-tsed examples/ && deno test -A --no-check --unsafe-proto test/tsed.test.ts examples/with-tsed/",
@@ -197,6 +197,7 @@
     "h3": "^2.0.8",
     "hono": "^4.13.16",
     "koa": "^3.3.0",
+    "kysely": "^0.29.8",
     "miniflare": "^4.20260730.0",
     "next": "^16.4.5",
     "pg": "^8.16.0",
