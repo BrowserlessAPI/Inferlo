@@ -101,6 +101,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL3007
 **Cross-site request with the session cookie (403).** A browser sent a request that changes data (POST, PUT, PATCH or DELETE) with the Better Auth session cookie from a page of another site (`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that is neither the app's own host nor trusted). Without this check, another site could act for a signed-in user. Send the request from the app's own pages, or add the page's origin to `betterAuthSession(auth, { trustedOrigins: ["https://admin.example.com"] })` (or Better Auth's own `trustedOrigins`). Scripts and mobile apps can use Better Auth's `bearer()` plugin and send `Authorization: Bearer <token>`, which is not checked. See [Better Auth](auth.md#better-auth).
 
+### IL3008
+**Identity provider keys unavailable (503).** A request sent an access token, and `jwt()` could not load the identity provider's signing keys (its OpenID configuration or key set did not answer, answered an error, or was not a JSON Web Key Set), with none cached from before. The token may be valid; it cannot be checked. Make sure the server can reach the provider (the `issuer`'s `/.well-known/openid-configuration` and its `jwks_uri`, or `jwksUrl`), and that the `issuer` matches the `issuer` field of that configuration exactly. Keys that were loaded once keep working while the provider is unreachable. See [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
+
 ## Database (4xxx)
 
 ### IL4001
@@ -356,6 +359,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6041
 **Invalid Better Auth integration arguments.** `betterAuthSession(auth, { user, trustedOrigins, roles, tenant })` from `@browserlessapi/inferlo/better-auth` needs the instance `betterAuth({ ... })` returns, and takes only those options: `user`, `roles` and `tenant` are functions, and `trustedOrigins` is a list of origins without a path (`"https://admin.example.com"`). Better Auth's `basePath` must be a path under the root, such as the default `"/api/auth"`, so the app's own routes stay reachable. See [Better Auth](auth.md#better-auth).
+
+### IL6042
+**Invalid `jwt()` options.** `jwt({ issuer, audience, jwksUrl, secret, algorithms, user, clockToleranceSeconds, cacheMs, roles, tenant })` needs the `issuer` (the `iss` claim of the provider's tokens) and the `audience` (this API's identifier at the provider, required so tokens issued for other APIs are refused). The issuer (when keys are discovered from it) and `jwksUrl` must use https, except on localhost. `secret` is at least 32 characters, cannot be combined with `jwksUrl`, and goes with HS256, HS384 or HS512 only; the asymmetric algorithms need keys. `clockToleranceSeconds` is 0 to 300, `cacheMs` 60000 to 86400000, and `user`, `roles` and `tenant` are functions. See [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
 
 ## Environment (7xxx)
 

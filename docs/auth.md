@@ -195,6 +195,30 @@ createApp({
 });
 ```
 
+## Access tokens from an identity provider (JWT)
+
+APIs whose users sign in with an identity provider (Auth0, Okta, Microsoft Entra ID, Google, Keycloak, Clerk, WorkOS, Amazon Cognito, Supabase) receive the provider's access tokens as `Authorization: Bearer <token>`. `jwt()` checks them, with Web Crypto and no runtime dependency:
+
+```ts
+import { jwt } from "@browserlessapi/inferlo";
+
+createApp({
+  auth: jwt({
+    issuer: "https://acme.eu.auth0.com/",          // the iss claim, exactly as the provider writes it
+    audience: "https://api.acme.com",              // this API's identifier at the provider (the aud claim)
+    user: (claims) => ({ id: claims.sub, email: claims.email as string, roles: (claims.permissions as string[]) ?? [] }),
+  }),
+});
+```
+
+- **What is checked.** The signature, against the issuer's signing keys: found through its OpenID configuration (`<issuer>/.well-known/openid-configuration`, whose `issuer` must match) or given as `jwksUrl`. Then `iss` equals `issuer`, `aud` contains `audience` (a list accepts any of them), `exp` is required and not past, `nbf` and `iat` are not in the future, and `sub` is set, each with 60 seconds of clock tolerance (`clockToleranceSeconds`, at most 300). Any token that fails a check signs nobody in: private routes answer 401 IL3001 and public routes see no user. The reason is never sent to the client.
+- **Algorithms.** RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512 and EdDSA (Ed25519) by default; `algorithms: ["RS256"]` narrows the list. The key must match the algorithm in the token (an RSA key never checks an HS256 token), `none` is never accepted, and tokens with a `crit` header are refused. Providers that sign with a shared secret (Supabase's legacy secret, some gateways) pass `secret` (at least 32 characters, from `config({ secrets })`) and get HS256 (`algorithms: ["HS256", "HS512"]` for more).
+- **Keys.** Fetched on the first request, kept for 10 minutes (`cacheMs`), and fetched again when a token names a key id the set does not have (the provider rotated its keys), at most every 30 seconds, so random key ids cannot flood the provider. Key URLs must be https (plain http only on localhost). When the keys cannot be loaded and none are cached, requests that send a token answer 503 IL3008 (the provider or the network is down, the token may be fine); cached keys keep working while the provider is unreachable.
+- **The user.** `user(claims, { db, req })` returns the app's user, or `null` to refuse the token (a blocked account, a missing scope). Without it, the user is `{ id: sub, email, name, roles }` with `roles` from a `roles` claim. Roles and permissions are in different claims per provider: Auth0 `permissions` (with RBAC on), Keycloak `realm_access.roles`, Entra ID `roles`, Okta `groups`; map them in `user`. Load your own user record there when you keep one: `user: async (claims, { db }) => db.users.findOne({ externalId: claims.sub })`.
+- For tenant-scoped models, return `tenantId` from an organization claim (Auth0 `org_id`, Clerk `org_id`, WorkOS `org_id`) or pass `tenant`.
+- To accept tokens and your own API keys, try the token first: `resolve: async (req, ctx) => (await tokens.resolve(req, ctx)) ?? apiKeys.resolve(req, ctx)` (see the end of [Cookie sessions](#cookie-sessions)).
+- Invalid options raise IL6042 at startup: the audience is required, so tokens the provider issued for your other APIs are refused.
+
 ## Better Auth
 
 An app that signs users in with [Better Auth](https://www.better-auth.com) (email and password, OAuth providers, two-factor, organizations, passkeys) uses its sessions as Inferlo's auth with `betterAuthSession(auth)` from `@browserlessapi/inferlo/better-auth`. Better Auth keeps its own tables and endpoints; Inferlo routes get the signed-in user:

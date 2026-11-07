@@ -1,0 +1,4 @@
+{
+  "title": "Access tokens from an identity provider",
+  "prompt": "Users now sign in with our identity provider (OpenID Connect), and clients call the API with its access tokens in Authorization: Bearer. Notes keep the provider's user id (the sub claim) in ownerId. Add an AUTH_ISSUER setting to src/config.ts (a string, required) and replace the API key auth in src/app.ts with Inferlo's built-in access token verification for that issuer and the audience \"https://api.example.com\". The signed-in user is { id: sub, email, name, roles } from the token's claims (roles from the roles claim, an empty list when there is none)."
+}

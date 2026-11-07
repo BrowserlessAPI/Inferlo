@@ -28,6 +28,8 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Security hardening part 2: request timeouts (`createApp({ requestTimeoutMs })` and per-route `timeoutMs`, with an abort `signal` in the handler context passed on to AI and database calls)
 - [x] Security hardening part 3: secret redaction in logs and errors (authorization headers, cookies, `config` secrets and provider API keys never appear in logged errors)
 - [x] Security hardening part 4: CSRF protection for cookie sessions (together with the cookie sessions item)
+- [x] Access tokens from identity providers: `jwt({ issuer, audience, user })` verifies the bearer access tokens of Auth0, Okta, Entra ID, Keycloak, Clerk and any OpenID Connect provider with Web Crypto (JWKS discovery, caching and key rotation, RS/PS/ES/EdDSA and HS256 with a secret), no runtime dependency
+- [ ] Single sign-on part 1: OpenID Connect login for browser apps (`oidc({ issuer, clientId, clientSecret })` with the authorization code flow and PKCE, state and nonce checks), ending in a `sessions()` cookie, tested against a local OpenID provider
 - [ ] Security hardening part 5: `SECURITY.md` with the supported versions and a vulnerability reporting process (needs the owner: enable private vulnerability reporting on GitHub or choose a contact address)
 - [x] API versioning part 1: `deprecated: { since, sunset, link }` on routes sends the Deprecation (RFC 9745), Sunset (RFC 8594) and `Link rel="deprecation"` headers, and marks the route in OpenAPI, describe and MCP
 - [x] API versioning part 2: `/v1` and `/v2` route groups, and an OpenAPI document per version

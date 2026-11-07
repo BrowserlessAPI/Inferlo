@@ -12,6 +12,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Errors do not leak.** Unexpected errors answer `500` with IL9000 and `"Internal server error"`; the real error is logged. Readiness checks show `"Check failed."`.
 - **Secrets stay out of logs.** Authorization and cookie headers, tokens, API keys, passwords in URLs, the AI provider keys and your `config({ secrets })` are replaced with `"[redacted]"` in everything the app logs (below).
 - **Cookie sessions resist CSRF.** `sessions()` cookies are signed, `HttpOnly`, `Secure` and `SameSite=Lax`, and requests that change data with a session cookie must send the session's CSRF token (IL3005); see [Cookie sessions](auth.md#cookie-sessions).
+- **Access tokens are fully checked.** `jwt({ issuer, audience })` requires the audience, checks the signature with the issuer's keys and the expiry, and never accepts `none` or an algorithm that does not match the key; see [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
 - **Security headers** are sent on every response (below).
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
 - **WebSockets only accept their own origin.** A `route.ws` socket may only be opened from the app's own origin or one listed in `cors.origin` (IL3006), because browsers send cookies with WebSocket upgrades from any page; each message is validated and limited like a request (see [WebSockets](websockets.md)).
