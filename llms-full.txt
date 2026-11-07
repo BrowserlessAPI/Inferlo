@@ -1218,6 +1218,41 @@ createApp({
 });
 ```
 
+## Better Auth
+
+An app that signs users in with [Better Auth](https://www.better-auth.com) (email and password, OAuth providers, two-factor, organizations, passkeys) uses its sessions as Inferlo's auth with `betterAuthSession(auth)` from `@browserlessapi/inferlo/better-auth`. Better Auth keeps its own tables and endpoints; Inferlo routes get the signed-in user:
+
+```ts
+// src/auth.ts
+import { betterAuth } from "better-auth";
+import { admin } from "better-auth/plugins";
+import { betterAuthSession } from "@browserlessapi/inferlo/better-auth";
+import { pool } from "./db.ts";
+import { settings } from "./config.ts"; // BETTER_AUTH_SECRET: t.string().min(32), listed in secrets
+
+export const auth = betterAuth({
+  database: pool,                       // the pg pool Inferlo uses too: postgres({ pool })
+  secret: settings.BETTER_AUTH_SECRET,
+  baseURL: settings.APP_URL,            // https://app.example.com
+  emailAndPassword: { enabled: true },
+  plugins: [admin()],                   // optional: user.role becomes the user's roles
+});
+
+export const session = betterAuthSession(auth, {
+  user: ({ user }) => ({ id: user.id, email: user.email, name: user.name, roles: user.role ? user.role.split(",") : [] }),
+});
+
+// src/app.ts
+createApp({ models, db: postgres({ pool }), routes, auth: session, middleware: [session.middleware] });
+```
+
+- `session.middleware` answers Better Auth's own endpoints (sign-up, sign-in, sign-out, OAuth callbacks, `get-session`) under its `basePath`, `/api/auth` by default, with `auth.handler`. Every other request goes on to the app. Inferlo's secure headers and request ids apply to Better Auth's answers too.
+- `user({ user, session }, { db, req })` turns Better Auth's user and session into the app's user, or returns `null` to refuse the session (a blocked account). Without it, the user is `{ id, email, name, roles }` with `roles` from the admin plugin's comma-separated `user.role`. Apps that register their own user type pass `user`. For tenant-scoped models with Better Auth's organization plugin, return `tenantId: session.activeOrganizationId` (or pass `tenant`).
+- **Cross-site protection.** Better Auth's cookie is `SameSite=Lax`, and Inferlo also refuses a POST, PUT, PATCH or DELETE that carries the session cookie when a browser sends it from another site: 403 IL3007 before the handler runs, also on public routes. Browsers mark every request with `Sec-Fetch-Site` or `Origin`, so the app's own pages pass without a token; clients that are not browsers (servers, CLIs, tests) send neither and pass. Pages on other origins of yours (an admin site) need `trustedOrigins: ["https://admin.example.com"]`; by default, Better Auth's own `trustedOrigins` list and the origin of its `baseURL` are trusted. Requests with an `Authorization` header (Better Auth's `bearer()` plugin, for mobile apps and scripts) are not checked, because browsers never add that header on their own.
+- **Tables.** Better Auth's tables (`user`, `session`, `account`, `verification`) come from its own migrations (`npx @better-auth/cli migrate`, or `getMigrations(auth.options)` from `better-auth/db/migration` in code). `inferlo db migrate` never changes tables it did not create, and Better Auth's migrations never touch Inferlo's. Keep Better Auth's user id in Inferlo models as a plain field (`ownerId: t.string().index()`); read Better Auth's tables with `db.$sql('select name from "user" where id = $1', [id])`.
+- Better Auth rate-limits its own endpoints in production; Inferlo's `rateLimit` applies to Inferlo routes. Shut down with `await app.close()`, then `await pool.end()`.
+- Invalid arguments raise IL6041 at startup. A tested example is in `examples/with-better-auth`, tested with `better-auth` 1.6.0 and the latest Better Auth on the oldest supported and newest PostgreSQL.
+
 ## API keys with bearer()
 
 ```ts
@@ -3607,6 +3642,17 @@ export const createOrder = route
 
 Tested with `sequelize` 6.36.0 on the oldest supported PostgreSQL and the latest Sequelize on the newest PostgreSQL.
 
+## Better Auth
+
+An app that signs users in with [Better Auth](https://www.better-auth.com) keeps it: `betterAuthSession(auth)` from `@browserlessapi/inferlo/better-auth` turns Better Auth's sessions into Inferlo's auth, and `session.middleware` serves Better Auth's endpoints from the Inferlo app:
+
+```ts
+const session = betterAuthSession(auth, { user: ({ user }) => ({ id: user.id, email: user.email, roles: user.role ? user.role.split(",") : [] }) });
+createApp({ models, db: postgres({ pool }), routes, auth: session, middleware: [session.middleware] });
+```
+
+Better Auth and Inferlo share one `pg` pool (`betterAuth({ database: pool })` and `postgres({ pool })`), each runs its own migrations, and requests that change data with the session cookie from another site are refused with IL3007. When the Inferlo app is mounted inside another framework that already serves Better Auth's endpoints (`toNodeHandler(app)` in Express next to `toNodeHandler(auth)` from `better-auth/node`), leave out `session.middleware` and keep `auth: session`. See [Better Auth](auth.md#better-auth) for the options; `examples/with-better-auth` is tested with `better-auth` 1.6.0 and the latest Better Auth.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
@@ -5396,6 +5442,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Prisma (next to Inferlo on one Postgres database, through `@prisma/adapter-pg`) | Prisma 6 (with `engineType = "client"`) and 7 |
 | TypeORM (next to Inferlo on one Postgres database) | TypeORM 0.3 (newest 0.3.x) and 1.x |
 | Knex (next to Inferlo on one Postgres database, `db.$pgClient()`) | `knex` 3.1.0 and newer |
+| Better Auth (`@browserlessapi/inferlo/better-auth`) | `better-auth` 1.6.0 and newer |
 | Sequelize (next to Inferlo on one Postgres database) | `sequelize` 6.36.0 and newer 6.x |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
@@ -5514,6 +5561,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL3006
 **WebSocket origin not allowed (403).** A browser page from another origin tried to open a WebSocket route. Browsers send cookies with WebSocket upgrades from any page, so only the app's own origin (the `Origin` host equals the `Host` header) and the origins in `createApp({ cors: { origin: [...] } })` may connect. Open the socket from the app's own pages, or list the page's origin in `cors.origin`. See [WebSockets](websockets.md#connecting).
+
+### IL3007
+**Cross-site request with the session cookie (403).** A browser sent a request that changes data (POST, PUT, PATCH or DELETE) with the Better Auth session cookie from a page of another site (`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that is neither the app's own host nor trusted). Without this check, another site could act for a signed-in user. Send the request from the app's own pages, or add the page's origin to `betterAuthSession(auth, { trustedOrigins: ["https://admin.example.com"] })` (or Better Auth's own `trustedOrigins`). Scripts and mobile apps can use Better Auth's `bearer()` plugin and send `Authorization: Bearer <token>`, which is not checked. See [Better Auth](auth.md#better-auth).
 
 ## Database (4xxx)
 
@@ -5767,6 +5817,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6040
 **Invalid `validateResponses` option.** `createApp({ validateResponses })` takes `"warn"` (log mismatches once per route, the default outside production), `"error"` (answer 500 IL2016, for tests) or `false` (no check, the default in production). See [Response validation](routes.md#response-validation).
+
+### IL6041
+**Invalid Better Auth integration arguments.** `betterAuthSession(auth, { user, trustedOrigins, roles, tenant })` from `@browserlessapi/inferlo/better-auth` needs the instance `betterAuth({ ... })` returns, and takes only those options: `user`, `roles` and `tenant` are functions, and `trustedOrigins` is a list of origins without a path (`"https://admin.example.com"`). Better Auth's `basePath` must be a path under the root, such as the default `"/api/auth"`, so the app's own routes stay reachable. See [Better Auth](auth.md#better-auth).
 
 ## Environment (7xxx)
 

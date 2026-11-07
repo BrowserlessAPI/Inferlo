@@ -1,0 +1,5 @@
+{
+  "title": "Sign-in with Better Auth sessions",
+  "prompt": "The web frontend now signs users in with Better Auth: the instance is exported as `auth` from src/auth.ts, and notes keep the Better Auth user id in ownerId. Make the app use Better Auth's sessions as its auth instead of API keys, with Inferlo's Better Auth integration: routes get the user { id, email, name, roles: [] } from Better Auth's user, and the app itself must serve Better Auth's endpoints (sign-up, sign-in, sign-out) under /api/auth.",
+  "packages": ["better-auth"]
+}

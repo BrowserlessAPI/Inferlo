@@ -1253,6 +1253,17 @@ export const createOrder = route
 
 Tested with `sequelize` 6.36.0 on the oldest supported PostgreSQL and the latest Sequelize on the newest PostgreSQL.
 
+## Better Auth
+
+An app that signs users in with [Better Auth](https://www.better-auth.com) keeps it: `betterAuthSession(auth)` from `@browserlessapi/inferlo/better-auth` turns Better Auth's sessions into Inferlo's auth, and `session.middleware` serves Better Auth's endpoints from the Inferlo app:
+
+```ts
+const session = betterAuthSession(auth, { user: ({ user }) => ({ id: user.id, email: user.email, roles: user.role ? user.role.split(",") : [] }) });
+createApp({ models, db: postgres({ pool }), routes, auth: session, middleware: [session.middleware] });
+```
+
+Better Auth and Inferlo share one `pg` pool (`betterAuth({ database: pool })` and `postgres({ pool })`), each runs its own migrations, and requests that change data with the session cookie from another site are refused with IL3007. When the Inferlo app is mounted inside another framework that already serves Better Auth's endpoints (`toNodeHandler(app)` in Express next to `toNodeHandler(auth)` from `better-auth/node`), leave out `session.middleware` and keep `auth: session`. See [Better Auth](auth.md#better-auth) for the options; `examples/with-better-auth` is tested with `better-auth` 1.6.0 and the latest Better Auth.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).

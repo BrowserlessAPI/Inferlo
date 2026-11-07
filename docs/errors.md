@@ -98,6 +98,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL3006
 **WebSocket origin not allowed (403).** A browser page from another origin tried to open a WebSocket route. Browsers send cookies with WebSocket upgrades from any page, so only the app's own origin (the `Origin` host equals the `Host` header) and the origins in `createApp({ cors: { origin: [...] } })` may connect. Open the socket from the app's own pages, or list the page's origin in `cors.origin`. See [WebSockets](websockets.md#connecting).
 
+### IL3007
+**Cross-site request with the session cookie (403).** A browser sent a request that changes data (POST, PUT, PATCH or DELETE) with the Better Auth session cookie from a page of another site (`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that is neither the app's own host nor trusted). Without this check, another site could act for a signed-in user. Send the request from the app's own pages, or add the page's origin to `betterAuthSession(auth, { trustedOrigins: ["https://admin.example.com"] })` (or Better Auth's own `trustedOrigins`). Scripts and mobile apps can use Better Auth's `bearer()` plugin and send `Authorization: Bearer <token>`, which is not checked. See [Better Auth](auth.md#better-auth).
+
 ## Database (4xxx)
 
 ### IL4001
@@ -350,6 +353,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6040
 **Invalid `validateResponses` option.** `createApp({ validateResponses })` takes `"warn"` (log mismatches once per route, the default outside production), `"error"` (answer 500 IL2016, for tests) or `false` (no check, the default in production). See [Response validation](routes.md#response-validation).
+
+### IL6041
+**Invalid Better Auth integration arguments.** `betterAuthSession(auth, { user, trustedOrigins, roles, tenant })` from `@browserlessapi/inferlo/better-auth` needs the instance `betterAuth({ ... })` returns, and takes only those options: `user`, `roles` and `tenant` are functions, and `trustedOrigins` is a list of origins without a path (`"https://admin.example.com"`). Better Auth's `basePath` must be a path under the root, such as the default `"/api/auth"`, so the app's own routes stay reachable. See [Better Auth](auth.md#better-auth).
 
 ## Environment (7xxx)
 
