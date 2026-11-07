@@ -74,14 +74,25 @@ export function isMultipart(contentType: string): boolean {
  * sessions() CSRF field _csrf is dropped.
  */
 export async function readMultipart(bytes: Uint8Array, contentType: string, body: AnySchema): Promise<Record<string, unknown>> {
+  const invalid = () =>
+    new InferloError("IL2015", "Request body is not valid multipart/form-data.", {
+      status: 400,
+      fix: "Send a FormData body without setting Content-Type yourself (fetch adds the boundary), or a form with enctype=\"multipart/form-data\".",
+    });
+  if (bytes.byteLength === 0) return {};
+  // Runtimes differ on bodies that are not multipart at all (some read them as an empty form), so the
+  // boundary is checked here: the body starts with it (after an optional preamble) and ends with its close.
+  const boundary = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType);
+  const delimiter = boundary ? `--${boundary[1] ?? boundary[2]}` : undefined;
+  const latin1 = new TextDecoder("latin1");
+  const head = latin1.decode(bytes.subarray(0, 1024));
+  const tail = latin1.decode(bytes.subarray(Math.max(0, bytes.byteLength - 1024)));
+  if (!delimiter || !head.includes(delimiter) || !tail.trimEnd().endsWith(`${delimiter}--`)) throw invalid();
   let form: FormData;
   try {
     form = await new Response(bytes as BodyInit, { headers: { "content-type": contentType } }).formData();
   } catch {
-    throw new InferloError("IL2015", "Request body is not valid multipart/form-data.", {
-      status: 400,
-      fix: "Send a FormData body without setting Content-Type yourself (fetch adds the boundary), or a form with enctype=\"multipart/form-data\".",
-    });
+    throw invalid();
   }
   const shape = body.def.kind === "object" ? (body.def.shape ?? {}) : {};
   const out: Record<string, unknown> = {};

@@ -63,11 +63,16 @@ describe("file uploads", () => {
     assert.equal((await res.json()).error.code, "IL2004");
     // A streamed body without Content-Length is stopped while it is read.
     let pulled = 0;
+    let cancelled = false;
     const stream = new ReadableStream<Uint8Array>({
       pull(controller) {
+        if (cancelled) return;
         pulled++;
         if (pulled > 100) return controller.close();
         controller.enqueue(new Uint8Array(1000));
+      },
+      cancel() {
+        cancelled = true;
       },
     });
     const streamed = await app.fetch(new Request("http://x/avatar", { method: "POST", headers: { "content-type": "multipart/form-data; boundary=abc" }, body: stream, duplex: "half" } as RequestInit));
@@ -128,9 +133,20 @@ describe("file uploads", () => {
 
   test("a broken multipart body answers 400 IL2015", async () => {
     const app = makeApp();
-    const res = await app.fetch(new Request("http://x/avatar", { method: "POST", headers: { "content-type": "multipart/form-data; boundary=zzz" }, body: "not multipart at all" }));
-    assert.equal(res.status, 400);
-    assert.equal((await res.json()).error.code, "IL2015");
+    const post = (contentType: string, body: string) => app.fetch(new Request("http://x/avatar", { method: "POST", headers: { "content-type": contentType }, body }));
+    const part = '--zzz\r\nContent-Disposition: form-data; name="caption"\r\n\r\nhi\r\n';
+    for (const [type, body] of [
+      ["multipart/form-data; boundary=zzz", "not multipart at all"],
+      ["multipart/form-data", part + "--zzz--\r\n"],
+      ["multipart/form-data; boundary=zzz", part],
+    ]) {
+      const res = await post(type!, body!);
+      assert.equal(res.status, 400, `${type} ${body}`);
+      assert.equal((await res.json()).error.code, "IL2015");
+    }
+    // A complete body without the required file is a validation error, not a broken body.
+    const valid = await post('multipart/form-data; boundary="zzz"', part + "--zzz--\r\n");
+    assert.equal(valid.status, 422);
   });
 
   test("multipart bodies are only read as files on routes with t.file() fields", async () => {

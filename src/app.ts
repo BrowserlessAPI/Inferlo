@@ -1314,6 +1314,13 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         body = JSON.stringify(options.json);
         headers["content-type"] ??= "application/json";
       }
+      if (typeof FormData !== "undefined" && body instanceof FormData) {
+        // Sent as bytes: on Node.js 24, cancelling a request body stream made from FormData (as a too large upload
+        // does) raises an unhandled rejection inside fetch's FormData encoder.
+        const encoded = new Response(body);
+        headers["content-type"] ??= encoded.headers.get("content-type")!;
+        body = new Uint8Array(await encoded.arrayBuffer());
+      }
       const req = new Request(url, { method: (options.method ?? "GET").toUpperCase(), headers, body });
       if ("as" in options) testUsers.set(req, options.as ?? null);
       return app.fetch(req);
