@@ -1092,6 +1092,31 @@ jobs:
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/pino.test.ts
 
+  sentry:
+    name: Sentry (@sentry/node ${{ matrix.sentry }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 9.0.0 = oldest supported (first release of the oldest major that still gets releases; 8 had its last
+        # release in April 2026), latest = newest release.
+        sentry: ["9.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @sentry/node@${{ matrix.sentry }}
+      - run: node -p "'@sentry/node ' + require('./node_modules/@sentry/node/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/sentry.test.ts test/on-error.test.ts
+
   oidc:
     name: OpenID Connect (oidc-provider ${{ matrix.oidc }})
     runs-on: ubuntu-latest

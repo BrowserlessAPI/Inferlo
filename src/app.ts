@@ -31,7 +31,7 @@ import { redisEventTransport } from "./redis-events.ts";
 import type { Server } from "./serve.ts";
 import { Schema, ValidationError, type AnySchema, type Issue } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
-import { checkLogger, defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
+import { checkLogger, defaultLogger, loggingOptions, REQUEST_ID, type ErrorInfo, type LogFields, type LoggingConfig, type OnError } from "./logging.ts";
 import { clientTracing, jobTracing, requestTracing, traceAdapter, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
 import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
@@ -226,6 +226,13 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    */
   logging?: LoggingConfig;
   /**
+   * Called with every unexpected error (500 answers, failed WebSocket messages and failed job attempts) after it is
+   * logged, with where it happened: { source, requestId, method, path, route, userId, tenantId, traceId, job, jobId,
+   * attempt, final }. Errors are redacted first. Use it to report errors to Sentry (sentryOnError(Sentry) from
+   * "@browserlessapi/inferlo/sentry") or another error tracker. A hook that throws is logged and never changes the answer.
+   */
+  onError?: OnError;
+  /**
    * Prometheus metrics at GET /metrics: requests by route and status with durations, job runs, and AI calls,
    * tokens and cost per alias. { token } requires Authorization: Bearer <token>; without it the endpoint is
    * public, so keep it off the internet. Off by default.
@@ -404,7 +411,24 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const redactor = createRedactor([...redactValues(config.redact), ...Object.values(config.ai?.providers ?? {}).flatMap((p) => secretsOf(p))]);
   const logging = loggingOptions(config.logging, config.logger !== undefined);
   checkLogger(config.logger);
+  if (config.onError !== undefined && typeof config.onError !== "function") {
+    throw new InferloError("IL6055", `createApp({ onError }) must be a function, got ${config.onError === null ? "null" : typeof config.onError}.`, {
+      fix: 'Pass a function: createApp({ onError: (error, info) => tracker.report(error, info) }), or sentryOnError(Sentry) from "@browserlessapi/inferlo/sentry".',
+    });
+  }
   const logger: Logger = redactingLogger(config.logger ?? defaultLogger(logging.format, config.name ?? "inferlo-app"), redactor);
+  /** Hands an unexpected error to createApp({ onError }); the hook never breaks the request or job it came from. */
+  const reportError = (error: unknown, info: ErrorInfo): void => {
+    const hook = config.onError;
+    if (!hook) return;
+    const failed = (hookError: unknown) => logger.error("createApp({ onError }) failed", hookError, info.requestId ? { requestId: info.requestId } : undefined);
+    try {
+      const result = hook(redactor.value(error), info);
+      if (result && typeof (result as Promise<void>).then === "function") (result as Promise<void>).then(undefined, failed);
+    } catch (hookError) {
+      failed(hookError);
+    }
+  };
   const tracing = requestTracing(config.tracing, config.name ?? "inferlo-app", config.version ?? "0.0.0");
   const tracingApi = tracing ? config.tracing!.api : undefined;
   // The server span of each request, for errors recorded while it runs.
@@ -584,6 +608,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       }),
       queue: config.jobQueue?.store ?? "memory",
       logger,
+      onError: config.onError ? reportError : undefined,
       onRun: metrics ? (name, outcome, ms) => metrics.job(name, outcome, ms / 1000) : undefined,
       tracing: appTracing ? jobTracing(appTracing, "inferlo-app", config.version ?? "0.0.0") : undefined,
       eventTransport,
@@ -684,17 +709,39 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const tenantOf = (scope: TenantScope): string | null => (typeof scope === "object" ? scope.tenant : null);
   const roles = (user: AppUser): string[] => config.auth?.roles?.(user) ?? ((user as { roles?: string[] }).roles ?? []);
 
-  const errorResponse = (error: unknown, headers: Headers, req: Request, requestId: string): Response => {
+  // The signed-in user of each request, for errors reported to createApp({ onError }).
+  const requestUsers = new WeakMap<Request, AppUser>();
+  const userInfo = (user: AppUser | null | undefined): Pick<ErrorInfo, "userId" | "tenantId"> => {
+    if (!user) return {};
+    const scope = tenantScope(user);
+    return { userId: String(user.id), ...(typeof scope === "object" ? { tenantId: scope.tenant } : {}) };
+  };
+
+  const errorResponse = (error: unknown, headers: Headers, req: Request, requestId: string, route?: string): Response => {
     const span = requestSpans.get(req);
     const fields = { requestId, ...traceFields(span) };
     if (span && !(error instanceof InferloError && error.status < 500)) span.recordException(error);
+    const report = () => {
+      if (!config.onError) return;
+      let user: AppUser | undefined;
+      try {
+        user = requestUsers.get(req);
+        reportError(error, { source: "request", requestId, method: req.method.toUpperCase(), path: new URL(req.url).pathname, ...(route ? { route } : {}), ...userInfo(user), ...traceFields(span) });
+      } catch (infoError) {
+        logger.error("createApp({ onError }) failed", infoError, { requestId });
+      }
+    };
     if (error instanceof InferloError) {
-      if (error.status >= 500) logger.error(`${req.method} ${new URL(req.url).pathname} failed: ${error.format()}`, error.cause ?? "", fields);
+      if (error.status >= 500) {
+        logger.error(`${req.method} ${new URL(req.url).pathname} failed: ${error.format()}`, error.cause ?? "", fields);
+        report();
+      }
       const body = error.toJSON();
       if (config.exposeErrors && !error.expose) (body.error as Record<string, unknown>).message = redactor.text(error.message);
       return json(body, error.status, headers);
     }
     logger.error(`${req.method} ${new URL(req.url).pathname} failed`, error, fields);
+    report();
     const message = config.exposeErrors && error instanceof Error ? redactor.text(error.message) : "Internal server error";
     return json({ error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } }, 500, headers);
   };
@@ -713,14 +760,19 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const encoder = new TextEncoder();
 
   /** The JSON error message a socket gets when one of its messages fails (the same body as an HTTP error answer). */
-  const socketError = (error: unknown, def: RouteDef, requestId: string): unknown => {
+  const socketError = (error: unknown, def: RouteDef, requestId: string, user: AppUser | null = null, path?: string): unknown => {
+    const report = () => reportError(error, { source: "websocket", requestId, method: "GET", ...(path ? { path } : {}), route: def.path, ...userInfo(user) });
     if (error instanceof InferloError) {
-      if (error.status >= 500) logger.error(`WS ${def.path} message failed: ${error.format()}`, error.cause ?? "", { requestId });
+      if (error.status >= 500) {
+        logger.error(`WS ${def.path} message failed: ${error.format()}`, error.cause ?? "", { requestId });
+        report();
+      }
       const body = error.toJSON();
       if (config.exposeErrors && !error.expose) (body.error as Record<string, unknown>).message = redactor.text(error.message);
       return body;
     }
     logger.error(`WS ${def.path} message failed`, error, { requestId });
+    report();
     const message = config.exposeErrors && error instanceof Error ? redactor.text(error.message) : "Internal server error";
     return { error: { code: "IL9000", message, docs: new InferloError("IL9000", "").docs } };
   };
@@ -878,7 +930,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         const result = await def.handler(ctx as unknown as AnyContext);
         if (result !== undefined) socket.send(result);
       } catch (error) {
-        if (open) transport.send(JSON.stringify(socketError(error, def, requestId)));
+        if (open) transport.send(JSON.stringify(socketError(error, def, requestId, user, url.pathname)));
       }
     };
 
@@ -1002,6 +1054,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         if (testUsers.has(req)) user = testUsers.get(req) ?? null;
         else if (config.auth) user = (await config.auth.resolve(req, { db: db as never, url })) ?? null;
         requestUser = user;
+        if (user) requestUsers.set(req, user);
         const level = opts.auth ?? "user";
         if (level !== "public") {
           if (!user) throw new InferloError("IL3001", "Sign in required.", { status: 401, fix: "Send valid credentials, e.g. an Authorization: Bearer <token> header." });
@@ -1200,7 +1253,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         clearTimeout(timer);
       }
     } catch (error) {
-      return errorResponse(error, headers, req, requestId);
+      return errorResponse(error, headers, req, requestId, seen.route === "unmatched" ? undefined : seen.route);
     }
   };
 
@@ -1272,7 +1325,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     try {
       response = await run(0);
     } catch (error) {
-      response = errorResponse(error, new Headers(), req, requestId);
+      response = errorResponse(error, new Headers(), req, requestId, seen.route === "unmatched" ? undefined : seen.route);
     }
     response = withHeader(response, "x-request-id", requestId);
     if (span && seen.route !== "unmatched") {

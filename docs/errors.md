@@ -410,6 +410,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6054
 **Invalid `rabbitmqEventTransport()` arguments.** `rabbitmqEventTransport(connection, { service, exchange, queueType, staleAfterMs, batch })` from `@browserlessapi/inferlo/rabbitmq` needs a connection from amqplib's `connect()` (promise API) first and this service's name as `service` (1 to 100 letters, digits, `-` and `_`, usually the app's `name`), and takes only those options: `exchange` is 1 to 200 letters, digits, `.`, `-` and `_` and cannot start with `amq.`, `queueType` is `"quorum"` or `"classic"`, `staleAfterMs` 1000 to 3600000 and `batch` 1 to 1000, both whole numbers. See [RabbitMQ](jobs.md#rabbitmq).
 
+### IL6055
+**`createApp({ onError })` is not a function.** Pass a function that reports the error: `createApp({ onError: (error, info) => tracker.report(error, info) })`, or `sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry`. See [Error tracking](observability.md#error-tracking-sentry).
+
+### IL6056
+**Invalid `sentryOnError()` argument.** `sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry` needs a Sentry SDK with `captureException` (`import * as Sentry from "@sentry/node"`, initialised with `Sentry.init({ dsn })`). See [Error tracking](observability.md#error-tracking-sentry).
+
 ## Environment (7xxx)
 
 ### IL7001

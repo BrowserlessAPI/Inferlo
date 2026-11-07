@@ -99,6 +99,10 @@
       "types": "./dist/nextjs.d.ts",
       "default": "./dist/nextjs.js"
     },
+    "./sentry": {
+      "types": "./dist/sentry.d.ts",
+      "default": "./dist/sentry.js"
+    },
     "./rabbitmq": {
       "types": "./dist/rabbitmq.d.ts",
       "default": "./dist/rabbitmq.js"
@@ -215,6 +219,7 @@
     "@opentelemetry/api": "^1.10.0",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
+    "@sentry/node": "^11.11.0",
     "@smithy/signature-v4": "^5.7.5",
     "@sveltejs/kit": "^2.70.3",
     "@trpc/server": "^11.24.0",

@@ -1,0 +1,5 @@
+{
+  "title": "Report the app's errors to Sentry",
+  "prompt": "src/sentry.ts initialises the Sentry SDK and exports it as `Sentry`. Report the app's unexpected errors (500 answers and failed jobs) to Sentry with Inferlo's Sentry integration, so each error in Sentry carries the route, the request id and the signed-in user's id. Do not change src/sentry.ts or the routes.",
+  "packages": ["@sentry/node"]
+}

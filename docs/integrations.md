@@ -1406,6 +1406,19 @@ const app = createApp({ routes, logger: pinoLogger(fastify.log), logging: { requ
 
 Request ids, trace ids and the other fields are top-level properties of each entry, errors are `err`, and secrets are redacted before pino sees them. See [Pino](observability.md#pino); tested with pino 9.14.0 and the latest pino.
 
+## Sentry
+
+Apps that report errors to Sentry pass `onError: sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry` to `createApp`, so 5xx answers, failed WebSocket messages and failed job attempts are captured with the route, job, request id, tenant and user id as tags, after secret redaction:
+
+```ts
+import * as Sentry from "@sentry/node";
+import { sentryOnError } from "@browserlessapi/inferlo/sentry";
+Sentry.init({ dsn: settings.SENTRY_DSN });
+const app = createApp({ routes, onError: sentryOnError(Sentry) });
+```
+
+See [Error tracking](observability.md#error-tracking-sentry); tested with `@sentry/node` 9.0.0 and the latest.
+
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 
 `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

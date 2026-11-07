@@ -96,6 +96,41 @@ export const app = createApp({
 
 `describe().logging` shows the setup (`{ format: "text" | "json" | "custom", requests }`), and `inferlo describe` prints it.
 
+## Error tracking (Sentry)
+
+`onError` is called with every unexpected error after it is logged: answers with a 5xx status (an exception in a handler or middleware, a database error, a failed AI call, a request timeout), failed WebSocket messages and failed job attempts. Client errors (4xx: validation, auth, not found) are not reported. The error is redacted first, like log entries, and the second argument says where it happened:
+
+```ts
+createApp({
+  onError: (error, info) => tracker.report(error, info),
+});
+// info: { source: "request", requestId, method, path, route: "/tickets/:id", userId, tenantId, traceId, spanId }
+//    or { source: "websocket", requestId, method, path, route, userId, tenantId }
+//    or { source: "job", job: "sync-crm", jobId, attempt, maxAttempts, final, tenantId, traceId }
+```
+
+Fields that do not apply are left out. `final` is `true` when a job will not be tried again. A hook that throws or rejects is logged ("createApp({ onError }) failed") and never changes the answer or the job's outcome; the hook is not awaited. `onError` that is not a function raises IL6055.
+
+For [Sentry](https://sentry.io), pass `sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry`:
+
+```ts
+import * as Sentry from "@sentry/node";
+import { sentryOnError } from "@browserlessapi/inferlo/sentry";
+
+Sentry.init({ dsn: settings.SENTRY_DSN, environment: settings.NODE_ENV });
+
+export const app = createApp({
+  routes: [tickets],
+  jobs: [jobs],
+  onError: sentryOnError(Sentry),
+});
+```
+
+- Each error is sent with `Sentry.captureException` and the tags `inferlo.source`, `inferlo.route`, `inferlo.job`, `inferlo.final`, `request_id`, `tenant_id` and `trace_id` (when present), so issues can be searched and grouped by route, job or tenant, and a request id from a support ticket finds its error.
+- `user` is `{ id }` of the signed-in user only; the email and name are never sent. The `inferlo` context holds every field of `info`.
+- Secrets are redacted before Sentry sees the error (authorization headers, tokens, passwords in URLs, provider API keys and your `redact` values); Sentry's own `beforeSend` and data scrubbing still apply.
+- Any Sentry SDK with `captureException(error, captureContext)` works: `@sentry/node`, `@sentry/bun`, `@sentry/deno`, `@sentry/cloudflare`, `@sentry/nextjs`. Sentry is not a dependency of Inferlo; `@sentry/node` 9 and later are tested (9.0.0 and the latest). Anything else raises IL6056.
+
 ## Metrics
 
 `metrics: true` serves `GET /metrics` in the Prometheus text format, which Prometheus, Grafana Agent and Alloy, the OpenTelemetry Collector, Datadog and most other monitoring tools read:

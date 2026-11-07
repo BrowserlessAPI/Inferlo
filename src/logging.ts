@@ -17,6 +17,38 @@ export interface LoggingConfig {
   requests?: boolean;
 }
 
+/**
+ * Where an error reported to createApp({ onError }) happened, for error trackers such as Sentry. Request errors have
+ * requestId, method, path and route; job errors have job, jobId, attempt, maxAttempts and final.
+ */
+export interface ErrorInfo {
+  /** "request" (an HTTP request, 5xx answers only), "websocket" (a WebSocket message) or "job" (a failed job attempt). */
+  source: "request" | "websocket" | "job";
+  requestId?: string;
+  method?: string;
+  /** The path without the query string. */
+  path?: string;
+  /** The route pattern ("/tickets/:id"), when a route matched. */
+  route?: string;
+  /** The signed-in user's id, when there is one. */
+  userId?: string;
+  tenantId?: string;
+  /** With createApp({ tracing }): the trace and span the error happened in. */
+  traceId?: string;
+  spanId?: string;
+  /** The job's name. */
+  job?: string;
+  jobId?: string;
+  /** The attempt that failed, from 1. */
+  attempt?: number;
+  maxAttempts?: number;
+  /** True when the job will not be tried again. */
+  final?: boolean;
+}
+
+/** createApp({ onError }): called with each unexpected error (redacted) and where it happened. */
+export type OnError = (error: unknown, info: ErrorInfo) => void | Promise<void>;
+
 /** Incoming X-Request-Id values that are kept (with trustProxy): 1 to 128 letters, digits and . _ : - characters. */
 export const REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 

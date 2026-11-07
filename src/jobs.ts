@@ -18,6 +18,7 @@ import { cronTickId, isCron, type CronDef } from "./cron.ts";
 import { checkTenantId, type DbHelpers } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
 import { InferloError } from "./errors.ts";
+import type { ErrorInfo } from "./logging.ts";
 import { createEvents, isOn, type AppEvents, type EventTransport, type Events, type OnDef } from "./events.ts";
 import type { AppDb } from "./route.ts";
 import { createSocketHub, type SocketHub, type Sockets } from "./sockets.ts";
@@ -451,6 +452,8 @@ export interface JobRuntime {
   /** How often a running job is reported alive to stores that support it. Default HEARTBEAT_MS. */
   heartbeatMs?: number;
   logger: { info(message: string, data?: unknown): void; error(message: string, data?: unknown): void };
+  /** createApp({ onError }): told about each failed attempt. */
+  onError?(error: unknown, info: ErrorInfo): void;
   /** Called after each attempt with its outcome and duration (metrics). */
   onRun?(name: string, outcome: keyof RunResult, durationMs: number): void;
   /** With createApp({ tracing }): a span per attempt that continues the trace the job was enqueued in. */
@@ -627,13 +630,20 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
     } catch (error) {
       fail?.(error);
       const message = error instanceof Error ? error.message : String(error);
+      const report = () => {
+        if (!runtime.onError) return;
+        const traceId = record.trace?.traceparent?.split("-")[1];
+        runtime.onError(error, { source: "job", job: record.name, jobId: record.id, attempt: record.attempts, maxAttempts: record.maxAttempts, final: record.attempts >= record.maxAttempts, ...(record.tenantId ? { tenantId: record.tenantId } : {}), ...(traceId ? { traceId } : {}) });
+      };
       if (record.attempts < record.maxAttempts) {
         await runtime.store.update(record.id, { status: "pending", lastError: message, runAt: new Date(now.getTime() + retryDelayMs(record.attempts)) });
         runtime.logger.error(`job "${record.name}" failed (attempt ${record.attempts} of ${record.maxAttempts}), will retry`, { id: record.id, error: message });
+        report();
         return "retried";
       }
       await runtime.store.update(record.id, { status: "failed", lastError: message });
       runtime.logger.error(`job "${record.name}" failed after ${record.attempts} attempt(s)`, { id: record.id, error: message });
+      report();
       return "failed";
     } finally {
       if (heartbeat) clearInterval(heartbeat);
