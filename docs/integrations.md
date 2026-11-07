@@ -1276,7 +1276,20 @@ createApp({ routes, auth: session, middleware: [session.middleware] });
 
 When the Inferlo app is mounted inside a framework that already serves Auth.js (`ExpressAuth(authConfig)` from `@auth/express` on `/auth`, then `toNodeHandler(app)`), leave out `session.middleware` and keep `auth: session`; the session cookie is the same. See [Auth.js](auth.md#authjs) for the options; tested with `@auth/core` 0.41.0 and the latest Auth.js.
 
-## Other web-standard frameworks
+## Passport.js
+
+An Express app that signs users in with [Passport.js](https://www.passportjs.org) keeps it: mount the Inferlo app after `passport.session()` and use `passportSession()` from `@browserlessapi/inferlo/passport` as its auth, so Inferlo routes get the user Passport put on `req.user`:
+
+```ts
+import { passportSession } from "@browserlessapi/inferlo/passport";
+const app = createApp({ routes, auth: passportSession({ user: (u: Account) => ({ id: u.id, email: u.email, roles: u.roles }) }) });
+server.use(session({ secret, resave: false, saveUninitialized: false }));
+server.use(passport.session());
+server.use("/api", toNodeHandler(app));
+```
+
+Requests that change data with the `express-session` cookie from another site are refused with IL3007. See [Passport.js](auth.md#passportjs) for the options; tested with Passport 0.6.0 and the latest Passport on Express 4 and 5.
+
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 

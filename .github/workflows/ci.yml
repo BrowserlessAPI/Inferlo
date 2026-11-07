@@ -223,7 +223,7 @@ jobs:
       - run: npm install --no-save express@${{ matrix.express }}
       - run: node -p "'Express ' + require('./node_modules/express/package.json').version"
       - run: npm run typecheck
-      - run: node --test --test-reporter=spec test/express.test.ts test/migrate-from-express.test.ts "examples/with-express/test/*.test.ts"
+      - run: node --test --test-reporter=spec test/express.test.ts test/migrate-from-express.test.ts test/passport.test.ts "examples/with-express/test/*.test.ts"
 
   fastify:
     name: Fastify ${{ matrix.fastify }}
@@ -858,6 +858,31 @@ jobs:
       - run: node -p "'@auth/core ' + require('./node_modules/@auth/core/package.json').version"
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/authjs.test.ts
+
+  passport:
+    name: Passport.js ${{ matrix.passport }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0.6.0 = oldest supported (the first release that regenerates the session at login; Passport has one
+        # release line), latest = newest release. Express 4 and 5 are covered by the Express jobs.
+        passport: ["0.6.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save passport@${{ matrix.passport }}
+      - run: node -p "'Passport ' + require('./node_modules/passport/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/passport.test.ts
 
   koa:
     name: Koa ${{ matrix.koa }}

@@ -11,6 +11,12 @@ export const clientIps = new WeakMap<Request, string>();
 export const clientSignals = new WeakMap<Request, AbortSignal>();
 
 /**
+ * The Node.js request each Web Request was built from (toNodeHandler, fromNodeRequest, the h3 and WebSocket
+ * bridges), so integrations can read what the host framework put on it, such as Passport's req.user.
+ */
+export const nodeRequests = new WeakMap<Request, object>();
+
+/**
  * The context Netlify Functions 2.0 pass as the second argument of the handler (export default app.fetch):
  * it carries the client address in ip, a requestId and a waitUntil. Other platform objects (Bun's server,
  * Deno's info, Worker env) do not have both strings, so a Worker binding that happens to be named "ip" is not taken for it.

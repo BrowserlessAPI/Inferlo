@@ -1,0 +1,5 @@
+{
+  "title": "Sign-in with Passport.js in Express",
+  "prompt": "The Express app in src/express.ts signs users in with Passport.js (express-session and a local strategy) and mounts the Inferlo app under /api. Notes keep the Passport user's id in ownerId. Make the Inferlo app use the user Passport signs in as its auth instead of API keys, with Inferlo's Passport integration: routes get the user { id, email, name, roles: [] } from Passport's user { id, email, displayName }. Do not change src/express.ts.",
+  "packages": ["express", "@types/express", "express-session", "@types/express-session", "passport", "@types/passport", "passport-local", "@types/passport-local"]
+}

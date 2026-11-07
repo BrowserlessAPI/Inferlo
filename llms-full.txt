@@ -1310,7 +1310,33 @@ createApp({ models, routes, auth: session, middleware: [session.middleware] });
 - **Cross-site protection.** As with Better Auth, a POST, PUT, PATCH or DELETE that carries the Auth.js session cookie from another site is refused with 403 IL3007 (checked with `Sec-Fetch-Site` and `Origin`). Other origins of yours go in `trustedOrigins: ["https://admin.example.com"]`. Auth.js's own endpoints keep their own CSRF token.
 - Invalid arguments raise IL6043 at startup. Tested with `@auth/core` 0.41.0 and the latest Auth.js in `test/authjs.test.ts`. Auth.js is now maintained by the Better Auth team, which recommends Better Auth for new projects; both work with Inferlo.
 
-## API keys with bearer()
+## Passport.js
+
+An Express app that signs users in with [Passport.js](https://www.passportjs.org) (local, OAuth, SAML and its other strategies, with `express-session`) mounts its Inferlo app with `toNodeHandler` and uses `passportSession()` from `@browserlessapi/inferlo/passport` as the app's auth. Passport's strategies, `serializeUser` and `deserializeUser` stay as they are; Inferlo routes get the user Passport put on `req.user`:
+
+```ts
+// src/app.ts
+import { createApp } from "@browserlessapi/inferlo";
+import { passportSession } from "@browserlessapi/inferlo/passport";
+
+export const app = createApp({
+  models,
+  routes,
+  auth: passportSession({ user: (account: Account) => ({ id: account.id, email: account.email, name: account.displayName, roles: account.roles }) }),
+});
+
+// src/server.ts: the existing Express app
+server.use(session({ secret: settings.SESSION_SECRET, resave: false, saveUninitialized: false }));
+server.use(passport.session());                 // Passport puts the signed-in user on req.user
+server.use("/api", toNodeHandler(app));         // after Passport, so Inferlo routes see that user
+```
+
+- `user(passportUser, { db, req, nodeRequest })` returns the app's user, or `null` to refuse it (a blocked account). Without it, the user is `{ id, email, name, roles }` from Passport's user: `id` (a number becomes a string), `name` from `name` or `displayName`, and `roles` from `roles`. A Passport user without an id answers 500 IL6046 with the fix in the log.
+- Strategies without a session (`passport.authenticate("bearer", { session: false })` in front of `toNodeHandler`) work the same way: whatever Passport puts on `req.user` signs the request in.
+- **Cross-site protection.** As with Better Auth and Auth.js, a POST, PUT, PATCH or DELETE whose login comes from the `express-session` cookie is refused with 403 IL3007 when a browser sends it from another site (checked with `Sec-Fetch-Site` and `Origin`). Other origins of yours go in `trustedOrigins: ["https://admin.example.com"]`. Logins from a strategy with `session: false` are not checked: no cookie signs them in.
+- Inferlo reads `req.user` from the Node.js request the app was given, so the app must run through `toNodeHandler` (or `fromNodeRequest`) after `passport.session()`. Through `app.listen()` or `app.fetch()` there is no Express request, and private routes answer 500 IL6046 with that fix. WebSocket upgrades do not pass through Express middleware, so `route.ws` routes see no Passport user.
+- Invalid options raise IL6045 at startup. Tested with Passport 0.6.0 (the first release that regenerates the session at login) and the latest Passport, on Express 4 and 5, in `test/passport.test.ts`.
+
 
 ```ts
 import { bearer, hashToken, createToken } from "@browserlessapi/inferlo";
@@ -3722,7 +3748,20 @@ createApp({ routes, auth: session, middleware: [session.middleware] });
 
 When the Inferlo app is mounted inside a framework that already serves Auth.js (`ExpressAuth(authConfig)` from `@auth/express` on `/auth`, then `toNodeHandler(app)`), leave out `session.middleware` and keep `auth: session`; the session cookie is the same. See [Auth.js](auth.md#authjs) for the options; tested with `@auth/core` 0.41.0 and the latest Auth.js.
 
-## Other web-standard frameworks
+## Passport.js
+
+An Express app that signs users in with [Passport.js](https://www.passportjs.org) keeps it: mount the Inferlo app after `passport.session()` and use `passportSession()` from `@browserlessapi/inferlo/passport` as its auth, so Inferlo routes get the user Passport put on `req.user`:
+
+```ts
+import { passportSession } from "@browserlessapi/inferlo/passport";
+const app = createApp({ routes, auth: passportSession({ user: (u: Account) => ({ id: u.id, email: u.email, roles: u.roles }) }) });
+server.use(session({ secret, resave: false, saveUninitialized: false }));
+server.use(passport.session());
+server.use("/api", toNodeHandler(app));
+```
+
+Requests that change data with the `express-session` cookie from another site are refused with IL3007. See [Passport.js](auth.md#passportjs) for the options; tested with Passport 0.6.0 and the latest Passport on Express 4 and 5.
+
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 
@@ -5514,6 +5553,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Knex (next to Inferlo on one Postgres database, `db.$pgClient()`) | `knex` 3.1.0 and newer |
 | Better Auth (`@browserlessapi/inferlo/better-auth`) | `better-auth` 1.6.0 and newer |
 | Auth.js (`@browserlessapi/inferlo/authjs`) | `@auth/core` 0.41.0 and newer |
+| Passport.js (`@browserlessapi/inferlo/passport`, with Express 4 or 5) | `passport` 0.6.0 and newer |
 | Sequelize (next to Inferlo on one Postgres database) | `sequelize` 6.36.0 and newer 6.x |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
@@ -5634,7 +5674,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **WebSocket origin not allowed (403).** A browser page from another origin tried to open a WebSocket route. Browsers send cookies with WebSocket upgrades from any page, so only the app's own origin (the `Origin` host equals the `Host` header) and the origins in `createApp({ cors: { origin: [...] } })` may connect. Open the socket from the app's own pages, or list the page's origin in `cors.origin`. See [WebSockets](websockets.md#connecting).
 
 ### IL3007
-**Cross-site request with the session cookie (403).** A browser sent a request that changes data (POST, PUT, PATCH or DELETE) with the session cookie of Better Auth (`betterAuthSession`) or Auth.js (`authJsSession`) from a page of another site (`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that is neither the app's own host nor trusted). Without this check, another site could act for a signed-in user. Send the request from the app's own pages, or add the page's origin to `trustedOrigins` (`betterAuthSession(auth, { trustedOrigins: ["https://admin.example.com"] })`, Better Auth's own `trustedOrigins`, or `authJsSession(Auth, config, { trustedOrigins })`). Scripts and mobile apps can send `Authorization: Bearer <token>` (Better Auth's `bearer()` plugin), which is not checked. See [Better Auth](auth.md#better-auth) and [Auth.js](auth.md#authjs).
+**Cross-site request with the session cookie (403).** A browser sent a request that changes data (POST, PUT, PATCH or DELETE) with the session cookie of Better Auth (`betterAuthSession`), Auth.js (`authJsSession`) or express-session with Passport (`passportSession`) from a page of another site (`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that is neither the app's own host nor trusted). Without this check, another site could act for a signed-in user. Send the request from the app's own pages, or add the page's origin to `trustedOrigins` (`betterAuthSession(auth, { trustedOrigins: ["https://admin.example.com"] })`, Better Auth's own `trustedOrigins`, `authJsSession(Auth, config, { trustedOrigins })` or `passportSession({ trustedOrigins })`). Scripts and mobile apps can send `Authorization: Bearer <token>` (Better Auth's `bearer()` plugin), which is not checked. See [Better Auth](auth.md#better-auth), [Auth.js](auth.md#authjs) and [Passport.js](auth.md#passportjs).
 
 ### IL3008
 **Identity provider keys unavailable (503).** A request sent an access token, and `jwt()` could not load the identity provider's signing keys (its OpenID configuration or key set did not answer, answered an error, or was not a JSON Web Key Set), with none cached from before. The token may be valid; it cannot be checked. Make sure the server can reach the provider (the `issuer`'s `/.well-known/openid-configuration` and its `jwks_uri`, or `jwksUrl`), and that the `issuer` matches the `issuer` field of that configuration exactly. Keys that were loaded once keep working while the provider is unreachable. See [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
@@ -5903,6 +5943,11 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6044
 **Auth.js session cannot be used (500).** Either the Auth.js session has no user id (Auth.js leaves it out unless the configuration adds it: `callbacks: { session: ({ session, token }) => ({ ...session, user: { ...session.user, id: token.sub } }) }`, or `({ session, user })` with database sessions), or Auth.js answered an error for the session (its log says what is wrong: often the `secret`, `trustHost` or `basePath`). Add the id in `callbacks.session`, or map the session yourself with `authJsSession(Auth, config, { user: (session) => ... })`. See [Auth.js](auth.md#authjs).
+### IL6045
+**Invalid Passport.js integration options.** `passportSession({ user, trustedOrigins, roles, tenant })` from `@browserlessapi/inferlo/passport` takes only those options: `user`, `roles` and `tenant` are functions, and `trustedOrigins` is a list of origins without a path (`"https://admin.example.com"`). See [Passport.js](auth.md#passportjs).
+
+### IL6046
+**Passport user cannot be used (500).** Either the app was not given an Express (or node:http) request, so there is no `req.user` to read (mount it after Passport: `server.use(passport.session()); server.use("/api", toNodeHandler(app))`; `app.listen()` and `app.fetch()` have no Express request), or Passport's user has no `id` (make `deserializeUser` return the user with its id, or map it yourself: `passportSession({ user: (u) => ({ id: String(u.userId), roles: [] }) })`). See [Passport.js](auth.md#passportjs).
 
 ## Environment (7xxx)
 

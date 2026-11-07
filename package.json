@@ -95,6 +95,10 @@
       "types": "./dist/nextjs.d.ts",
       "default": "./dist/nextjs.js"
     },
+    "./passport": {
+      "types": "./dist/passport.d.ts",
+      "default": "./dist/passport.js"
+    },
     "./nestjs": {
       "types": "./dist/nestjs.d.ts",
       "default": "./dist/nestjs.js"
@@ -192,8 +196,11 @@
     "@tsed/schema": "^8.45.0",
     "@types/autocannon": "^7.12.7",
     "@types/express": "^5.0.6",
+    "@types/express-session": "^1.19.0",
     "@types/koa": "^3.0.3",
     "@types/node": "^22.18.0",
+    "@types/passport": "^1.0.17",
+    "@types/passport-local": "^1.0.38",
     "@types/pg": "^8.15.0",
     "ai": "^7.0.163",
     "astro": "^7.4.7",
@@ -203,6 +210,7 @@
     "elysia": "^1.4.30",
     "encore.dev": "^1.58.8",
     "express": "^5.3.0",
+    "express-session": "^1.19.0",
     "fastify": "^5.12.8",
     "h3": "^2.0.8",
     "hono": "^4.13.16",
@@ -211,6 +219,8 @@
     "kysely": "^0.29.8",
     "miniflare": "^4.20260730.0",
     "next": "^16.4.5",
+    "passport": "^0.7.0",
+    "passport-local": "^1.0.0",
     "pg": "^8.16.0",
     "prisma": "^7.10.1",
     "react": "^19.3.1",

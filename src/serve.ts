@@ -9,7 +9,7 @@ import { createRedactor } from "./redact.ts";
 import type { App } from "./app.ts";
 import { appAnswers } from "./request-matcher.ts";
 import { InferloError } from "./errors.ts";
-import { clientIps, clientSignals } from "./client-ip.ts";
+import { clientIps, clientSignals, nodeRequests } from "./client-ip.ts";
 import { knownBodies } from "./response-body.ts";
 import { acceptKey, bunWebSocket, encodeClose, encodeFrame, FrameReader, OP_PONG, OP_TEXT, upgraders, type SocketListener, type SocketTransport } from "./websocket.ts";
 
@@ -180,6 +180,7 @@ export function buildRequest(req: NodeRequest, path: string, signal?: AbortSigna
     duplex: "half",
   });
   if (req.socket?.remoteAddress) clientIps.set(request, req.socket.remoteAddress);
+  nodeRequests.set(request, req);
   return request;
 }
 
