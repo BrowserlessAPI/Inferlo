@@ -1,0 +1,5 @@
+{
+  "title": "Keep MikroORM's schema generator away from Inferlo's tables",
+  "prompt": "The app shares its Postgres database with older code that uses MikroORM (configured in src/mikro-orm.config.ts). MikroORM's schema:update and migration:create now plan to drop every table of the Inferlo app. Change the MikroORM configuration so that its schema generator leaves the Inferlo app's tables alone: the table of every model in src/models.ts, including models added later, and Inferlo's own built-in tables. MikroORM must keep managing its own tables.",
+  "packages": ["@mikro-orm/core", "@mikro-orm/postgresql"]
+}

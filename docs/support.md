@@ -86,6 +86,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Prisma (next to Inferlo on one Postgres database, through `@prisma/adapter-pg`) | Prisma 6 (with `engineType = "client"`) and 7 |
 | TypeORM (next to Inferlo on one Postgres database) | TypeORM 0.3 (newest 0.3.x) and 1.x |
 | Knex (next to Inferlo on one Postgres database, `db.$pgClient()`) | `knex` 3.1.0 and newer |
+| MikroORM (next to Inferlo on one Postgres database) | MikroORM 6 (newest 6.x) and 7 |
 | Better Auth (`@browserlessapi/inferlo/better-auth`) | `better-auth` 1.6.0 and newer |
 | Auth.js (`@browserlessapi/inferlo/authjs`) | `@auth/core` 0.41.0 and newer |
 | Passport.js (`@browserlessapi/inferlo/passport`, with Express 4 or 5) | `passport` 0.6.0 and newer |

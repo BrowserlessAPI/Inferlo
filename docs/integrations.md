@@ -1101,6 +1101,60 @@ export const createContact = route
 
 Inferlo models can store the id of a Knex row as a plain field (`contactId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with `knex` 3.1.0 on the oldest supported PostgreSQL and the latest Knex on the newest PostgreSQL.
 
+## MikroORM
+
+An app that already uses [MikroORM](https://mikro-orm.io) on Postgres (often with NestJS) can add Inferlo next to it, on the same database, without moving its entities or tables. MikroORM 6 and 7 are supported, with `defineEntity`, `EntitySchema` or decorated classes. A tested example is in `examples/with-mikro-orm`.
+
+**Two pools, one database.** MikroORM opens its own pool; give Inferlo a `pg` pool with `postgres({ pool })`. Keep the two `max` sizes together under the server's `max_connections`:
+
+```ts
+// src/db.ts
+import { MikroORM } from "@mikro-orm/postgresql";
+import pg from "pg";
+import { models } from "./models.ts";
+import { Project, Task } from "./entities.ts";
+
+export const orm = await MikroORM.init({
+  clientUrl: process.env.DATABASE_URL,
+  entities: [Project, Task],
+  pool: { max: 5 },
+  // Required: MikroORM's schema generator drops every table that is not one of its entities.
+  schemaGenerator: { skipTables: [...models.map((m) => m.name), /^inferlo_/, "audit_log"] },
+});
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+
+// src/app.ts
+export const app = createApp({ models, db: postgres({ pool }), routes, jobs, auth });
+```
+
+**MikroORM in routes and jobs.** Fork an EntityManager for each request or job, as MikroORM requires outside its own framework middleware: `const em = orm.em.fork(); const project = await em.findOne(Project, id, { populate: ["tasks"] })`. Inferlo adds no wrapper, so MikroORM queries do not get `ctx.db`'s request timeout or tenant filter; keep Inferlo models (`ctx.db`) for tables that need them. Check for missing rows and throw `notFound()` (404, IL4001); MikroORM's own errors (such as `NotFoundError` from `findOneOrFail`) answer 500 with the details logged, never sent. In a NestJS app, `MikroOrmModule` and Inferlo's `InferloModule` sit side by side (see [NestJS](#nestjs)).
+
+**Models side by side.** MikroORM's entities stay where they are; new tables can be Inferlo models. An Inferlo model stores the id of a MikroORM row as a plain field (`taskId: t.int().index()`), and a handler reads both: the project and its tasks with MikroORM, their comments with `db.task_comments.findMany({ where: { taskId: { in: ids } } })`. `t.ref` points only at Inferlo models.
+
+**Transactions.** `em.transactional(...)` runs on a connection of MikroORM's pool, so MikroORM and Inferlo cannot share one transaction through their clients. When a write must be atomic across both, start it with Inferlo and write MikroORM's tables with parameterised SQL on the same transaction (`tx.$sql`); both commit together, and an error in either rolls both back. Database errors from `tx.$sql` are Inferlo errors, so a foreign key or unique violation answers 409:
+
+```ts
+export const createTask = route
+  .post("/tasks", { body: t.object({ projectId: t.int(), key: t.string().max(40), title: t.string().max(200), comment: t.string().max(2000) }) })
+  .handle(({ body, db }) =>
+    db.$transaction(async (tx) => {
+      const [task] = await tx.$sql("INSERT INTO pm_tasks (project_id, key, title) VALUES ($1, $2, $3) RETURNING id, key, title", [body.projectId, body.key, body.title]);
+      const comment = await tx.task_comments.insert({ taskId: task!.id as number, body: body.comment });
+      return { task, comment };
+    }),
+  );
+```
+
+- Writes that touch only MikroORM's tables keep using `em.flush()` or `em.transactional(...)`; writes that touch only Inferlo's use `db.$transaction(...)`.
+- Do not call MikroORM inside `db.$transaction`, or `db` inside `em.transactional`, expecting one transaction: each runs on its own connection and commits on its own.
+- An EntityManager forked before the transaction does not see rows it wrote until it commits; fork a new one afterwards, or `em.refresh(entity)`.
+
+**Migrations.** `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create. MikroORM's schema generator is different: `schema:update`, `schema:fresh` and `migration:create` compare the whole database with MikroORM's entities and plan to drop every other table, Inferlo's included (the example tests this). Set `schemaGenerator: { skipTables: [...] }` as above, with the names of Inferlo's models (`models.map((m) => m.name)` keeps new models covered) and Inferlo's built-in tables (`/^inferlo_/` and `"audit_log"`); then MikroORM plans changes to its own tables only. Give new Inferlo models table names no entity uses; MikroORM's own table is `mikro_orm_migrations`.
+
+**Shutting down.** Close in order: `await app.close()` (stops requests and jobs), then `await orm.close()`, then `await pool.end()`.
+
+Tested with MikroORM 6 (newest 6.x) on the oldest supported PostgreSQL and the latest MikroORM on the newest PostgreSQL.
+
 ## Prisma
 
 An app that already uses [Prisma](https://www.prisma.io) on Postgres can add Inferlo next to it, on the same database, without moving its tables. Prisma 6 and 7 are supported through Prisma's `pg` driver adapter (`@prisma/adapter-pg`); with Prisma 6, use the `prisma-client` generator with `engineType = "client"`. A tested example is in `examples/with-prisma`.
