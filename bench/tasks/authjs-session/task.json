@@ -1,0 +1,7 @@
+{
+  "title": "Sign-in with Auth.js sessions",
+  "prompt": "The web frontend now signs users in with Auth.js: its configuration is exported as `authConfig` from src/auth.ts (@auth/core, JWT sessions), and notes keep the Auth.js user id in ownerId. Make the app use Auth.js sessions as its auth instead of API keys, with Inferlo's Auth.js integration: routes get the user { id, email, name, roles: [] } with id the Auth.js user id (the session does not contain it yet), and the app itself must serve Auth.js's endpoints (csrf, sign-in callbacks, session, sign-out) under /auth.",
+  "packages": [
+    "@auth/core"
+  ]
+}

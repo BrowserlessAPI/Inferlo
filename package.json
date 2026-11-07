@@ -47,13 +47,17 @@
       "types": "./dist/astro.d.ts",
       "default": "./dist/astro.js"
     },
-    "./better-auth": {
-      "types": "./dist/better-auth.d.ts",
-      "default": "./dist/better-auth.js"
+    "./authjs": {
+      "types": "./dist/authjs.d.ts",
+      "default": "./dist/authjs.js"
     },
     "./azure": {
       "types": "./dist/azure.d.ts",
       "default": "./dist/azure.js"
+    },
+    "./better-auth": {
+      "types": "./dist/better-auth.d.ts",
+      "default": "./dist/better-auth.js"
     },
     "./elysia": {
       "types": "./dist/elysia.d.ts",
@@ -166,6 +170,7 @@
   "devDependencies": {
     "@adonisjs/core": "^6.21.0",
     "@ai-sdk/openai-compatible": "^3.0.85",
+    "@auth/core": "^0.41.3",
     "@azure/functions": "^4.17.0",
     "@google-cloud/functions-framework": "^5.0.5",
     "@hapi/hapi": "^21.4.13",

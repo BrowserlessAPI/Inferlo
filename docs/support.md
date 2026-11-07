@@ -87,6 +87,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | TypeORM (next to Inferlo on one Postgres database) | TypeORM 0.3 (newest 0.3.x) and 1.x |
 | Knex (next to Inferlo on one Postgres database, `db.$pgClient()`) | `knex` 3.1.0 and newer |
 | Better Auth (`@browserlessapi/inferlo/better-auth`) | `better-auth` 1.6.0 and newer |
+| Auth.js (`@browserlessapi/inferlo/authjs`) | `@auth/core` 0.41.0 and newer |
 | Sequelize (next to Inferlo on one Postgres database) | `sequelize` 6.36.0 and newer 6.x |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |

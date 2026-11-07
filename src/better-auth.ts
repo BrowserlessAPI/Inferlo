@@ -16,6 +16,7 @@
  * IL3007 when a browser sends them from another site, so other sites cannot act for a signed-in user.
  */
 import type { AuthConfig, Middleware } from "./app.ts";
+import { checkCrossSite, originOf } from "./cross-site.ts";
 import { InferloError } from "./errors.ts";
 import type { AppDb, AppUser } from "./route.ts";
 
@@ -76,18 +77,7 @@ export interface BetterAuthSession extends AuthConfig {
   basePath: string;
 }
 
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const fix = 'Pass the instance betterAuth({ ... }) returns: betterAuthSession(auth, { user: ({ user }) => ({ id: user.id, email: user.email }) }).';
-
-function originOf(value: unknown): string | null {
-  if (typeof value !== "string" || !value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : null;
-  } catch {
-    return null;
-  }
-}
 
 function defaultUser({ user }: { user: BetterAuthUser }): AppUser {
   const roles = typeof user.role === "string" ? user.role.split(",").map((r) => r.trim()).filter(Boolean) : [];
@@ -141,25 +131,6 @@ export function betterAuthSession(auth: BetterAuthLike, options: BetterAuthSessi
   const trustedSet = new Set(trusted);
   const toUser = options.user ?? defaultUser;
 
-  /**
-   * Cross-site request protection for requests that change data with the session cookie, as browsers mark them:
-   * Sec-Fetch-Site (same-origin or none passes), then Origin (the app's own host or a trusted origin passes).
-   * Clients that send neither header are not browsers, so no other site can make them send the cookie.
-   */
-  const sameSite = (req: Request, url: URL): boolean => {
-    const origin = req.headers.get("origin");
-    if (origin !== null && trustedSet.has(origin)) return true;
-    const site = req.headers.get("sec-fetch-site");
-    if (site !== null) return site === "same-origin" || site === "none";
-    if (origin === null) return true;
-    if (origin === "null") return false;
-    try {
-      return new URL(origin).host === (req.headers.get("host") ?? url.host);
-    } catch {
-      return false;
-    }
-  };
-
   return {
     basePath: base,
     middleware: async ({ req, url }, next) => {
@@ -170,12 +141,7 @@ export function betterAuthSession(auth: BetterAuthLike, options: BetterAuthSessi
     async resolve(req, { db, url }) {
       const found = await auth.api.getSession({ headers: req.headers });
       if (!found || !found.user || !found.session) return null;
-      if (!SAFE_METHODS.has(req.method.toUpperCase()) && hasSessionCookie(req) && !req.headers.has("authorization") && !sameSite(req, url)) {
-        throw new InferloError("IL3007", "Requests that change data with the session cookie must come from the app's own pages.", {
-          status: 403,
-          fix: "Send the request from a page of the app's own origin, or add the page's origin to betterAuthSession(auth, { trustedOrigins: [...] }) (or Better Auth's trustedOrigins).",
-        });
-      }
+      checkCrossSite(req, url, trustedSet, hasSessionCookie, "betterAuthSession(auth, { trustedOrigins: [...] }) (or Better Auth's trustedOrigins)");
       return (await toUser(found, { db, req })) ?? null;
     },
     ...(options.roles ? { roles: options.roles } : {}),

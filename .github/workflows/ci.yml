@@ -834,6 +834,31 @@ jobs:
       - run: npx tsc --noEmit -p examples/with-better-auth
       - run: node --test --test-reporter=spec test/better-auth.test.ts "examples/with-better-auth/test/*.test.ts"
 
+  authjs:
+    name: Auth.js (@auth/core ${{ matrix.authjs }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0.41.0 = oldest supported (Auth.js is maintained for security fixes on its newest minor line only; 0.41.0,
+        # October 2025, starts that line), latest = newest release.
+        authjs: ["0.41.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @auth/core@${{ matrix.authjs }}
+      - run: node -p "'@auth/core ' + require('./node_modules/@auth/core/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/authjs.test.ts
+
   koa:
     name: Koa ${{ matrix.koa }}
     runs-on: ubuntu-latest

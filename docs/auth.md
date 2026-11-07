@@ -254,6 +254,39 @@ createApp({ models, db: postgres({ pool }), routes, auth: session, middleware: [
 - Better Auth rate-limits its own endpoints in production; Inferlo's `rateLimit` applies to Inferlo routes. Shut down with `await app.close()`, then `await pool.end()`.
 - Invalid arguments raise IL6041 at startup. A tested example is in `examples/with-better-auth`, tested with `better-auth` 1.6.0 and the latest Better Auth on the oldest supported and newest PostgreSQL.
 
+## Auth.js
+
+An app that signs users in with [Auth.js](https://authjs.dev) (`@auth/core`: OAuth providers, email links, credentials; used by Next.js, SvelteKit and Express apps) uses its sessions as Inferlo's auth with `authJsSession(Auth, config)` from `@browserlessapi/inferlo/authjs`:
+
+```ts
+// src/auth.ts
+import { Auth } from "@auth/core";
+import GitHub from "@auth/core/providers/github";
+import { authJsSession } from "@browserlessapi/inferlo/authjs";
+import { settings } from "./config.ts"; // AUTH_SECRET, AUTH_GITHUB_ID, AUTH_GITHUB_SECRET, listed in secrets
+
+export const authConfig = {
+  secret: settings.AUTH_SECRET,
+  trustHost: true,                                  // or set AUTH_URL to the app's URL
+  providers: [GitHub({ clientId: settings.AUTH_GITHUB_ID, clientSecret: settings.AUTH_GITHUB_SECRET })],
+  callbacks: {
+    // Auth.js leaves the user id out of the session; Inferlo needs it.
+    session: ({ session, token }) => ({ ...session, user: { ...session.user, id: token.sub } }),
+  },
+};
+
+export const session = authJsSession(Auth, authConfig);
+
+// src/app.ts
+createApp({ models, routes, auth: session, middleware: [session.middleware] });
+```
+
+- `session.middleware` answers Auth.js's own endpoints (`/auth/signin`, `/auth/callback/<provider>`, `/auth/signout`, `/auth/session`, `/auth/csrf`) under its `basePath`, `/auth` by default, with `Auth(req, config)`. Every other request goes on to the app.
+- Inferlo reads the session the way Auth.js's framework adapters do, through its session endpoint, so JWT sessions (the default) and database sessions (with an adapter) both work. Without a session cookie, Auth.js is not called.
+- `user(session, { db, req })` returns the app's user, or `null` to refuse the session. Without it, the user is `{ id, email, name, roles }` from `session.user`: `id` must be in the session (add it in `callbacks.session` as above; with database sessions, `({ session, user }) => ({ ...session, user: { ...session.user, id: user.id } })`), or the request answers 500 IL6044 with that fix in the log. `roles` come from `session.user.roles` when your callbacks add them.
+- **Cross-site protection.** As with Better Auth, a POST, PUT, PATCH or DELETE that carries the Auth.js session cookie from another site is refused with 403 IL3007 (checked with `Sec-Fetch-Site` and `Origin`). Other origins of yours go in `trustedOrigins: ["https://admin.example.com"]`. Auth.js's own endpoints keep their own CSRF token.
+- Invalid arguments raise IL6043 at startup. Tested with `@auth/core` 0.41.0 and the latest Auth.js in `test/authjs.test.ts`. Auth.js is now maintained by the Better Auth team, which recommends Better Auth for new projects; both work with Inferlo.
+
 ## API keys with bearer()
 
 ```ts

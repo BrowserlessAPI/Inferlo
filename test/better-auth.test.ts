@@ -214,5 +214,5 @@ test("@browserlessapi/inferlo/better-auth is exported and imports no Better Auth
   assert.deepEqual(pkg.exports["./better-auth"], { types: "./dist/better-auth.d.ts", default: "./dist/better-auth.js" });
   assert.equal(pkg.dependencies, undefined, "no runtime dependencies");
   const imports = [...readFileSync(path.join(repo, "src", "better-auth.ts"), "utf8").matchAll(/^import\s+(?!type\s)[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]);
-  assert.deepEqual(imports, ["./errors.ts"]);
+  assert.deepEqual(imports, ["./cross-site.ts", "./errors.ts"]);
 });

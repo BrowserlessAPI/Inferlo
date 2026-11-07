@@ -1264,6 +1264,18 @@ createApp({ models, db: postgres({ pool }), routes, auth: session, middleware: [
 
 Better Auth and Inferlo share one `pg` pool (`betterAuth({ database: pool })` and `postgres({ pool })`), each runs its own migrations, and requests that change data with the session cookie from another site are refused with IL3007. When the Inferlo app is mounted inside another framework that already serves Better Auth's endpoints (`toNodeHandler(app)` in Express next to `toNodeHandler(auth)` from `better-auth/node`), leave out `session.middleware` and keep `auth: session`. See [Better Auth](auth.md#better-auth) for the options; `examples/with-better-auth` is tested with `better-auth` 1.6.0 and the latest Better Auth.
 
+## Auth.js
+
+An app that signs users in with [Auth.js](https://authjs.dev) keeps it: `authJsSession(Auth, authConfig)` from `@browserlessapi/inferlo/authjs` turns Auth.js sessions into Inferlo's auth, and `session.middleware` serves Auth.js's endpoints from the Inferlo app:
+
+```ts
+import { Auth } from "@auth/core";
+const session = authJsSession(Auth, authConfig); // callbacks.session puts token.sub in session.user.id
+createApp({ routes, auth: session, middleware: [session.middleware] });
+```
+
+When the Inferlo app is mounted inside a framework that already serves Auth.js (`ExpressAuth(authConfig)` from `@auth/express` on `/auth`, then `toNodeHandler(app)`), leave out `session.middleware` and keep `auth: session`; the session cookie is the same. See [Auth.js](auth.md#authjs) for the options; tested with `@auth/core` 0.41.0 and the latest Auth.js.
+
 ## Other web-standard frameworks
 
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
