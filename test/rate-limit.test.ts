@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { bearer, createApp, InferloError, memory, route, t, type Adapter } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
+import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 import { memoryRateLimitStore } from "../src/rate-limit.ts";
 import { createClient } from "redis";
 import type { RedisClient } from "../src/redis.ts";
@@ -35,6 +36,7 @@ const post = (app: ReturnType<typeof makeApp>, path: string, headers: Record<str
 
 const stores: [string, () => { db: Adapter; store: Store; redis?: RedisClient; close?: () => Promise<unknown> }][] = [["memory", () => ({ db: memory(), store: "memory" })]];
 if (PG_URL) stores.push(["database", () => ({ db: postgres({ url: PG_URL }), store: "database" })]);
+if (PG_URL) stores.push(["database (postgres.js)", () => ({ db: postgresJsAdapter(PG_URL), store: "database" })]);
 if (REDIS_URL) {
   stores.push([
     "redis",

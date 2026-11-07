@@ -203,6 +203,13 @@ function createPgAdapter(
     return value;
   };
 
+  // JSON values are sent as text and cast on the server, so drivers that pick a parameter's encoding from the
+  // column's type (postgres.js through postgresJsPool) do not encode the JSON text a second time.
+  const placeholder = (model: AnyModel, field: string, index: number): string => {
+    const schema = fieldSchema(model, field);
+    return schema && isJson(schema) ? `$${index}::text::jsonb` : `$${index}`;
+  };
+
   const fromDb = (model: AnyModel, row: DbRecord): DbRecord => {
     const out: DbRecord = { id: row.id, createdAt: row.created_at, updatedAt: row.updated_at };
     for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
@@ -219,7 +226,12 @@ function createPgAdapter(
       const col = q(columnName(field));
       const p = (v: unknown) => {
         params.push(toDb(model, field, v));
-        return `$${params.length}`;
+        return placeholder(model, field, params.length);
+      };
+      const list = (values: unknown[]) => {
+        params.push(values.map((v) => toDb(model, field, v)));
+        const schema = fieldSchema(model, field);
+        return schema && isJson(schema) ? `$${params.length}::text[]::jsonb[]` : `$${params.length}`;
       };
       switch (op) {
         case "eq":
@@ -236,10 +248,10 @@ function createPgAdapter(
           return `${col} <= ${p(value)}`;
         case "in":
           if (!(value as unknown[]).length) return "false";
-          return `${col} = ANY(${p((value as unknown[]).map((v) => toDb(model, field, v)))})`;
+          return `${col} = ANY(${list(value as unknown[])})`;
         case "notIn":
           if (!(value as unknown[]).length) return `${col} IS NOT NULL`;
-          return `NOT (${col} = ANY(${p((value as unknown[]).map((v) => toDb(model, field, v)))}))`;
+          return `NOT (${col} = ANY(${list(value as unknown[])}))`;
         case "like":
           return `${col} LIKE ${p(value)}`;
         case "ilike":
@@ -259,7 +271,7 @@ function createPgAdapter(
     async insert(model, row) {
       const fields = Object.keys(row);
       const params = fields.map((f) => toDb(model, f, row[f]));
-      const sql = `INSERT INTO ${q(model.name)} (${fields.map((f) => q(columnName(f))).join(", ")}) VALUES (${fields.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`;
+      const sql = `INSERT INTO ${q(model.name)} (${fields.map((f) => q(columnName(f))).join(", ")}) VALUES (${fields.map((f, i) => placeholder(model, f, i + 1)).join(", ")}) RETURNING *`;
       const result = await run(sql, params);
       return fromDb(model, result.rows[0]!);
     },
@@ -275,7 +287,7 @@ function createPgAdapter(
       const params: unknown[] = [];
       const sets = Object.keys(patch).map((f) => {
         params.push(toDb(model, f, patch[f]));
-        return `${q(columnName(f))} = $${params.length}`;
+        return `${q(columnName(f))} = ${placeholder(model, f, params.length)}`;
       });
       const sql = `UPDATE ${q(model.name)} SET ${sets.join(", ")}${whereSql(model, where, params)} RETURNING *`;
       return (await run(sql, params)).rows.map((r) => fromDb(model, r));

@@ -370,7 +370,7 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
   return {
     async add(r) {
       await table();
-      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT ("id") DO NOTHING`, [
+      await sql(`INSERT INTO "inferlo_jobs" (${JOB_COLUMNS}) VALUES ($1, $2, $3::text::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT ("id") DO NOTHING`, [
         r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt, r.trace?.traceparent ?? null, r.trace?.tracestate ?? null, r.tenantId ?? null,
       ]);
     },

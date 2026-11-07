@@ -1,0 +1,5 @@
+{
+  "title": "Run Inferlo on the app's postgres.js pool",
+  "prompt": "The rest of this company's backend uses postgres.js: src/db.ts exports its `sql` instance, created from DATABASE_URL. Make the Inferlo app in src/app.ts use that same `sql` instance and its connection pool as its database whenever DATABASE_URL is set, instead of opening a second pool (keep the in-memory database when it is not set). Inferlo's transactions must run on postgres.js connections too, so postgres.js queries can later join them.",
+  "packages": ["postgres"]
+}

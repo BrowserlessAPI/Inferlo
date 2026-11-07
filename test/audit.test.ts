@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { postgres } from "../src/db/postgres.ts";
+import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 import { AuditLog, InferloError, auditChanges, bearer, createApp, job, memory, model, route, t, type Adapter } from "../src/index.ts";
 import { readJson } from "../src/testing.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 const adapters: [string, () => Adapter][] = [["memory", () => memory()]];
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
+if (PG_URL) adapters.push(["postgres.js", () => postgresJsAdapter(PG_URL)]);
 
 const Account = model("audit_accounts", {
   name: t.string(),
@@ -61,7 +63,7 @@ for (const [name, make] of adapters) {
     const app = makeApp(make());
     const db = app.db as any;
     before(async () => {
-      if (name === "postgres") await db.$sql('DROP TABLE IF EXISTS "audit_log", "audit_accounts" CASCADE');
+      if (name !== "memory") await db.$sql('DROP TABLE IF EXISTS "audit_log", "audit_accounts" CASCADE');
       await db.$sync();
     });
     after(() => db.$close());

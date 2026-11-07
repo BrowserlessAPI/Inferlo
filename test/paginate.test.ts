@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { createDb, InferloError, memory, model, t, type Adapter, type Row } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
+import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 
@@ -21,6 +22,7 @@ const assertType = <T extends true>() => void 0 as unknown as T;
 
 const adapters: [string, () => Adapter][] = [["memory", () => memory()]];
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
+if (PG_URL) adapters.push(["postgres.js", () => postgresJsAdapter(PG_URL)]);
 
 for (const [name, make] of adapters) {
   describe(`paginate (${name})`, () => {
@@ -29,7 +31,7 @@ for (const [name, make] of adapters) {
     const all: Row<typeof Item>[] = [];
 
     before(async () => {
-      if (name === "postgres") await db.$sql('DROP TABLE IF EXISTS "pg_items", "pg_owners" CASCADE');
+      if (name !== "memory") await db.$sql('DROP TABLE IF EXISTS "pg_items", "pg_owners" CASCADE');
       await db.$sync();
       owner = await db.pg_owners.insert({ name: "Ann" });
       // Scores repeat, so pages must break ties by id without skipping or repeating rows.

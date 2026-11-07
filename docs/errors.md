@@ -448,6 +448,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL4028
 **`db.$pgClient()` needs Postgres.** `$pgClient()` returns the `pg` pool (or a transaction's connection) for other libraries on the same database, such as Drizzle, so it only works with `postgres({ url })` or `postgres({ pool })` from `@browserlessapi/inferlo/postgres`. With `memory()` there is no pg client: use Inferlo models there, or a Postgres database in tests. See [Drizzle ORM](integrations.md#drizzle-orm).
 
+### IL4029
+**`postgresJsPool(sql)` needs a postgres.js `sql` instance.** `postgresJsPool` from `@browserlessapi/inferlo/postgres-js` takes the `sql` function postgres.js creates (`import postgresJs from "postgres"; const sql = postgresJs(process.env.DATABASE_URL)`), version 3.4.0 or later (it uses `sql.unsafe` and `sql.reserve`). A connection URL, a `pg.Pool` or a transaction's `sql` cannot be used: pass the app's own instance, `postgres({ pool: postgresJsPool(sql) })`. See [postgres.js](integrations.md#postgresjs).
+
 ## CLI (8xxx)
 
 ### IL8000

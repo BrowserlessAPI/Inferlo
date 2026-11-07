@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { createApp, InferloError, job, memory, t, type Adapter, type JobQueueConfig } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
+import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 import { databaseJobStore, STOPPED_MESSAGE, type InternalJobs } from "../src/jobs.ts";
 import { redisJobStore } from "../src/redis-jobs.ts";
 import { cron } from "../src/cron.ts";
@@ -37,11 +38,11 @@ describe("job queue config", () => {
   });
 });
 
-if (PG_URL) {
-  describe("job queue (database store)", () => {
+for (const driver of PG_URL ? ["pg", "postgres.js"] : []) {
+  describe(`job queue (database store, ${driver})`, () => {
     const adapters: Adapter[] = [];
     const pg = () => {
-      const a = postgres({ url: PG_URL });
+      const a = driver === "pg" ? postgres({ url: PG_URL! }) : postgresJsAdapter(PG_URL!);
       adapters.push(a);
       return a;
     };
@@ -120,7 +121,7 @@ if (PG_URL) {
       const db = pg();
       // Wide margins: on a busy CI runner the time between a report and the next claim can be over 200 ms.
       const store = databaseJobStore(db, { staleAfterMs: 1000 });
-      const name = `slow-${suffix}`;
+      const name = `slow-${driver}-${suffix}`;
       const now = new Date();
       const id = crypto.randomUUID();
       await store.add({ id, name, input: {}, status: "pending", attempts: 0, maxAttempts: 3, runAt: now, createdAt: now, updatedAt: now });

@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { createDb, InferloError, memory, type Adapter } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
+import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 import { models } from "./helpers.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 
 const adapters: [string, () => Adapter][] = [["memory", () => memory()]];
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
+if (PG_URL) adapters.push(["postgres.js", () => postgresJsAdapter(PG_URL)]);
 
 for (const [name, make] of adapters) {
   describe(`db (${name})`, () => {
@@ -15,7 +17,7 @@ for (const [name, make] of adapters) {
     const db = createDb(models, adapter);
 
     before(async () => {
-      if (name === "postgres") {
+      if (name !== "memory") {
         await db.$sql('DROP TABLE IF EXISTS "posts", "authors" CASCADE');
       }
       await db.$sync();
@@ -96,7 +98,18 @@ for (const [name, make] of adapters) {
       assert.throws(() => (db as any).post, /db.post does not exist. Did you mean "posts"/);
     });
 
-    if (name === "postgres") {
+    if (name !== "memory") {
+      test("in and notIn compare JSON fields as JSON", async () => {
+        const a = await db.authors.insert({ name: "Jo", email: "jo-json@example.com" });
+        await db.posts.insert({ title: "J1", body: "x", authorId: a.id, tags: ["json-in-a"] });
+        await db.posts.insert({ title: "J2", body: "x", authorId: a.id, tags: ["json-in-b", "json-in-c"] });
+        const found = await db.posts.findMany({ where: { authorId: a.id, tags: { in: [["json-in-a"], ["json-in-x"]] } } });
+        assert.deepEqual(found.map((p) => p.title), ["J1"]);
+        const others = await db.posts.findMany({ where: { authorId: a.id, tags: { notIn: [["json-in-a"]] } } });
+        assert.deepEqual(others.map((p) => p.title), ["J2"]);
+        assert.equal((await db.posts.findMany({ where: { authorId: a.id, tags: { eq: ["json-in-b", "json-in-c"] } } })).length, 1);
+      });
+
       test("sync is idempotent and adds new columns", async () => {
         const again = await db.$sync({ dryRun: true });
         assert.ok(again.every((s) => s.startsWith("CREATE") && s.includes("IF NOT EXISTS")));

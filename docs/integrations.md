@@ -1101,6 +1101,56 @@ export const createContact = route
 
 Inferlo models can store the id of a Knex row as a plain field (`contactId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with `knex` 3.1.0 on the oldest supported PostgreSQL and the latest Knex on the newest PostgreSQL.
 
+## postgres.js
+
+An app that already uses [postgres.js](https://github.com/porsager/postgres) (the `postgres` package) can add Inferlo on the same database and the same connection pool: Inferlo's Postgres adapter runs on the app's `sql` instance, and postgres.js queries and Inferlo models can be written in one transaction. A tested example is in `examples/with-postgres-js`.
+
+**One pool.** Pass the app's `sql` to `postgresJsPool` from `@browserlessapi/inferlo/postgres-js`, and that to `postgres({ pool })`. Inferlo never imports postgres.js (an optional peer dependency, 3.4.0 or later); it only uses the `sql` it is given, so there is no second pool to size:
+
+```ts
+// src/db.ts
+import postgresJs from "postgres";
+export const sql = postgresJs(process.env.DATABASE_URL!, { max: 10 });
+
+// src/app.ts
+import { postgres } from "@browserlessapi/inferlo/postgres";
+import { postgresJsPool } from "@browserlessapi/inferlo/postgres-js";
+import { sql } from "./db.ts";
+
+export const app = createApp({ models, db: postgres({ pool: postgresJsPool(sql) }), routes, jobs, auth });
+```
+
+Inferlo models, `db.$sql`, the database job queue, rate limits and the audit log then run on postgres.js's connections. JSON fields are stored as JSON, and database errors are read as with `pg` (a unique violation in a model is 409 IL4004).
+
+**postgres.js in routes and jobs.** Import `sql` where you need it: ``const [company] = await sql`select id, name from crm_companies where id = ${params.id}` ``. Inferlo adds no wrapper, so these queries do not get `ctx.db`'s request timeout or tenant filter; keep Inferlo models (`ctx.db`) for tables that need them. Check for missing rows and throw `notFound()` (404, IL4001); postgres.js's own errors answer 500 with the details logged, never sent.
+
+**One transaction for both.** Start the transaction with Inferlo; `tx.$pgClient()` gives the transaction's connection (reserved from postgres.js with `sql.reserve()`) as `sql`. Both commit together, and an error in either rolls both back:
+
+```ts
+import type { ReservedSql } from "postgres";
+import type { PostgresJsClient } from "@browserlessapi/inferlo/postgres-js";
+
+export const createContact = route
+  .post("/contacts", { body: t.object({ companyId: t.int(), email: t.email(), note: t.string().min(1).max(2000) }) })
+  .handle(({ body, db }) =>
+    db.$transaction(async (tx) => {
+      const { sql } = await tx.$pgClient<PostgresJsClient<ReservedSql>>();
+      const [contact] = await sql`insert into crm_contacts ${sql({ company_id: body.companyId, email: body.email })} returning id, email`;
+      const note = await tx.contact_notes.insert({ contactId: contact!.id, body: body.note });
+      return { contact, note };
+    }),
+  );
+```
+
+- Inside the transaction, use the `sql` from `tx.$pgClient()` for every query that belongs to it; the app's own `sql` runs on another connection and commits on its own.
+- Do not start the transaction with `sql.begin()` and use Inferlo inside it: Inferlo would not see postgres.js's connection. Do not call `release()`; Inferlo commits or rolls back and gives the connection back.
+
+**Migrations.** `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create, so the app's tables (and those of its migration tool, such as ley or postgres-shift) are safe. Give new Inferlo models table names the app does not use; Inferlo's built-in tables start with `inferlo_` or are `audit_log`.
+
+**Shutting down.** Close in order: `await app.close()` (stops requests and jobs), then `await sql.end()`. `postgres({ pool })` never ends a pool it was given.
+
+Inferlo models can store the id of another table's row as a plain field (`contactId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with postgres.js 3 (newest 3.x) on the oldest supported PostgreSQL and the latest postgres.js on the newest PostgreSQL, with Inferlo's model, relation, pagination, job queue, rate limit and audit log tests running on both drivers, on Node.js, Bun and Deno.
+
 ## MikroORM
 
 An app that already uses [MikroORM](https://mikro-orm.io) on Postgres (often with NestJS) can add Inferlo next to it, on the same database, without moving its entities or tables. MikroORM 6 and 7 are supported, with `defineEntity`, `EntitySchema` or decorated classes. A tested example is in `examples/with-mikro-orm`.

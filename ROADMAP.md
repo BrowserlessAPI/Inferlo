@@ -110,6 +110,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Auth.js: `authJsSession(Auth, authConfig)` from `@browserlessapi/inferlo/authjs` uses Auth.js (`@auth/core`) sessions as the app's auth, `session.middleware` serves its endpoints, cross-site changes with the session cookie are refused (IL3007), tested in CI on `@auth/core` 0.41.0 and latest
 - [x] Passport.js: an Inferlo app mounted in Express with `toNodeHandler` sees the user Passport and express-session put on `req.user`, so Express apps with Passport strategies adopt Inferlo without a second sign-in, tested on the oldest supported and latest Passport
 - [x] MikroORM next to Inferlo on one Postgres database (MikroORM 6 and 7, common with NestJS): a forked EntityManager per request in routes and jobs, one transaction through `tx.$sql`, `schemaGenerator.skipTables` so MikroORM's schema update and migrations never drop Inferlo's tables, `examples/with-mikro-orm` tested in CI on MikroORM 6 and latest
+- [x] postgres.js as Inferlo's connection pool: `postgres({ pool: postgresJsPool(sql) })` from `@browserlessapi/inferlo/postgres-js` runs Inferlo on the app's postgres.js instance (one pool), with postgres.js queries and Inferlo models in one transaction through `tx.$pgClient()`, `examples/with-postgres-js` and the model, job queue, rate limit and audit tests on both drivers, tested in CI on postgres.js 3 and latest
 - [ ] Drizzle and Prisma part 2b: Prisma Migrate next to `inferlo db migrate` in development (`prisma migrate dev` drift checks and Inferlo's tables, `tables.external` in prisma.config.ts), tested in CI with the Prisma schema engine on the oldest supported and latest Prisma
 - [x] LangChain.js: Inferlo AI aliases as a LangChain chat model and Inferlo tools (routes and `tool()`) as LangChain tools, tested on the oldest supported and latest `@langchain/core`
 
@@ -178,3 +179,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 ## Release (needs the owner)
 
 - [ ] Before January 2027: move publishing to npm trusted publishing (OIDC), because npm is removing direct publish from bypass-2FA tokens (needs the owner to configure it on npmjs.com)
+
+## Blocked
+
+- Drizzle and Prisma part 2b (Prisma Migrate next to `inferlo db migrate`), 2026-11-07: needs Prisma's schema engine, which `prisma` downloads from binaries.prisma.sh, and the scheduled maintainer's environment cannot reach that host (403 from its egress proxy), so `prisma migrate dev` cannot run locally and the item's checks cannot pass before a push (the same block makes the existing `examples/with-prisma` fail locally; CI is unaffected). Not started. Needs the owner to allow binaries.prisma.sh for the maintainer's environment, or the item to be done where Prisma's engines can be downloaded.
