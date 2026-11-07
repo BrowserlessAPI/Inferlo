@@ -1,0 +1,4 @@
+{
+  "title": "Store uploaded files",
+  "prompt": "Add avatar storage. Keep files in memory with Inferlo's file storage, configured in createApp in src/app.ts. Create src/routes/avatars.ts with two routes for signed-in users, and register the module in src/app.ts: `export const putAvatar`, PUT /me/avatar, takes a multipart/form-data body with one file field `image` (a PNG of at most 500000 bytes), stores it under the key `avatars/<user id>` and answers { key, size, type } with what was stored; `export const getAvatar`, GET /me/avatar, answers the stored file's bytes with its Content-Type, or 404 when the user has none."
+}

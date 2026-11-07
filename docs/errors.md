@@ -335,6 +335,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6036
 **Invalid `sockets` option.** `createApp({ sockets })` takes `{ transport: "redis", subscriber }`, which needs `createApp({ redis })`, a `name` (the instances of an app share one channel named after it), and a `subscriber`: a second connected Redis client with `subscribe` and `unsubscribe`, not the `redis` client itself, because a subscribed client cannot send other commands. With the `redis` package: `sockets: { transport: "redis", subscriber: await redis.duplicate().connect() }`. See [WebSocket broadcasts](redis.md#websocket-broadcasts).
 
+### IL6037
+**No file storage configured.** `ctx.storage` (or `app.storage`) was used, but `createApp` has no `storage` option, so Inferlo does not know where to keep files. Choose a store: `createApp({ storage: diskStorage({ dir: "./uploads" }) })`, or `memoryStorage()` in tests. See [File storage](storage.md).
+
+### IL6038
+**Invalid `storage` option.** `createApp({ storage })` takes a store: `diskStorage({ dir })` (which needs a non-empty `dir`), `memoryStorage()`, or your own object with a `name`, `put(key, bytes, type)`, `get(key)` and `delete(key)`. Example: `createApp({ storage: diskStorage({ dir: env("UPLOADS_DIR", { default: "./uploads" }) }) })`. See [File storage](storage.md#stores).
+
+### IL6039
+**Invalid storage key, media type or data.** Storage keys are segments of letters, digits, `.`, `_` and `-` separated by `/`, up to 1024 characters, and no segment may be empty or start with `.`, so `..`, a leading `/` and hidden files are refused before any store sees them. Build keys from ids you control, never from a file name the client sent: `` storage.put(`avatars/${user.id}.png`, body.avatar) ``. The `type` must be a plain media type such as `image/png`, and the data a `File`, `Blob`, `Uint8Array`, `ArrayBuffer` or string. See [File storage](storage.md#the-api).
+
 ## Environment (7xxx)
 
 ### IL7001

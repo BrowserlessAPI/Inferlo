@@ -14,7 +14,7 @@ Inferlo is the enterprise-ready TypeScript backend framework, with AI models bui
 4. **Secure by default.** Routes private unless `auth: "public"`. Every database value parameterised. Every insert and update validated.
 5. **Errors explain the fix.** Every new error uses `InferloError` with a new stable code (`ILxxxx`), a plain message, a `fix`, and an entry in `docs/errors.md`. Never reuse or change the meaning of an existing code.
 6. **Zero runtime dependencies.** `pg` stays an optional peer dependency. Do not add runtime dependencies.
-7. **Runs everywhere.** Use Web APIs (fetch, Request, Response, Web Crypto, streams). Node-only APIs only in `src/serve.ts` and `src/cli/`.
+7. **Runs everywhere.** Use Web APIs (fetch, Request, Response, Web Crypto, streams). Node-only APIs only in `src/serve.ts`, `src/disk-storage.ts` (loaded with a dynamic `import()` on first use) and `src/cli/`.
 8. **Stable API.** Do not rename or remove public exports. Deprecate first, with a migration note in CHANGELOG.md.
 9. **Erasable TypeScript only.** No enums, namespaces or parameter properties (`erasableSyntaxOnly`), so Node can run the source directly. Relative imports end in `.ts`.
 10. **No emojis** in code, docs, CLI output or commit messages.
@@ -34,6 +34,7 @@ src/
   openapi.ts       OpenAPI 3.1
   describe.ts      app map
   auth.ts          bearer(), tokens, password hashing
+  storage.ts       ctx.storage, memoryStorage(); disk-storage.ts: diskStorage()
   cli/main.ts      inferlo CLI
 templates/app/     project created by `inferlo new`
 examples/          example apps with tests

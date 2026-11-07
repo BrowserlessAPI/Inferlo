@@ -13,6 +13,7 @@
 import type { AI } from "./ai/index.ts";
 import type { Audit } from "./audit.ts";
 import type { Cache } from "./cache.ts";
+import { createStorage, type Storage } from "./storage.ts";
 import { cronTickId, isCron, type CronDef } from "./cron.ts";
 import { checkTenantId, type DbHelpers } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
@@ -43,6 +44,8 @@ export interface JobContext<Input> {
   events: Events;
   /** The app cache, the same as ctx.cache in routes and app.cache. */
   cache: Cache;
+  /** Files (createApp({ storage })), the same as ctx.storage in routes and app.storage. */
+  storage: Storage;
   /** Send to WebSocket rooms of this process (the job's tenant's rooms with a tenant): await sockets.broadcast(room, data). */
   sockets: Sockets;
   /** Job id. */
@@ -422,6 +425,7 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
  */
 /** Rooms for createJobs runtimes without WebSockets: broadcasts reach no one. */
 const noSockets = createSocketHub();
+const noStorage = createStorage(undefined);
 
 export function jobStoreFor(config: JobQueueConfig | undefined, adapter: Adapter, redis?: () => JobStore): JobStore {
   const store = config?.store ?? "memory";
@@ -435,6 +439,8 @@ export interface JobRuntime {
   db: AppDb;
   ai: AI;
   cache: Cache;
+  /** Files (app.storage). Default: none (ctx.storage throws IL6037). */
+  storage?: Storage;
   /** WebSocket rooms (app.sockets). */
   sockets?: SocketHub;
   /** Builds ctx.audit for one run. */
@@ -615,7 +621,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
       const tenantId = record.tenantId ?? null;
       const scoped = tenantId ? withTenant({ jobs, events }, tenantId) : { jobs, events };
       const db = tenantId ? ((runtime.db as unknown as DbHelpers).$tenant(tenantId) as unknown as AppDb) : runtime.db;
-      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, sockets: (runtime.sockets ?? noSockets).forTenant(tenantId), id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id, tenantId }) });
+      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, storage: runtime.storage ?? noStorage, sockets: (runtime.sockets ?? noSockets).forTenant(tenantId), id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id, tenantId }) });
       await runtime.store.update(record.id, { status: "done" });
       return "done";
     } catch (error) {

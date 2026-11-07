@@ -3,7 +3,7 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 
-const order = ["getting-started", "comparison", "config", "schema", "database", "routes", "websockets", "auth", "ai", "jobs", "caching", "redis", "modules", "services", "mcp", "cli", "testing", "integrations", "migrate-from-express", "migrate-from-nestjs", "migrate-from-hono", "migrate-from-koa", "migrate-from-fastify", "security", "observability", "deploy", "performance", "support", "errors"];
+const order = ["getting-started", "comparison", "config", "schema", "database", "routes", "websockets", "auth", "ai", "jobs", "caching", "storage", "redis", "modules", "services", "mcp", "cli", "testing", "integrations", "migrate-from-express", "migrate-from-nestjs", "migrate-from-hono", "migrate-from-koa", "migrate-from-fastify", "security", "observability", "deploy", "performance", "support", "errors"];
 const root = new URL("..", import.meta.url);
 
 const parts = [`# Inferlo: full documentation\n\nGenerated from README.md and docs/. Source: https://github.com/BrowserlessAPI/Inferlo\n`];

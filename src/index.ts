@@ -79,6 +79,10 @@ export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, Jo
 export { AuditLog, auditChanges } from "./audit.ts";
 export type { Audit, AuditEntry, AuditChange } from "./audit.ts";
 export type { Cache, CacheConfig, CacheSetOptions, RouteCache } from "./cache.ts";
+export { memoryStorage } from "./storage.ts";
+export type { Storage, StorageStore, StoredFile, StoragePutOptions } from "./storage.ts";
+export { diskStorage } from "./disk-storage.ts";
+export type { DiskStorageOptions } from "./disk-storage.ts";
 export { permissions, isPermissions } from "./permissions.ts";
 export type { Permissions, PermissionRule, PermissionInput } from "./permissions.ts";
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";

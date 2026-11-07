@@ -16,6 +16,7 @@ import type { Jobs } from "./jobs.ts";
 import type { AnyModel } from "./model.ts";
 import type { Audit } from "./audit.ts";
 import type { Cache, RouteCache } from "./cache.ts";
+import type { Storage } from "./storage.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
 import type { Sockets } from "./sockets.ts";
@@ -120,6 +121,8 @@ export interface Context<Body, Query, Params, User> {
   events: Events;
   /** The app cache: await cache.getOrSet(key, { ttlMs: 60_000, tags: ["tickets"] }, compute), cache.invalidate("tickets"). */
   cache: Cache;
+  /** Files (createApp({ storage })): await storage.put(`avatars/${user.id}.png`, body.avatar), storage.get(key), storage.delete(key). */
+  storage: Storage;
   /** Send to WebSocket rooms: await sockets.broadcast(`project:${id}`, data), to the user's tenant's room with a tenant. */
   sockets: Sockets;
   req: Request;
@@ -275,6 +278,8 @@ export interface SocketContext<Message, Query, Params, User> {
   jobs: Jobs;
   events: Events;
   cache: Cache;
+  /** Files (createApp({ storage })), the same as ctx.storage in routes. */
+  storage: Storage;
   /** Send to WebSocket rooms, this client's included when it joined: await sockets.broadcast(room, data). */
   sockets: Sockets;
   /** Write an audit log entry with the user and this connection's request id. */

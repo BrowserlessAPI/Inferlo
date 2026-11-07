@@ -5,6 +5,7 @@
 import { bindTools, createAI, type AI, type AIConfig, type StreamResult, type Usage } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
+import { checkStorageStore, createStorage, type Storage, type StorageStore } from "./storage.ts";
 import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
 import { bindDb, checkTenantId, createDb, guardAdapter, type Db, type TenantScope } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
@@ -144,6 +145,11 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    * table inferlo_cache) or { store: "redis" } (createApp({ redis })), both shared by every instance.
    */
   cache?: CacheConfig;
+  /**
+   * Where ctx.storage and app.storage keep files: diskStorage({ dir: "./uploads" }), memoryStorage() in tests, or
+   * your own StorageStore. Without it, ctx.storage throws IL6037.
+   */
+  storage?: StorageStore;
   /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/inferlo/postgres" in production. */
   db?: Adapter;
   auth?: AuthConfig;
@@ -260,6 +266,8 @@ export interface App<Models extends readonly AnyModel[]> {
   readonly events: AppEvents;
   /** The app cache, the same as ctx.cache: await app.cache.getOrSet(key, { ttlMs, tags }, compute), app.cache.invalidate(tag). */
   readonly cache: Cache;
+  /** Files, the same as ctx.storage: await app.storage.put(key, file), app.storage.get(key), app.storage.delete(key). */
+  readonly storage: Storage;
   /** WebSocket rooms: await app.sockets.broadcast(room, data, { tenantId }) sends to the sockets that joined it in this process. */
   readonly sockets: AppSockets;
   /** Standard fetch handler: export default app works on Bun, Deno and Cloudflare Workers. */
@@ -521,6 +529,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const cacheStore =
     cacheConfig.store === "redis" ? redisCacheStore(redis!, redisPrefix(config.name)) : cacheConfig.store === "database" ? databaseCacheStore(adapter) : memoryCacheStore(cacheConfig.maxEntries);
   const cache = createCache(cacheStore, cacheConfig.store);
+  const storage = createStorage(checkStorageStore(config.storage));
   const metrics: AppMetrics | undefined = metricsConfig
     ? createMetrics({ app: config.name ?? "inferlo-app", version: config.version ?? "0.0.0", inferlo: INFERLO_VERSION }, metricsConfig.buckets)
     : undefined;
@@ -556,6 +565,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       db: db as never,
       ai,
       cache,
+      storage,
       sockets: socketHub,
       audit: (run) => createAudit(models, redactor, () => db as never, { userId: null, tenantId: run.tenantId, source: `job ${run.name}` }),
       store: jobStoreFor(config.jobQueue, adapter, () => {
@@ -841,6 +851,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             return tenantQueues().events;
           },
           cache,
+          storage,
           get sockets() {
             return (socketRooms ??= socketHub.forTenant(tenantOf(scope)));
           },
@@ -1095,6 +1106,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             return tenantQueues().events;
           },
           cache,
+          storage,
           get sockets() {
             return socketHub.forTenant(tenantOf(tenantScope(user)));
           },
@@ -1281,6 +1293,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     jobs,
     events,
     cache,
+    storage,
     sockets: { broadcast: socketHub.broadcast, count: socketHub.count },
 
     get closing() {

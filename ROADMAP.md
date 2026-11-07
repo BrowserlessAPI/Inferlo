@@ -47,7 +47,8 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [ ] Microservices part 4: NATS, RabbitMQ and Kafka event transports as separate entry points (peer dependencies), each tested on its oldest supported and latest versions
 - [ ] GraphQL support generated from models and routes (optional module)
 - [x] File uploads part 1: `t.file({ maxBytes, types })` in multipart bodies (`body: t.object({ avatar: t.file(...) })`), streamed with size and type limits checked before the handler runs, documented in OpenAPI
-- [ ] File uploads part 2: a storage interface (`createApp({ storage })`) with local disk and S3-compatible stores (signed download URLs, no AWS SDK dependency), tested against MinIO on its oldest supported and latest versions
+- [x] File uploads part 2a: a storage interface (`createApp({ storage })`, `ctx.storage.put/get/delete`) with memory and local disk stores, safe keys and atomic writes
+- [ ] File uploads part 2b: an S3-compatible store (AWS S3, Cloudflare R2, MinIO) with Signature V4 signing on Web Crypto (no AWS SDK dependency) and signed download URLs (`storage.url(key, { expiresIn })`), tested against MinIO on its oldest supported and latest versions
 - [x] Multi-tenancy part 1: `tenant` scoping for models (`model("tickets", { ... }, { tenant: true })`) so every query, insert and update in `ctx.db` is filtered by and stamped with the current tenant from the auth result, with no way to forget the filter
 - [x] Multi-tenancy part 2a: jobs (the tenant travels with the job, also through events and between services) and `inferlo describe` showing which models are tenant-scoped
 - [x] Multi-tenancy part 2b: tenant-aware rate limits (`by: "tenant"`), cache keys (`cache: { by: "tenant" }`) and audit entries (the tenant recorded with each entry)

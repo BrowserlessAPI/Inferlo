@@ -86,6 +86,8 @@ export interface AppDescription {
   jobQueue: "memory" | "database" | "redis";
   /** Where ctx.cache and app.cache keep entries. */
   cache: "memory" | "database" | "redis";
+  /** Where ctx.storage and app.storage keep files ("memory", "disk" or a custom store's name), or null without createApp({ storage }). */
+  storage: string | null;
 }
 
 export const INFERLO_VERSION = "0.7.0";
@@ -170,6 +172,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     ai: { configured: app.ai.configured, aliases: app.ai.aliases },
     jobQueue: app.jobs.queue,
     cache: app.cache.store,
+    storage: app.storage.store,
     crons: app.jobs.crons.map((c) => ({ schedule: c.schedule, job: c.job.name })),
     events: app.events.list.map((e) => ({
       name: e.name,
