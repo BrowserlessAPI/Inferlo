@@ -24,7 +24,8 @@ before(async () => {
     pkce: { required: () => true },
     // Put the email scope's claims in the ID token, as most providers do, instead of only in the userinfo answer.
     conformIdTokenClaims: false,
-    ttl: { AuthorizationCode: 60, Interaction: 600, Session: 3600, Grant: 3600, AccessToken: 3600, IdToken: 3600 },
+    // Every lifetime as a number: Bun 1.3.0 does not pass oidc-provider's check of its default lifetime functions.
+    ttl: { AccessToken: 3600, AuthorizationCode: 60, BackchannelAuthenticationRequest: 600, ClientCredentials: 600, DeviceCode: 600, Grant: 3600, IdToken: 3600, Interaction: 600, PreAuthorizedCode: 600, RefreshToken: 86400, Session: 3600 },
   });
   server.on("request", provider.callback());
 });
