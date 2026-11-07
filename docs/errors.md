@@ -74,6 +74,10 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL2015
 **Request body is not valid multipart/form-data (400).** The route takes files, the request said `Content-Type: multipart/form-data`, but the body could not be read as a form (a missing or wrong boundary, or a cut-off body). Send a `FormData` body without setting `Content-Type` yourself (fetch adds the boundary), or an HTML form with `enctype="multipart/form-data"`. See [File uploads](routes.md#file-uploads).
+
+### IL2016
+**The response does not match the route's response schema.** Outside production (see `createApp({ validateResponses })`), Inferlo checks each JSON answer of a route with a `response` schema against it, as clients receive it (JSON, dates as ISO strings). A field is missing, has the wrong type, or is not in the schema (object schemas reject unknown fields, which finds fields that should not be sent, such as a password hash). With `"warn"` (the default) the answer is sent and this is logged once per route; with `"error"` the request answers 500 with the field paths in `details`. Return exactly what the schema describes, for example `{ id: row.id, email: row.email, name: row.name }` instead of the whole row, or change the schema. See [Response validation](routes.md#response-validation).
+
 ## Auth (3xxx)
 
 ### IL3001
@@ -343,6 +347,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6039
 **Invalid storage key, media type or data.** Storage keys are segments of letters, digits, `.`, `_` and `-` separated by `/`, up to 1024 characters, and no segment may be empty or start with `.`, so `..`, a leading `/` and hidden files are refused before any store sees them. Build keys from ids you control, never from a file name the client sent: `` storage.put(`avatars/${user.id}.png`, body.avatar) ``. The `type` must be a plain media type such as `image/png`, and the data a `File`, `Blob`, `Uint8Array`, `ArrayBuffer` or string. See [File storage](storage.md#the-api).
+
+### IL6040
+**Invalid `validateResponses` option.** `createApp({ validateResponses })` takes `"warn"` (log mismatches once per route, the default outside production), `"error"` (answer 500 IL2016, for tests) or `false` (no check, the default in production). See [Response validation](routes.md#response-validation).
 
 ## Environment (7xxx)
 

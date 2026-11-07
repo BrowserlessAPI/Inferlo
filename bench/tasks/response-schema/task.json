@@ -1,0 +1,4 @@
+{
+  "title": "Declare and keep a response schema",
+  "prompt": "Create src/routes/profile.ts with `export const getProfile`: GET /me/profile for signed-in users. It answers { id, email, name } of the signed-in user's row in the users table (404 when there is none), and nothing else. Give the route a response schema for those three fields, so OpenAPI documents the answer and Inferlo checks it. Register the routes module in src/app.ts."
+}

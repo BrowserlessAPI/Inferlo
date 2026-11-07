@@ -26,7 +26,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `body` | Request body schema (JSON, form-encoded, or multipart/form-data with `t.file()` fields; see [File uploads](#file-uploads)) |
 | `query` | Query string schema. Values are converted to numbers and booleans; unknown keys ignored |
 | `params` | Path parameter schema. Without it, params are strings |
-| `response` | Response schema for OpenAPI |
+| `response` | Response schema for OpenAPI, also checked against the handler's answer outside production (see [Response validation](#response-validation)) |
 | `summary`, `description`, `tags` | Documentation for OpenAPI, describe and MCP |
 | `tool` | `true` or `{ name, description }` to expose the route as an MCP tool |
 | `rateLimit` | `{ max, per, by }` to limit requests per user, tenant or IP (see below) |
@@ -158,6 +158,24 @@ export const app = createApp({
 - Any value is sent as JSON with status 200 (or the code from `status()`).
 - `undefined` sends 204 No Content.
 - A `Response` is sent as is (files, redirects, streams, `ai.stream(...).toResponse()`).
+
+## Response validation
+
+A route's `response` schema documents its answer in OpenAPI and MCP, and Inferlo also checks the answer against it while you develop, so a missing field, a wrong type or a field that should not be sent (such as `passwordHash`, because object schemas reject unknown fields) shows up before clients see it:
+
+```ts
+const Profile = t.object({ id: t.uuid(), email: t.email(), name: t.string() });
+
+export const me = route.get("/me", { response: Profile }).handle(async ({ db, user }) => {
+  const row = await db.users.find(user.id);
+  return { id: row!.id, email: row!.email, name: row!.name }; // not the whole row
+});
+```
+
+- `createApp({ validateResponses })`: `"warn"` (the default, unless the environment is production) sends the answer and logs `IL2016 GET /me: the response does not match ...` with the mismatched fields, once per route; `"error"` answers 500 IL2016 with the fields in `details` instead, for tests; `false` turns the check off.
+- The environment is `INFERLO_ENV`, then `NODE_ENV`; with `"production"` the default is `false`, so production pays nothing for the check.
+- The answer is checked as clients receive it (JSON, so dates are ISO strings), only for 2xx JSON answers of routes with a `response` schema. `Response` objects, empty (204) answers and errors are not checked. Values are never logged or sent, only field paths and what was expected.
+- Invalid `validateResponses` values raise IL6040 when the app starts.
 
 ## Errors
 

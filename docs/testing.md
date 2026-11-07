@@ -26,5 +26,6 @@ test("creates a note", async () => {
 - `memory()` gives every test a fresh database.
 - `mockProvider({ respond })` makes AI calls deterministic.
 - `readEvents(res)` parses streaming (SSE) responses.
+- `createApp({ validateResponses: "error" })` makes an answer that does not match the route's `response` schema fail with 500 IL2016, so tests catch it (outside production the default only logs it; see [Response validation](routes.md#response-validation)).
 
 Run with `node --test` or `bun test`.

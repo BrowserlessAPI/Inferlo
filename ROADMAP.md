@@ -139,7 +139,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 
 - [ ] `inferlo db migrate` part 4e: reference changes behind `--allow-change` (`onDelete` and target table: replace the foreign key constraint)
 - [ ] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
-- [ ] Response validation in development mode (warn when a handler returns data that does not match `response`)
+- [x] Response validation in development mode (warn when a handler returns data that does not match `response`)
 - [ ] Email: `mail({ smtp })` helper with templates, used by jobs
 - [ ] OAuth login helpers: GitHub and Google, built on cookie sessions
 - [x] OpenTelemetry tracing for requests, database queries and AI calls (observability parts 3 and 4a)

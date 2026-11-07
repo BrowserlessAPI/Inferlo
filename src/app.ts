@@ -5,6 +5,7 @@
 import { bindTools, createAI, type AI, type AIConfig, type StreamResult, type Usage } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
+import { readEnv } from "./env.ts";
 import { checkStorageStore, createStorage, type Storage, type StorageStore } from "./storage.ts";
 import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
 import { bindDb, checkTenantId, createDb, guardAdapter, type Db, type TenantScope } from "./db/table.ts";
@@ -28,7 +29,7 @@ import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFo
 import { checkEventsConfig, invalidTransport, type AppEvents, type Events, type EventsConfig, type EventTransport } from "./events.ts";
 import { redisEventTransport } from "./redis-events.ts";
 import type { Server } from "./serve.ts";
-import { Schema, ValidationError, type AnySchema } from "./schema.ts";
+import { Schema, ValidationError, type AnySchema, type Issue } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
 import { clientTracing, jobTracing, requestTracing, traceAdapter, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
@@ -203,6 +204,12 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    * 503 IL2007 and ctx.signal is aborted. Routes can set their own timeoutMs. false turns it off. Default 60000.
    */
   requestTimeoutMs?: number | false;
+  /**
+   * Check each JSON answer of a route with a response schema against it: "warn" logs IL2016 once per route,
+   * "error" answers 500 IL2016 (for tests), false skips the check. Default: "warn", or false when the environment
+   * (INFERLO_ENV, then NODE_ENV) is "production".
+   */
+  validateResponses?: "warn" | "error" | false;
   /**
    * More values to hide from logs, besides credentials Inferlo finds itself (authorization and cookie headers,
    * tokens, API keys, passwords in URLs) and the AI provider keys: your config() result (its secrets) or
@@ -486,6 +493,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   }
   for (const r of routes) if (r.options.cache !== undefined) checkRouteCache(r.options.cache, r.method, `${r.method} ${r.path}`);
   const requestTimeoutMs = config.requestTimeoutMs === undefined ? 60_000 : checkTimeout(config.requestTimeoutMs, "createApp({ requestTimeoutMs })");
+  const validateResponses = resolveValidateResponses(config.validateResponses);
+  const warnedResponses = new Set<RouteDef>();
   for (const r of routes) if (r.options.timeoutMs !== undefined) checkTimeout(r.options.timeoutMs, `${r.method} ${r.path} { timeoutMs }`);
   const deprecations = new Map<RouteDef, ResolvedDeprecation>();
   for (const r of routes) {
@@ -1137,6 +1146,24 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           return result;
         }
         if (result === undefined) return new Response(null, { status: status || 204, headers });
+        if (validateResponses && opts.response && (status || 200) < 300) {
+          const issues = responseIssues(opts.response, result);
+          if (issues) {
+            const where = `${def.method} ${def.path}`;
+            const summary = issues.slice(0, 5).map((i) => `${i.path.length ? i.path.join(".") : "(root)"}: ${i.message}`).join("; ") + (issues.length > 5 ? ` (and ${issues.length - 5} more)` : "");
+            if (validateResponses === "error") {
+              throw new InferloError("IL2016", `${where}: the response does not match the route's response schema. ${summary}`, {
+                expose: true,
+                fix: "Return what the route's response schema describes, or change the schema. Fields not in an object schema count as mismatches, so the check also finds fields that should not be sent.",
+                details: issues.map((i) => ({ path: i.path, code: i.code, message: i.message })),
+              });
+            }
+            if (!warnedResponses.has(def)) {
+              warnedResponses.add(def);
+              logger.error(`IL2016 ${where}: the response does not match the route's response schema (sent anyway; logged once per route). ${summary}`, undefined, { requestId });
+            }
+          }
+        }
         // Only plain 200 JSON answers are cached, never one that sets a cookie.
         if (cacheKey && (status || 200) === 200 && !handlerHeaders.some(([name]) => name === "set-cookie")) {
           const body = JSON.stringify(result);
@@ -1473,4 +1500,24 @@ function parseOrThrow(schema: AnySchema, value: unknown, where: string, coerce: 
   const result = schema.safeParse(value, { coerce });
   if (!result.ok) throw new ValidationError(result.issues, where);
   return result.value;
+}
+
+function resolveValidateResponses(value: "warn" | "error" | false | undefined): "warn" | "error" | false {
+  if (value === undefined) return (readEnv("INFERLO_ENV") || readEnv("NODE_ENV") || "development") === "production" ? false : "warn";
+  if (value === "warn" || value === "error" || value === false) return value;
+  throw new InferloError("IL6040", `Invalid validateResponses option ${JSON.stringify(value)}.`, {
+    fix: 'Use createApp({ validateResponses: "warn" }) (the default outside production), "error" in tests, or false to turn the check off.',
+  });
+}
+
+/** The issues of the answer as clients receive it (JSON), or undefined when it matches. */
+function responseIssues(schema: AnySchema, result: unknown): Issue[] | undefined {
+  let sent: unknown;
+  try {
+    sent = JSON.parse(JSON.stringify(result));
+  } catch {
+    return undefined; // Not JSON: the answer itself fails with its own error.
+  }
+  const parsed = schema.safeParse(sent);
+  return parsed.ok ? undefined : parsed.issues;
 }

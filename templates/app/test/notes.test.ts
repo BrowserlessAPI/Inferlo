@@ -11,6 +11,8 @@ function makeApp() {
     routes: [notes],
     db: memory(),
     auth: { resolve: () => null },
+    // An answer that does not match its route's response schema fails the test (500 IL2016).
+    validateResponses: "error",
     ai: { providers: { mock: mockProvider({ respond: () => '{"summary":"A short note."}' }) }, models: { fast: "mock:test" } },
   });
 }
