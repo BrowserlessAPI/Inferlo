@@ -15,7 +15,8 @@
  *
  * GET /auth/login (?returnTo=/path) sends the browser to the provider; GET /auth/callback checks what comes back
  * (state, the code exchanged with the PKCE verifier, the ID token's signature, issuer, audience, expiry and nonce),
- * asks userId(claims) which user signs in, starts the session and sends the browser back. No runtime dependencies.
+ * asks userId(claims) which user signs in, starts the session and sends the browser back. POST /auth/logout ends the
+ * session and signs the user out at the provider too (RP-initiated logout). No runtime dependencies.
  */
 import { safeEqual } from "./auth.ts";
 import { InferloError } from "./errors.ts";
@@ -60,8 +61,15 @@ export interface OidcOptions {
   redirectUri?: string;
   /** Scopes to ask for. Default ["openid", "email", "profile"]; "openid" is always sent. */
   scopes?: string[];
-  /** Where the login and callback routes are. Default "/auth": GET /auth/login and GET /auth/callback. */
+  /** Where the login, callback and logout routes are. Default "/auth": GET /auth/login, GET /auth/callback and POST /auth/logout. */
   basePath?: string;
+  /**
+   * Extra parameters for every sign-in at the provider, such as { prompt: "select_account" }, Google's
+   * { hd: "acme.com" } or Entra ID's { domain_hint: "acme.com" }. The flow's own parameters cannot be changed.
+   */
+  authorizationParams?: Record<string, string>;
+  /** Where the provider sends the browser after signing out, registered at the provider. Default: <the request's origin>/. */
+  postLogoutRedirectUri?: string;
 }
 
 /** routes: [sso] adds the two routes; oidcLogin starts a sign-in, oidcCallback finishes it. */
@@ -70,8 +78,12 @@ export type Oidc = {
   oidcLogin: RouteDef;
   /** GET <basePath>/callback: the redirect URI registered at the provider. */
   oidcCallback: RouteDef;
+  /** POST <basePath>/logout (with the session's _csrf field): ends the session, then signs out at the provider. */
+  oidcLogout: RouteDef;
   /** The login route's path, for links: <a href={sso.loginPath}>. */
   loginPath: string;
+  /** The logout route's path, for a form: <form method="post" action={sso.logoutPath}>. */
+  logoutPath: string;
 };
 
 interface Discovery {
@@ -79,6 +91,8 @@ interface Discovery {
   token_endpoint: string;
   jwks_uri: string;
   token_endpoint_auth_methods_supported?: unknown;
+  /** Where to sign out at the provider (RP-initiated logout); Google, for one, has none. */
+  end_session_endpoint?: string;
 }
 
 interface Pending {
@@ -94,7 +108,15 @@ interface Pending {
   e: number;
 }
 
-const OPTIONS = ["issuer", "clientId", "clientSecret", "session", "userId", "redirectUri", "scopes", "basePath"];
+const OPTIONS = ["issuer", "clientId", "clientSecret", "session", "userId", "redirectUri", "scopes", "basePath", "authorizationParams", "postLogoutRedirectUri"];
+/** The parameters oidc() sets itself, which authorizationParams cannot change. */
+const RESERVED_PARAMS = ["response_type", "client_id", "redirect_uri", "scope", "state", "nonce", "code_challenge", "code_challenge_method", "response_mode", "request", "request_uri"];
+/** The prompt values a login link may ask for with ?prompt= (OpenID Connect Core and Initiating User Registration). */
+const PROMPTS = ["none", "login", "consent", "select_account", "create"];
+/** ID tokens up to this size are kept for signing out at the provider; larger ones would not fit in a cookie. */
+const MAX_ID_TOKEN_COOKIE = 3500;
+/** How long the ID token is kept for signing out (the longest a sessions() cookie can last). */
+const ID_TOKEN_COOKIE_SECONDS = 400 * 86_400;
 const FETCH_TIMEOUT = 5000;
 const DISCOVERY_CACHE_MS = 600_000;
 const PENDING_MS = 600_000;
@@ -158,11 +180,25 @@ function readCookie(header: string | null, name: string): string | undefined {
   return undefined;
 }
 
-/** The short-lived cookie that carries state, nonce and the PKCE verifier from login to callback. */
-function cookieFor(url: URL): { name: string; attributes: string } {
+/**
+ * The short-lived cookie that carries state, nonce and the PKCE verifier from login to callback ("inferlo_oidc"),
+ * and the one that keeps the ID token for signing out at the provider ("inferlo_oidc_id").
+ */
+function cookieFor(url: URL, base = "inferlo_oidc"): { name: string; attributes: string } {
   const local = url.protocol === "http:" && isLocal(url);
   // __Host- cookies cannot be set by subdomains or for other paths; browsers need Secure for them.
-  return local ? { name: "inferlo_oidc", attributes: "Path=/; HttpOnly; SameSite=Lax" } : { name: "__Host-inferlo_oidc", attributes: "Path=/; HttpOnly; Secure; SameSite=Lax" };
+  return local ? { name: base, attributes: "Path=/; HttpOnly; SameSite=Lax" } : { name: `__Host-${base}`, attributes: "Path=/; HttpOnly; Secure; SameSite=Lax" };
+}
+
+/** The iss claim of a JWT, without checking it (only to pick the provider an ID token came from). */
+function issuerOf(token: string): string | undefined {
+  try {
+    const payload = token.split(".")[1] ?? "";
+    const claims = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(payload.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)))) as { iss?: unknown };
+    return typeof claims.iss === "string" ? claims.iss : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -194,6 +230,19 @@ export function oidc(options: OidcOptions): Oidc {
     throw invalid(`oidc() basePath must be a path such as "/auth", got ${JSON.stringify(basePath)}.`);
   }
   const base = basePath.replace(/\/+$/, "");
+  const extraParams = options.authorizationParams ?? {};
+  if (!extraParams || typeof extraParams !== "object" || Array.isArray(extraParams)) {
+    throw invalid('oidc() authorizationParams must be an object of parameter names and string values, such as { prompt: "select_account" }.');
+  }
+  for (const [key, value] of Object.entries(extraParams)) {
+    if (RESERVED_PARAMS.includes(key)) {
+      throw invalid(`oidc() authorizationParams cannot set "${key}": oidc() sets it itself.`, `Leave "${key}" out of authorizationParams; use scopes for the scope and redirectUri for the redirect URI.`);
+    }
+    if (!/^[A-Za-z0-9_.-]{1,64}$/.test(key) || typeof value !== "string" || value.length > 1000 || /[\u0000-\u001f\u007f]/.test(value)) {
+      throw invalid(`oidc() authorizationParams.${key} must be a string of at most 1000 characters without control characters, under a parameter name such as "prompt" or "domain_hint".`);
+    }
+  }
+  const postLogoutRedirectUri = options.postLogoutRedirectUri === undefined ? undefined : httpsUrl(options.postLogoutRedirectUri, "postLogoutRedirectUri").href;
   const { issuer, clientId, clientSecret } = options;
 
   // The provider's OpenID configuration: fetched on first use, kept for 10 minutes, and kept longer while the
@@ -210,6 +259,10 @@ export function oidc(options: OidcOptions): Oidc {
     for (const key of ["authorization_endpoint", "token_endpoint", "jwks_uri"] as const) {
       if (typeof body[key] !== "string") throw new Error(`the OpenID configuration has no ${key}`);
       httpsUrl(body[key], key);
+    }
+    if (body.end_session_endpoint !== undefined) {
+      if (typeof body.end_session_endpoint !== "string") throw new Error("the OpenID configuration's end_session_endpoint is not a URL");
+      httpsUrl(body.end_session_endpoint, "end_session_endpoint");
     }
     return body as unknown as Discovery;
   };
@@ -250,6 +303,13 @@ export function oidc(options: OidcOptions): Oidc {
     target.searchParams.set("nonce", pending.n);
     target.searchParams.set("code_challenge", challenge);
     target.searchParams.set("code_challenge_method", "S256");
+    for (const [key, value] of Object.entries(extraParams)) target.searchParams.set(key, value);
+    // Per sign-in: ?loginHint= fills in the user's name at the provider, ?prompt= asks it to show the login or
+    // account picker again. Anything else in the query is ignored.
+    const loginHint = ctx.url.searchParams.get("loginHint");
+    if (loginHint && loginHint.length <= 256 && !/[\u0000-\u001f\u007f]/.test(loginHint)) target.searchParams.set("login_hint", loginHint);
+    const prompt = ctx.url.searchParams.get("prompt");
+    if (prompt && prompt.split(" ").every((p) => PROMPTS.includes(p))) target.searchParams.set("prompt", prompt);
     const cookie = cookieFor(ctx.url);
     ctx.header("set-cookie", `${cookie.name}=${base64url(new TextEncoder().encode(JSON.stringify(pending)))}; ${cookie.attributes}; Max-Age=${PENDING_MS / 1000}`);
     ctx.header("cache-control", "no-store");
@@ -334,12 +394,46 @@ export function oidc(options: OidcOptions): Oidc {
       throw new InferloError("IL6047", "oidc() userId must return the user's id as a non-empty string, or null to refuse the sign-in.", { fix: "Return the id of the app's user: userId: async (claims, { db }) => (await db.users.findOne({ email: claims.email }))?.id ?? null." });
     }
     await session.signIn(ctx, userId);
+    // The ID token is kept (HttpOnly) for signing out at the provider later, as id_token_hint.
+    const idCookie = cookieFor(ctx.url, "inferlo_oidc_id");
+    if (tokens.idToken.length <= MAX_ID_TOKEN_COOKIE && /^[\w-]+\.[\w-]+\.[\w-]*$/.test(tokens.idToken)) {
+      ctx.header("set-cookie", `${idCookie.name}=${tokens.idToken}; ${idCookie.attributes}; Max-Age=${ID_TOKEN_COOKIE_SECONDS}`);
+    } else {
+      ctx.header("set-cookie", `${idCookie.name}=; ${idCookie.attributes}; Max-Age=0`);
+    }
     return new Response(null, { status: 302, headers: { location: pending.r } });
+  };
+
+  const logout = async (ctx: { url: URL; req: Request; db: AppDb; header(name: string, value: string): void }): Promise<Response> => {
+    // A signed-in browser must send the session's CSRF token (IL3005), so other sites cannot sign users out.
+    await session.resolve(ctx.req, { db: ctx.db, url: ctx.url });
+    session.signOut(ctx);
+    const idCookie = cookieFor(ctx.url, "inferlo_oidc_id");
+    const idToken = readCookie(ctx.req.headers.get("cookie"), idCookie.name);
+    ctx.header("set-cookie", `${idCookie.name}=; ${idCookie.attributes}; Max-Age=0`);
+    ctx.header("cache-control", "no-store");
+    const afterLogout = postLogoutRedirectUri ?? new URL("/", ctx.url).href;
+    let endSession: string | undefined;
+    try {
+      endSession = (await discovery()).end_session_endpoint;
+    } catch {
+      // The app's session is over; a provider that cannot be reached cannot end its own.
+      endSession = undefined;
+    }
+    if (!endSession) return new Response(null, { status: 303, headers: { location: afterLogout } });
+    const target = new URL(endSession);
+    // Only an ID token this provider issued is sent back to it (with several providers, each has its basePath).
+    if (idToken && idToken.length <= MAX_ID_TOKEN_COOKIE && issuerOf(idToken) === issuer) target.searchParams.set("id_token_hint", idToken);
+    target.searchParams.set("client_id", clientId);
+    target.searchParams.set("post_logout_redirect_uri", afterLogout);
+    return new Response(null, { status: 303, headers: { location: target.href } });
   };
 
   return {
     oidcLogin: route.get(`${base}/login`, { auth: "public", summary: "Sign in with the identity provider (OpenID Connect)" }).handle(start),
     oidcCallback: route.get(`${base}/callback`, { auth: "public", summary: "Finish the sign-in with the identity provider (OpenID Connect)" }).handle(finish),
+    oidcLogout: route.post(`${base}/logout`, { auth: "public", summary: "Sign out of the app and at the identity provider (OpenID Connect)" }).handle(logout),
     loginPath: `${base}/login`,
+    logoutPath: `${base}/logout`,
   };
 }

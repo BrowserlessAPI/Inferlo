@@ -1,0 +1,4 @@
+{
+  "title": "Single sign-on: sign out at the provider and pick the company account",
+  "prompt": "Employees sign in with the company's OpenID Connect provider (src/sso.ts). Two changes: the provider's sign-in page should always show the account picker and only offer accounts of the acme.com Google Workspace domain (Google's hd parameter), and signing out of the app should also sign the user out at the provider and then send them to https://app.acme.com/signed-out (registered at the provider), using Inferlo's built-in OpenID Connect support."
+}

@@ -24,6 +24,7 @@ class Provider {
   privateKey!: CryptoKey;
   jwk!: JsonWebKey;
   authMethods: string[] | undefined = undefined;
+  endSession = true;
   nextUser: Record<string, unknown> = { sub: "okta-ada", email: "ada@example.com", email_verified: true, name: "Ada" };
   /** Changes to the next ID token's claims, to test the checks. */
   tamper: Record<string, unknown> = {};
@@ -61,6 +62,7 @@ class Provider {
         token_endpoint: `${this.issuer}/token`,
         jwks_uri: `${this.issuer}/jwks`,
         ...(this.authMethods ? { token_endpoint_auth_methods_supported: this.authMethods } : {}),
+        ...(this.endSession ? { end_session_endpoint: `${this.issuer}/logout` } : {}),
       });
     }
     if (url.pathname === "/jwks") return json(200, { keys: [this.jwk] });
@@ -150,6 +152,7 @@ describe("oidc()", () => {
     provider.tamper = {};
     provider.down = false;
     provider.authMethods = undefined;
+    provider.endSession = true;
     provider.nextUser = { sub: "okta-ada", email: "ada@example.com", email_verified: true, name: "Ada" };
   });
 
@@ -291,6 +294,85 @@ describe("oidc()", () => {
     assert.equal((await app.fetch(new Request(`${APP}/auth/login`))).status, 404);
   });
 
+  test("authorizationParams, ?loginHint= and ?prompt= reach the provider", async () => {
+    const { app } = makeApp(provider, { authorizationParams: { hd: "example.com", domain_hint: "example.com", prompt: "select_account" } });
+    let p = new URL((await app.fetch(new Request(`${APP}/auth/login`))).headers.get("location")!).searchParams;
+    assert.equal(p.get("hd"), "example.com");
+    assert.equal(p.get("domain_hint"), "example.com");
+    assert.equal(p.get("prompt"), "select_account");
+    assert.equal(p.get("login_hint"), null);
+
+    p = new URL((await app.fetch(new Request(`${APP}/auth/login?loginHint=ada%40example.com&prompt=login`))).headers.get("location")!).searchParams;
+    assert.equal(p.get("login_hint"), "ada@example.com");
+    assert.equal(p.get("prompt"), "login", "the link's prompt wins over the default");
+
+    p = new URL((await app.fetch(new Request(`${APP}/auth/login?prompt=evil&loginHint=${"x".repeat(300)}&nonce=mine`))).headers.get("location")!).searchParams;
+    assert.equal(p.get("prompt"), "select_account", "unknown prompt values are ignored");
+    assert.equal(p.get("login_hint"), null, "overlong hints are ignored");
+    assert.notEqual(p.get("nonce"), "mine", "the query cannot set the flow's own parameters");
+    assert.equal((await signIn(app, provider)).callback.status, 302);
+  });
+
+  test("POST /auth/logout ends the session and signs out at the provider with id_token_hint", async () => {
+    const { app, sso } = makeApp(provider, { postLogoutRedirectUri: "http://localhost:3000/signed-out" });
+    assert.equal(sso.logoutPath, "/auth/logout");
+    const { callback } = await signIn(app, provider);
+    const set = cookies(callback);
+    const idCookie = set.get("inferlo_oidc_id")!;
+    assert.match(idCookie, /HttpOnly/);
+    assert.match(idCookie, /SameSite=Lax/);
+    const idToken = cookieValue(idCookie).slice("inferlo_oidc_id=".length);
+    assert.equal(idToken.split(".").length, 3);
+    const sessionCookie = cookieValue(set.get("inferlo_session"));
+    const csrf = cookieValue(set.get("inferlo_session_csrf")).slice("inferlo_session_csrf=".length);
+    const cookie = `${sessionCookie}; inferlo_oidc_id=${idToken}`;
+
+    const forged = await app.fetch(new Request(`${APP}/auth/logout`, { method: "POST", headers: { cookie } }));
+    assert.equal(forged.status, 403, "another site cannot sign the user out");
+    assert.equal(((await forged.json()) as { error: { code: string } }).error.code, "IL3005");
+
+    const form = new URLSearchParams({ _csrf: csrf });
+    const res = await app.fetch(new Request(`${APP}/auth/logout`, { method: "POST", body: form.toString(), headers: { cookie, "content-type": "application/x-www-form-urlencoded" } }));
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("cache-control"), "no-store");
+    const target = new URL(res.headers.get("location")!);
+    assert.equal(target.origin + target.pathname, `${provider.issuer}/logout`);
+    assert.equal(target.searchParams.get("id_token_hint"), idToken);
+    assert.equal(target.searchParams.get("client_id"), CLIENT_ID);
+    assert.equal(target.searchParams.get("post_logout_redirect_uri"), "http://localhost:3000/signed-out");
+    const cleared = cookies(res);
+    for (const name of ["inferlo_session", "inferlo_session_csrf", "inferlo_oidc_id"]) assert.match(cleared.get(name)!, /Max-Age=0/, name);
+  });
+
+  test("logout without a session, with another provider's ID token, or at a provider without end_session_endpoint", async () => {
+    const { app } = makeApp(provider);
+    let res = await app.fetch(new Request(`${APP}/auth/logout`, { method: "POST" }));
+    assert.equal(res.status, 303);
+    let target = new URL(res.headers.get("location")!);
+    assert.equal(target.searchParams.get("id_token_hint"), null);
+    assert.equal(target.searchParams.get("post_logout_redirect_uri"), `${APP}/`);
+
+    const other = `${b64url(JSON.stringify({ alg: "RS256" }))}.${b64url(JSON.stringify({ iss: "https://other.example" }))}.sig`;
+    res = await app.fetch(new Request(`${APP}/auth/logout`, { method: "POST", headers: { cookie: `inferlo_oidc_id=${other}` } }));
+    target = new URL(res.headers.get("location")!);
+    assert.equal(target.searchParams.get("id_token_hint"), null, "only this provider's ID token is sent to it");
+
+    const plain = new Provider();
+    await plain.start();
+    plain.endSession = false;
+    try {
+      res = await makeApp(plain).app.fetch(new Request(`${APP}/auth/logout`, { method: "POST" }));
+      assert.equal(res.status, 303);
+      assert.equal(res.headers.get("location"), `${APP}/`);
+      plain.down = true;
+      res = await makeApp(plain).app.fetch(new Request(`${APP}/auth/logout`, { method: "POST" }));
+      assert.equal(res.status, 303, "an unreachable provider does not stop the app's sign-out");
+      assert.equal(res.headers.get("location"), `${APP}/`);
+    } finally {
+      await plain.stop();
+    }
+  });
+
   test("on https the pending cookie is a Secure __Host- cookie", async () => {
     const { app } = makeApp(provider);
     const login = await app.fetch(new Request("https://app.example.com/auth/login"));
@@ -329,8 +411,15 @@ test("invalid oidc() options raise IL6047", () => {
   assert.throws(() => oidc({ ...base, basePath: "auth" }), is6047);
   assert.throws(() => oidc({ ...base, redirectUri: "http://app.example.com/cb" }), is6047);
   assert.throws(() => oidc({ ...base, audience: "x" } as never), is6047);
+  assert.throws(() => oidc({ ...base, authorizationParams: { nonce: "fixed" } }), is6047, "the flow's own parameters");
+  assert.throws(() => oidc({ ...base, authorizationParams: { redirect_uri: "https://evil.example" } }), is6047);
+  assert.throws(() => oidc({ ...base, authorizationParams: { prompt: 1 as never } }), is6047);
+  assert.throws(() => oidc({ ...base, authorizationParams: [] as never }), is6047);
+  assert.throws(() => oidc({ ...base, postLogoutRedirectUri: "http://app.example.com/" }), is6047);
   const sso = oidc(base);
   assert.equal(sso.oidcLogin.path, "/auth/login");
   assert.equal(sso.oidcCallback.path, "/auth/callback");
   assert.equal(sso.oidcLogin.options.auth, "public");
+  assert.equal(sso.oidcLogout.path, "/auth/logout");
+  assert.equal(sso.oidcLogout.method, "POST");
 });

@@ -18,7 +18,7 @@ before(async () => {
   await new Promise<void>((resolve) => server.listen(0, "localhost", () => resolve()));
   issuer = `http://localhost:${(server.address() as AddressInfo).port}`;
   const provider = new Provider(issuer, {
-    clients: [{ client_id: "inferlo-app", client_secret: "provider-test-client-secret", redirect_uris: [`${APP}/auth/callback`], grant_types: ["authorization_code"], response_types: ["code"] }],
+    clients: [{ client_id: "inferlo-app", client_secret: "provider-test-client-secret", redirect_uris: [`${APP}/auth/callback`], post_logout_redirect_uris: [`${APP}/signed-out`], grant_types: ["authorization_code"], response_types: ["code"] }],
     findAccount: async (_ctx: unknown, sub: string) => ({ accountId: sub, claims: async () => ({ sub, email: `${sub}@example.com`, email_verified: true }) }),
     claims: { openid: ["sub"], email: ["email", "email_verified"] },
     pkce: { required: () => true },
@@ -61,6 +61,7 @@ async function atProvider(start: string, login: string): Promise<string> {
     assert.ok(action, `a login or consent form (${res.status})`);
     const form = new URLSearchParams();
     for (const m of html.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)"/g)) form.set(m[1]!, m[2]!);
+    if (html.includes('name="logout"')) form.set("logout", "yes");
     if (html.includes('name="login"')) {
       form.set("login", login);
       form.set("password", "any");
@@ -101,4 +102,30 @@ test("oidc() signs a user in through oidc-provider, ending in a session cookie",
 
   const replay = await app.fetch(new Request(back, { headers: { cookie: pending } }));
   assert.equal(replay.status, 400, "the provider refuses a used code");
+});
+
+test("oidc() signs out at oidc-provider with id_token_hint and post_logout_redirect_uri (RP-initiated logout)", async () => {
+  const session = sessions({ secret: "oidc-provider-test-session-secret-0123456789", user: ({ userId }) => ({ id: userId, roles: [] }) });
+  const sso = oidc({ issuer, clientId: "inferlo-app", clientSecret: "provider-test-client-secret", session, userId: (claims) => `user-${claims.sub}`, postLogoutRedirectUri: `${APP}/signed-out` });
+  const app = createApp({ auth: session, routes: [sso], logger: { info() {}, error() {} } });
+
+  const login = await app.fetch(new Request(`${APP}/auth/login?loginHint=grace`));
+  assert.equal(new URL(login.headers.get("location")!).searchParams.get("login_hint"), "grace");
+  const pending = login.headers.getSetCookie()[0]!.split(";")[0]!;
+  const callback = await app.fetch(new Request(await atProvider(login.headers.get("location")!, "grace"), { headers: { cookie: pending } }));
+  assert.equal(callback.status, 302, await callback.clone().text());
+  const set = callback.headers.getSetCookie().map((c) => c.split(";")[0]!);
+  const csrf = set.find((c) => c.startsWith("inferlo_session_csrf="))!.slice("inferlo_session_csrf=".length);
+  const cookie = set.filter((c) => c.startsWith("inferlo_session=") || c.startsWith("inferlo_oidc_id=")).join("; ");
+  assert.ok(cookie.includes("inferlo_oidc_id="), "the ID token is kept for signing out");
+
+  const res = await app.fetch(new Request(`${APP}/auth/logout`, { method: "POST", body: new URLSearchParams({ _csrf: csrf }).toString(), headers: { cookie, "content-type": "application/x-www-form-urlencoded" } }));
+  assert.equal(res.status, 303);
+  const endSession = new URL(res.headers.get("location")!);
+  assert.equal(endSession.origin, issuer, "the end_session_endpoint from the provider's configuration");
+  assert.ok(endSession.searchParams.get("id_token_hint"));
+  // oidc-provider accepts the hint and the registered post_logout_redirect_uri, asks the user to confirm and sends
+  // the browser back to the app.
+  const back = await atProvider(endSession.href, "grace");
+  assert.equal(new URL(back).pathname, "/signed-out");
 });
