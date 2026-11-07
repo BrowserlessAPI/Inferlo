@@ -1,0 +1,5 @@
+{
+  "title": "Events between services over NATS",
+  "prompt": "The services of this company exchange events over NATS JetStream. Create src/events-transport.ts with `export function eventsTransport(nc: NatsConnection)` (NatsConnection from @browserlessapi/inferlo/nats) that returns Inferlo's built-in NATS JetStream event transport for this service, named \"bench-app\" like the app, with events that fail delivery or are never acknowledged delivered again after 10 seconds. Do not write your own transport.",
+  "packages": ["@nats-io/jetstream", "@nats-io/transport-node"]
+}

@@ -398,6 +398,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6050
 **The store has no signed URLs.** `storage.url(key, { expiresIn })` needs a store that signs download URLs, such as `s3Storage()`; `memoryStorage()` and `diskStorage()` cannot. Serve those files from a route (`return new Response(await storage.get(key))`), or move them to `s3Storage()`. Your own `StorageStore` can add `url(key, expiresIn)`. See [Signed download URLs](storage.md#signed-download-urls).
 
+### IL6051
+**Invalid `natsEventTransport()` arguments.** `natsEventTransport(nc, { service, stream, maxAgeMs, staleAfterMs, batch })` from `@browserlessapi/inferlo/nats` needs a connected NATS connection first (`await connect({ servers })` from `@nats-io/transport-node`) and this service's name as `service` (1 to 100 letters, digits, `-` and `_`, usually the app's `name`), and takes only those options: `stream` is a stream name of the same characters, `maxAgeMs` 60000 to 31536000000, `staleAfterMs` 1000 to 3600000 and `batch` 1 to 1000, all whole numbers. See [NATS JetStream](jobs.md#nats-jetstream).
+
 ## Environment (7xxx)
 
 ### IL7001

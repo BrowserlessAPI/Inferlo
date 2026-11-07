@@ -152,7 +152,30 @@ export const app = createApp({
 - With `createApp({ tracing })`, the trace of the publishing request travels with the event, so the subscribed jobs in other services are part of the same trace.
 - `app.events.transport` is `"redis"` (or your transport's name), shown as `eventTransport` in `inferlo describe`. An unknown transport or option raises IL6033; `transport: "redis"` without `createApp({ redis })` raises IL6031.
 
-Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`); NATS, RabbitMQ and Kafka transports are planned as separate entry points.
+Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`). NATS JetStream has a transport in its own entry point (below); RabbitMQ and Kafka transports are planned.
+
+### NATS JetStream
+
+Services that already run NATS use `natsEventTransport` from `@browserlessapi/inferlo/nats` (needs `@nats-io/jetstream` 3 and a NATS connection, for example from `@nats-io/transport-node`; the server needs JetStream, `nats-server -js`, version 2.11 or later):
+
+```ts
+import { connect } from "@nats-io/transport-node";
+import { natsEventTransport } from "@browserlessapi/inferlo/nats";
+
+const nc = await connect({ servers: settings.NATS_URL });
+
+export const app = createApp({
+  name: "billing",
+  jobs: [jobs],                        // on(orderPaid, createInvoice)
+  events: { transport: natsEventTransport(nc, { service: "billing" }) },
+});
+```
+
+- Events are published to the JetStream stream `INFERLO_EVENTS` (subjects `inferlo.events.<event name>`), created on first use with a 7-day `maxAgeMs` and a 2-minute duplicate window. The stream is shared by every service; create it yourself (same name and subjects) to choose replicas, storage or limits.
+- Each service reads each event it subscribes to through its own durable pull consumer, `inferlo-<service>-<event name with "_" for ".">`, created at its first read with "deliver new". Instances of one service share its consumers, so each service gets each event once. Pass the app's name as `service`.
+- An event is acknowledged after its jobs are queued. One whose delivery fails, or that an instance read without acknowledging (it stopped), is delivered again after `staleAfterMs` (default 30000). Publishing sets `Nats-Msg-Id` to the event id, so a repeated publish within the duplicate window is stored once; a repeated delivery queues nothing new either way.
+- The rest works as with Redis: payloads are checked against the subscriber's schema (IL6034), the trace and the tenant travel with the event, and `app.events.transport` is `"nats"`. Invalid arguments raise IL6051.
+- Options: `service` (required), `stream` (default `"INFERLO_EVENTS"`, the same in every service), `maxAgeMs` (used when the stream is created), `staleAfterMs`, `batch` (events read per event and poll, default 100). Close the NATS connection after `app.close()`.
 
 ## Where jobs are kept
 

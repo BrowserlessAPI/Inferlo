@@ -567,6 +567,42 @@ jobs:
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/ai-standard-schema.test.ts
 
+  nats:
+    name: NATS JetStream events (server ${{ matrix.versions.server }}, client ${{ matrix.versions.client }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        versions:
+          # nats-server 2.11 = oldest line still getting releases (2.10 ended with 2.10.29), with the first
+          # @nats-io/jetstream and @nats-io/transport-node 3 releases; latest = newest server and clients.
+          - { server: "2.11", client: "3.0.0" }
+          - { server: "latest", client: "latest" }
+    env:
+      INFERLO_TEST_NATS_URL: nats://localhost:4222
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # The server needs -js (JetStream), which a services: container cannot pass.
+      - run: docker run -d --name nats -p 4222:4222 nats:${{ matrix.versions.server }} -js
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @nats-io/jetstream@${{ matrix.versions.client }} @nats-io/transport-node@${{ matrix.versions.client }}
+      - run: node -p "'@nats-io/jetstream ' + require('./node_modules/@nats-io/jetstream/package.json').version"
+      - run: docker logs nats 2>&1 | grep -m1 "Version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/nats-events.test.ts
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun test test/nats-events.test.ts
+
   drizzle:
     name: Drizzle ORM ${{ matrix.drizzle }} on PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest
