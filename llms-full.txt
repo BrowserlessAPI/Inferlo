@@ -4017,6 +4017,17 @@ server.use("/api", toNodeHandler(app));
 Requests that change data with the `express-session` cookie from another site are refused with IL3007. See [Passport.js](auth.md#passportjs) for the options; tested with Passport 0.6.0 and the latest Passport on Express 4 and 5.
 
 
+## Pino
+
+Apps that log with [pino](https://getpino.io) (Fastify's logger, and NestJS's with `nestjs-pino`) send Inferlo's request, error, job and readiness logs to the same logger with `pinoLogger` from `@browserlessapi/inferlo/pino`:
+
+```ts
+import { pinoLogger } from "@browserlessapi/inferlo/pino";
+const app = createApp({ routes, logger: pinoLogger(fastify.log), logging: { requests: true } }); // or pinoLogger(pino())
+```
+
+Request ids, trace ids and the other fields are top-level properties of each entry, errors are `err`, and secrets are redacted before pino sees them. See [Pino](observability.md#pino); tested with pino 9.14.0 and the latest pino.
+
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 
 `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
@@ -5277,22 +5288,48 @@ createApp({ logging: { format: settings.LOG_FORMAT, requests: true } });
 
 ## Your own logger
 
-Pass `logger` to send entries to pino, winston or anything else. Each method gets the message, optional data (an error or a value) and optional `fields` with structured values such as `requestId`:
+Pass `logger` to send entries to winston, a log library of your company or anything else. Each method gets the message, optional data (an error or a value) and optional `fields` with structured values such as `requestId`:
 
 ```ts
-import pino from "pino";
-
-const log = pino();
 createApp({
   logger: {
-    info: (message, data, fields) => log.info({ ...fields, data }, message),
-    error: (message, data, fields) => log.error({ ...fields, err: data }, message),
+    info: (message, data, fields) => log.info(message, { ...fields, data }),
+    error: (message, data, fields) => log.error(message, { ...fields, error: data }),
   },
   logging: { requests: true },
 });
 ```
 
 Entries are redacted before they reach your logger. `format` only applies to the built-in logger, so passing it together with `logger` raises IL6019; `requests` works with both.
+
+### Pino
+
+Apps that log with [pino](https://getpino.io) (Fastify's and NestJS's usual logger) wrap it with `pinoLogger` from `@browserlessapi/inferlo/pino`, so Inferlo's request, error, job and readiness logs land in the same stream as the app's own:
+
+```ts
+import pino from "pino";
+import { createApp } from "@browserlessapi/inferlo";
+import { pinoLogger } from "@browserlessapi/inferlo/pino";
+
+export const log = pino({ base: { service: "helpdesk" } });
+
+export const app = createApp({
+  routes: [tickets],
+  logger: pinoLogger(log),
+  logging: { requests: true },
+});
+```
+
+```json
+{"level":30,"time":1794083631004,"service":"helpdesk","requestId":"0b7f8a52-3c1e-4d0a-9a51-8f2f0e6c1d44","method":"GET","path":"/tickets","status":200,"durationMs":4.2,"msg":"GET /tickets 200 4.2ms"}
+{"level":50,"time":1794083632118,"service":"helpdesk","requestId":"6d1c...","err":{"type":"Error","message":"connect ECONNREFUSED 10.0.0.5:5432","stack":"..."},"msg":"POST /tickets failed"}
+```
+
+- Each entry is written with `log.info(fields, message)` or `log.error(fields, message)`: fields such as `requestId`, `traceId` and `spanId` (with [tracing](#tracing-opentelemetry)), `method`, `path`, `status` and `durationMs` are top-level properties, an error is `err` (pino's error serializer writes its type, message, stack and cause), and other data is under `data` (for example `data.id` and `data.error` of a failed job).
+- Inferlo's [secret redaction](security.md#secrets-in-logs) runs first, and pino's own options (`level`, `base`, `redact`, transports such as `pino-pretty`) still apply.
+- Inside Fastify, `pinoLogger(fastify.log)` writes to Fastify's logger. In NestJS with `nestjs-pino`, pass the same pino instance you give `LoggerModule`.
+- Passing a pino logger to `logger` without `pinoLogger` raises IL6053, because pino reads `(object, message)` and the request id and error would be lost. `pinoLogger` of anything that is not a logger raises IL6052.
+- pino is not a dependency of Inferlo; pino 9.14 and later work (tested on 9.14.0 and the latest release).
 
 `describe().logging` shows the setup (`{ format: "text" | "json" | "custom", requests }`), and `inferlo describe` prints it.
 
@@ -5813,6 +5850,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Better Auth (`@browserlessapi/inferlo/better-auth`) | `better-auth` 1.6.0 and newer |
 | Auth.js (`@browserlessapi/inferlo/authjs`) | `@auth/core` 0.41.0 and newer |
 | Passport.js (`@browserlessapi/inferlo/passport`, with Express 4 or 5) | `passport` 0.6.0 and newer |
+| Pino (`@browserlessapi/inferlo/pino`) | `pino` 9.14.0 (newest 9.x) and newer |
 | Sequelize (next to Inferlo on one Postgres database) | `sequelize` 6.36.0 and newer 6.x |
 | OpenID Connect providers (`oidc()`) | any provider that publishes an OpenID configuration and signs ID tokens with RS, PS, ES or EdDSA; tested against `oidc-provider` 9.0.0 and the latest |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
@@ -6235,6 +6273,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6051
 **Invalid `natsEventTransport()` arguments.** `natsEventTransport(nc, { service, stream, maxAgeMs, staleAfterMs, batch })` from `@browserlessapi/inferlo/nats` needs a connected NATS connection first (`await connect({ servers })` from `@nats-io/transport-node`) and this service's name as `service` (1 to 100 letters, digits, `-` and `_`, usually the app's `name`), and takes only those options: `stream` is a stream name of the same characters, `maxAgeMs` 60000 to 31536000000, `staleAfterMs` 1000 to 3600000 and `batch` 1 to 1000, all whole numbers. See [NATS JetStream](jobs.md#nats-jetstream).
+
+### IL6052
+**Invalid `pinoLogger()` argument.** `pinoLogger(log)` from `@browserlessapi/inferlo/pino` needs a pino logger (`pino()` from the `pino` package, a child logger, or `fastify.log`). See [Pino](observability.md#pino).
+
+### IL6053
+**A pino logger was passed to `createApp({ logger })` directly.** Pino's methods take `(object, message)`, so Inferlo's `(message, data, fields)` entries would lose the request id and the error. Wrap it: `createApp({ logger: pinoLogger(log) })` with `pinoLogger` from `@browserlessapi/inferlo/pino`. See [Pino](observability.md#pino).
 
 ## Environment (7xxx)
 

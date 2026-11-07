@@ -401,6 +401,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6051
 **Invalid `natsEventTransport()` arguments.** `natsEventTransport(nc, { service, stream, maxAgeMs, staleAfterMs, batch })` from `@browserlessapi/inferlo/nats` needs a connected NATS connection first (`await connect({ servers })` from `@nats-io/transport-node`) and this service's name as `service` (1 to 100 letters, digits, `-` and `_`, usually the app's `name`), and takes only those options: `stream` is a stream name of the same characters, `maxAgeMs` 60000 to 31536000000, `staleAfterMs` 1000 to 3600000 and `batch` 1 to 1000, all whole numbers. See [NATS JetStream](jobs.md#nats-jetstream).
 
+### IL6052
+**Invalid `pinoLogger()` argument.** `pinoLogger(log)` from `@browserlessapi/inferlo/pino` needs a pino logger (`pino()` from the `pino` package, a child logger, or `fastify.log`). See [Pino](observability.md#pino).
+
+### IL6053
+**A pino logger was passed to `createApp({ logger })` directly.** Pino's methods take `(object, message)`, so Inferlo's `(message, data, fields)` entries would lose the request id and the error. Wrap it: `createApp({ logger: pinoLogger(log) })` with `pinoLogger` from `@browserlessapi/inferlo/pino`. See [Pino](observability.md#pino).
+
 ## Environment (7xxx)
 
 ### IL7001

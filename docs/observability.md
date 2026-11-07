@@ -51,22 +51,48 @@ createApp({ logging: { format: settings.LOG_FORMAT, requests: true } });
 
 ## Your own logger
 
-Pass `logger` to send entries to pino, winston or anything else. Each method gets the message, optional data (an error or a value) and optional `fields` with structured values such as `requestId`:
+Pass `logger` to send entries to winston, a log library of your company or anything else. Each method gets the message, optional data (an error or a value) and optional `fields` with structured values such as `requestId`:
 
 ```ts
-import pino from "pino";
-
-const log = pino();
 createApp({
   logger: {
-    info: (message, data, fields) => log.info({ ...fields, data }, message),
-    error: (message, data, fields) => log.error({ ...fields, err: data }, message),
+    info: (message, data, fields) => log.info(message, { ...fields, data }),
+    error: (message, data, fields) => log.error(message, { ...fields, error: data }),
   },
   logging: { requests: true },
 });
 ```
 
 Entries are redacted before they reach your logger. `format` only applies to the built-in logger, so passing it together with `logger` raises IL6019; `requests` works with both.
+
+### Pino
+
+Apps that log with [pino](https://getpino.io) (Fastify's and NestJS's usual logger) wrap it with `pinoLogger` from `@browserlessapi/inferlo/pino`, so Inferlo's request, error, job and readiness logs land in the same stream as the app's own:
+
+```ts
+import pino from "pino";
+import { createApp } from "@browserlessapi/inferlo";
+import { pinoLogger } from "@browserlessapi/inferlo/pino";
+
+export const log = pino({ base: { service: "helpdesk" } });
+
+export const app = createApp({
+  routes: [tickets],
+  logger: pinoLogger(log),
+  logging: { requests: true },
+});
+```
+
+```json
+{"level":30,"time":1794083631004,"service":"helpdesk","requestId":"0b7f8a52-3c1e-4d0a-9a51-8f2f0e6c1d44","method":"GET","path":"/tickets","status":200,"durationMs":4.2,"msg":"GET /tickets 200 4.2ms"}
+{"level":50,"time":1794083632118,"service":"helpdesk","requestId":"6d1c...","err":{"type":"Error","message":"connect ECONNREFUSED 10.0.0.5:5432","stack":"..."},"msg":"POST /tickets failed"}
+```
+
+- Each entry is written with `log.info(fields, message)` or `log.error(fields, message)`: fields such as `requestId`, `traceId` and `spanId` (with [tracing](#tracing-opentelemetry)), `method`, `path`, `status` and `durationMs` are top-level properties, an error is `err` (pino's error serializer writes its type, message, stack and cause), and other data is under `data` (for example `data.id` and `data.error` of a failed job).
+- Inferlo's [secret redaction](security.md#secrets-in-logs) runs first, and pino's own options (`level`, `base`, `redact`, transports such as `pino-pretty`) still apply.
+- Inside Fastify, `pinoLogger(fastify.log)` writes to Fastify's logger. In NestJS with `nestjs-pino`, pass the same pino instance you give `LoggerModule`.
+- Passing a pino logger to `logger` without `pinoLogger` raises IL6053, because pino reads `(object, message)` and the request id and error would be lost. `pinoLogger` of anything that is not a logger raises IL6052.
+- pino is not a dependency of Inferlo; pino 9.14 and later work (tested on 9.14.0 and the latest release).
 
 `describe().logging` shows the setup (`{ format: "text" | "json" | "custom", requests }`), and `inferlo describe` prints it.
 

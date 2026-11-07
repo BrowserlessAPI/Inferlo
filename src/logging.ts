@@ -46,6 +46,20 @@ export function loggingOptions(option: unknown, hasLogger: boolean): { format: "
   return { format, requests };
 }
 
+/**
+ * Refuses a pino logger passed as createApp({ logger }) without pinoLogger(): pino reads (object, message), so
+ * Inferlo's (message, data, fields) calls would lose the request id and the error.
+ */
+export function checkLogger(logger: unknown): void {
+  if (!logger || typeof logger !== "object") return;
+  const l = logger as Record<string, unknown>;
+  const pino = typeof l.version === "string" && typeof l.bindings === "function" && typeof l.child === "function" && typeof l.isLevelEnabled === "function";
+  if (!pino) return;
+  throw new InferloError("IL6053", "createApp({ logger }) was given a pino logger directly; pino reads (object, message), so request ids and errors would be lost.", {
+    fix: 'Wrap it: import { pinoLogger } from "@browserlessapi/inferlo/pino"; createApp({ logger: pinoLogger(log) }).',
+  });
+}
+
 /** The built-in logger: "[inferlo] message" lines, or one JSON object per line. */
 export function defaultLogger(format: "text" | "json", app: string): LoggerShape {
   if (format === "text") {

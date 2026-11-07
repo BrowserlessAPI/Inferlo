@@ -1395,6 +1395,17 @@ server.use("/api", toNodeHandler(app));
 Requests that change data with the `express-session` cookie from another site are refused with IL3007. See [Passport.js](auth.md#passportjs) for the options; tested with Passport 0.6.0 and the latest Passport on Express 4 and 5.
 
 
+## Pino
+
+Apps that log with [pino](https://getpino.io) (Fastify's logger, and NestJS's with `nestjs-pino`) send Inferlo's request, error, job and readiness logs to the same logger with `pinoLogger` from `@browserlessapi/inferlo/pino`:
+
+```ts
+import { pinoLogger } from "@browserlessapi/inferlo/pino";
+const app = createApp({ routes, logger: pinoLogger(fastify.log), logging: { requests: true } }); // or pinoLogger(pino())
+```
+
+Request ids, trace ids and the other fields are top-level properties of each entry, errors are `err`, and secrets are redacted before pino sees them. See [Pino](observability.md#pino); tested with pino 9.14.0 and the latest pino.
+
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 
 `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

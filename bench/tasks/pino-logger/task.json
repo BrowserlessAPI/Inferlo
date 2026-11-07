@@ -1,0 +1,5 @@
+{
+  "title": "Inferlo logs through the company's pino logger",
+  "prompt": "The company's services log with pino: src/log.ts exports the shared pino logger `log`. Make the Inferlo app write all of its logs, including the request logs, through that logger, with the request id as a field of each entry, using Inferlo's pino integration. Do not change src/log.ts.",
+  "packages": ["pino"]
+}

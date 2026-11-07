@@ -31,7 +31,7 @@ import { redisEventTransport } from "./redis-events.ts";
 import type { Server } from "./serve.ts";
 import { Schema, ValidationError, type AnySchema, type Issue } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
-import { defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
+import { checkLogger, defaultLogger, loggingOptions, REQUEST_ID, type LogFields, type LoggingConfig } from "./logging.ts";
 import { clientTracing, jobTracing, requestTracing, traceAdapter, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
 import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
@@ -218,7 +218,7 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   redact?: readonly (string | object | undefined | null)[];
   /** Include error messages of unexpected (500) errors in responses. Default false. */
   exposeErrors?: boolean;
-  /** Your own logger (for example pino or winston): { info(message, data, fields), error(message, data, fields) }. */
+  /** Your own logger: { info(message, data, fields), error(message, data, fields) }. For pino, use pinoLogger(pino()) from "@browserlessapi/inferlo/pino". */
   logger?: Logger;
   /**
    * The built-in logger's format ("text" or "json", one object per line) and request logs (requests: true logs
@@ -403,6 +403,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   // Everything the app logs goes through the redactor: credentials and secrets never reach the logs.
   const redactor = createRedactor([...redactValues(config.redact), ...Object.values(config.ai?.providers ?? {}).flatMap((p) => secretsOf(p))]);
   const logging = loggingOptions(config.logging, config.logger !== undefined);
+  checkLogger(config.logger);
   const logger: Logger = redactingLogger(config.logger ?? defaultLogger(logging.format, config.name ?? "inferlo-app"), redactor);
   const tracing = requestTracing(config.tracing, config.name ?? "inferlo-app", config.version ?? "0.0.0");
   const tracingApi = tracing ? config.tracing!.api : undefined;
