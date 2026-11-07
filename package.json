@@ -99,6 +99,10 @@
       "types": "./dist/nextjs.d.ts",
       "default": "./dist/nextjs.js"
     },
+    "./rabbitmq": {
+      "types": "./dist/rabbitmq.d.ts",
+      "default": "./dist/rabbitmq.js"
+    },
     "./pino": {
       "types": "./dist/pino.d.ts",
       "default": "./dist/pino.js"
@@ -231,6 +235,7 @@
     "@types/pg": "^8.15.0",
     "@valibot/to-json-schema": "^1.8.0",
     "ai": "^7.0.163",
+    "amqplib": "^2.2.1",
     "arktype": "^2.2.9",
     "astro": "^7.4.7",
     "autocannon": "^8.0.0",

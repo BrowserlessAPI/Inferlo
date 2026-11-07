@@ -1,0 +1,5 @@
+{
+  "title": "Events between services over RabbitMQ",
+  "prompt": "The services of this company exchange events over RabbitMQ, on a single node where quorum queues are not wanted. Create src/events-transport.ts with `export function eventsTransport(connection: AmqpConnection)` (AmqpConnection from @browserlessapi/inferlo/rabbitmq; the connection comes from amqplib's connect()) that returns Inferlo's built-in RabbitMQ event transport for this service, named \"bench-app\" like the app, using classic queues. Do not write your own transport.",
+  "packages": ["amqplib"]
+}

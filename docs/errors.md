@@ -407,6 +407,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6053
 **A pino logger was passed to `createApp({ logger })` directly.** Pino's methods take `(object, message)`, so Inferlo's `(message, data, fields)` entries would lose the request id and the error. Wrap it: `createApp({ logger: pinoLogger(log) })` with `pinoLogger` from `@browserlessapi/inferlo/pino`. See [Pino](observability.md#pino).
 
+### IL6054
+**Invalid `rabbitmqEventTransport()` arguments.** `rabbitmqEventTransport(connection, { service, exchange, queueType, staleAfterMs, batch })` from `@browserlessapi/inferlo/rabbitmq` needs a connection from amqplib's `connect()` (promise API) first and this service's name as `service` (1 to 100 letters, digits, `-` and `_`, usually the app's `name`), and takes only those options: `exchange` is 1 to 200 letters, digits, `.`, `-` and `_` and cannot start with `amq.`, `queueType` is `"quorum"` or `"classic"`, `staleAfterMs` 1000 to 3600000 and `batch` 1 to 1000, both whole numbers. See [RabbitMQ](jobs.md#rabbitmq).
+
 ## Environment (7xxx)
 
 ### IL7001

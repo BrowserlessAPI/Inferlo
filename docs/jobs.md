@@ -152,7 +152,7 @@ export const app = createApp({
 - With `createApp({ tracing })`, the trace of the publishing request travels with the event, so the subscribed jobs in other services are part of the same trace.
 - `app.events.transport` is `"redis"` (or your transport's name), shown as `eventTransport` in `inferlo describe`. An unknown transport or option raises IL6033; `transport: "redis"` without `createApp({ redis })` raises IL6031.
 
-Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`). NATS JetStream has a transport in its own entry point (below); RabbitMQ and Kafka transports are planned.
+Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`). NATS JetStream and RabbitMQ have transports in their own entry points (below); a Kafka transport is planned.
 
 ### NATS JetStream
 
@@ -176,6 +176,30 @@ export const app = createApp({
 - An event is acknowledged after its jobs are queued. One whose delivery fails, or that an instance read without acknowledging (it stopped), is delivered again after `staleAfterMs` (default 30000). Publishing sets `Nats-Msg-Id` to the event id, so a repeated publish within the duplicate window is stored once; a repeated delivery queues nothing new either way.
 - The rest works as with Redis: payloads are checked against the subscriber's schema (IL6034), the trace and the tenant travel with the event, and `app.events.transport` is `"nats"`. Invalid arguments raise IL6051.
 - Options: `service` (required), `stream` (default `"INFERLO_EVENTS"`, the same in every service), `maxAgeMs` (used when the stream is created), `staleAfterMs`, `batch` (events read per event and poll, default 100). Close the NATS connection after `app.close()`.
+
+### RabbitMQ
+
+Services that already run RabbitMQ use `rabbitmqEventTransport` from `@browserlessapi/inferlo/rabbitmq` with a connection from [amqplib](https://amqp-node.github.io/amqplib/) (0.10.9 or later, promise API; RabbitMQ 4.3 or later):
+
+```ts
+import amqp from "amqplib";
+import { rabbitmqEventTransport } from "@browserlessapi/inferlo/rabbitmq";
+
+const connection = await amqp.connect(settings.RABBITMQ_URL);
+
+export const app = createApp({
+  name: "billing",
+  jobs: [jobs],                        // on(orderPaid, createInvoice)
+  events: { transport: rabbitmqEventTransport(connection, { service: "billing" }) },
+});
+```
+
+- Events are published to the durable topic exchange `inferlo.events` with the event name as routing key, as persistent JSON messages with the event id as `messageId`. Publishing uses publisher confirms: `events.publish(...)` resolves when RabbitMQ has the event, and rejects when it refused it.
+- Each service reads each event it subscribes to from its own durable queue, `inferlo.<service>.<event name>`, declared and bound at its first read (a quorum queue, or `queueType: "classic"`). Instances of one service share its queues, so each service gets each event once. Pass the app's name as `service`. A service only gets the events published after its first read.
+- An event is acknowledged after its jobs are queued. One whose delivery fails (its jobs could not be queued) is returned to its queue after `staleAfterMs` (default 30000); the events an instance read without acknowledging are returned when its connection closes. A repeated delivery queues nothing new.
+- RabbitMQ 4 drops a message from a quorum queue after 20 deliveries by default (about 10 minutes of failed deliveries with the default `staleAfterMs`). To keep events longer while a dependency is down, set a policy for the queues, for example `rabbitmqctl set_policy inferlo-events "^inferlo\." '{"delivery-limit": -1}' --apply-to quorum_queues`, or a `dead-letter-exchange` to keep them aside.
+- Messages in the queues that are not Inferlo events are acknowledged and dropped. The rest works as with Redis: payloads are checked against the subscriber's schema (IL6034), the trace and the tenant travel with the event, and `app.events.transport` is `"rabbitmq"`. Invalid arguments raise IL6054.
+- Options: `service` (required), `exchange` (default `"inferlo.events"`, the same in every service), `queueType` (`"quorum"` or `"classic"`), `staleAfterMs`, `batch` (events read per event and poll, default 100). Close the connection after `app.close()`.
 
 ## Where jobs are kept
 

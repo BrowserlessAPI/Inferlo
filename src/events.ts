@@ -105,7 +105,8 @@ export interface EventMessage {
 
 /**
  * Carries events between services: createApp({ events: { transport } }). Inferlo has a Redis Streams transport
- * built in (transport: "redis") and a NATS JetStream one in @browserlessapi/inferlo/nats (natsEventTransport);
+ * built in (transport: "redis"), a NATS JetStream one in @browserlessapi/inferlo/nats (natsEventTransport) and a
+ * RabbitMQ one in @browserlessapi/inferlo/rabbitmq (rabbitmqEventTransport);
  * other brokers implement this interface.
  */
 export interface EventTransport {

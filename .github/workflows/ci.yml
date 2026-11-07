@@ -603,6 +603,44 @@ jobs:
           bun-version: latest
       - run: bun test test/nats-events.test.ts
 
+  rabbitmq:
+    name: RabbitMQ events (server ${{ matrix.versions.server }}, amqplib ${{ matrix.versions.client }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        versions:
+          # RabbitMQ 4.3 = oldest series with community support (until 2027-01-31; 4.2 ended 2026-07-31), with
+          # amqplib 0.10.9 (newest 0.10.x, the line before 1.0: amqplib has one release line); latest = newest server
+          # and amqplib.
+          - { server: "4.3", client: "0.10.9" }
+          - { server: "latest", client: "latest" }
+    env:
+      INFERLO_TEST_RABBITMQ_URL: amqp://localhost:5672
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: docker run -d --name rabbitmq -p 5672:5672 rabbitmq:${{ matrix.versions.server }}
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save amqplib@${{ matrix.versions.client }}
+      - run: node -p "'amqplib ' + require('./node_modules/amqplib/package.json').version"
+      - name: Wait for RabbitMQ
+        run: for i in $(seq 1 60); do docker exec rabbitmq rabbitmq-diagnostics -q check_port_connectivity >/dev/null 2>&1 && exit 0; sleep 2; done; docker logs rabbitmq; exit 1
+      - run: docker exec rabbitmq rabbitmqctl version
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/rabbitmq-events.test.ts
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun test test/rabbitmq-events.test.ts
+
   drizzle:
     name: Drizzle ORM ${{ matrix.drizzle }} on PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest
