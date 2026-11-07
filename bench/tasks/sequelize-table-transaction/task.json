@@ -1,0 +1,4 @@
+{
+  "title": "One transaction across a Sequelize table and an Inferlo model",
+  "prompt": "The app shares its Postgres database with older code that uses Sequelize 6, whose model Order owns the table shop_orders (underscored: true, so its columns are id serial primary key, customer_id integer, reference varchar(40) unique, cents integer, created_at and updated_at timestamptz not null, which Sequelize fills itself). Create src/routes/orders.ts with `export const createOrder`: POST /orders with the body { customerId, reference, cents, carrier } (customerId an integer, reference a string of 1 to 40 characters, cents an integer of at least 1, carrier one of dhl, ups or fedex). It must insert a row into shop_orders and a ShippingLabel (model shipping_labels: orderId, carrier) for that order in the same database transaction, so that either both are saved or neither is. Answer 201 with { orderId, label }. Register the routes module in src/app.ts."
+}

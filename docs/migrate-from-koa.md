@@ -160,7 +160,7 @@ A user needs an `id`, and `roles` for role-based routes. For cookie sessions or 
 
 ## 5. Keep your data layer, then adopt models where they fit
 
-Inferlo handlers can call any database code you already have (Knex, Sequelize, TypeORM, Prisma, Drizzle, a `pg` pool): import it and use it in the handler. You do not have to move data access to switch routes.
+Inferlo handlers can call any database code you already have (Knex, Sequelize, TypeORM, Prisma, Drizzle, a `pg` pool): import it and use it in the handler. You do not have to move data access to switch routes. For writes across your existing tables and new Inferlo models in one transaction, see [Drizzle](integrations.md#drizzle-orm), [Kysely](integrations.md#kysely), [Prisma](integrations.md#prisma), [TypeORM](integrations.md#typeorm) and [Sequelize](integrations.md#sequelize).
 
 For new tables, use Inferlo [models](database.md): validated inserts and updates, typed queries, relations, pagination and generated migrations (`inferlo db migrate`). Inferlo models expect a `uuid` `id`, `created_at` and `updated_at` columns and snake_case column names, so existing tables that differ are best left with your current code.
 
