@@ -66,7 +66,15 @@ async function listen(server: express.Express): Promise<{ base: string; close():
   const http = server.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => http.once("listening", () => resolve()));
   const { port } = http.address() as AddressInfo;
-  return { base: `http://127.0.0.1:${port}`, close: () => new Promise<void>((resolve) => http.close(() => resolve())) };
+  return {
+    base: `http://127.0.0.1:${port}`,
+    // Keep-alive connections from fetch would hold close() open until they time out (past Bun's 5 s hook limit).
+    close: () => {
+      const closing = new Promise<void>((resolve) => http.close(() => resolve()));
+      http.closeAllConnections();
+      return closing;
+    },
+  };
 }
 
 async function logIn(base: string, name: string): Promise<string> {
