@@ -10,9 +10,10 @@
  *   const { object } = await ctx.ai.generate({ model: "fast", prompt, output: Triage })
  */
 import { InferloError, didYouMean } from "../errors.ts";
-import { type AnySchema, type Infer, toJSONSchema } from "../schema.ts";
+import type { AnySchema } from "../schema.ts";
 import type { RouteDef } from "../route.ts";
 import { functionToolSpec, isTool, runFunctionTool, type ToolDef } from "./tool.ts";
+import { type InferOutput, invalidOutputSchema, schemaAdapter, type StandardSchema } from "./standard-schema.ts";
 import { createRedactor, secretsOf } from "../redact.ts";
 import { checkTracing, clientTracing, type OtelSpan, type TracingConfig } from "../tracing.ts";
 import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolCall, type ToolSpec } from "./providers.ts";
@@ -68,7 +69,7 @@ export interface AIConfig {
   tracing?: TracingConfig;
 }
 
-export interface GenerateOptions<O extends AnySchema | undefined> {
+export interface GenerateOptions<O extends AnySchema | StandardSchema | undefined> {
   /** Alias ("fast") or "provider:model". */
   model?: string;
   /** Shorthand for a single user message. */
@@ -77,7 +78,11 @@ export interface GenerateOptions<O extends AnySchema | undefined> {
   images?: Image[];
   system?: string;
   messages?: Message[];
-  /** Schema for structured output. The result's `object` is validated and typed. */
+  /**
+   * Schema for structured output. The result's `object` is validated and typed. A t.* schema, or a Standard Schema
+   * with JSON Schema support from another library: z.object() (Zod 4.2+), type() (ArkType 2.1.28+) or Valibot's
+   * toStandardJsonSchema(v.object()).
+   */
   output?: O;
   temperature?: number;
   maxTokens?: number;
@@ -203,7 +208,7 @@ export interface StreamResult {
 }
 
 export interface AI {
-  generate<O extends AnySchema | undefined = undefined>(options: GenerateOptions<O>): Promise<GenerateResult<O extends AnySchema ? Infer<O> : undefined>>;
+  generate<O extends AnySchema | StandardSchema | undefined = undefined>(options: GenerateOptions<O>): Promise<GenerateResult<O extends undefined ? undefined : InferOutput<O>>>;
   stream(options: Omit<GenerateOptions<undefined>, "output" | "tools" | "maxSteps">): StreamResult;
   embed(options: { model?: string; input: string | string[]; for?: string; signal?: AbortSignal }): Promise<{ embeddings: number[][]; usage: Usage }>;
   /** Configured aliases, for describe(). */
@@ -399,6 +404,8 @@ export function createAI(config?: AIConfig): AI {
           fix: "Call ctx.ai.generate({ tools }) from a route handler, so each route runs as the signed-in user with its auth and validation, or make a function tool with tool(name, { description, input }).handle(fn), which works anywhere.",
         });
       }
+      const adapter = options.output === undefined ? undefined : schemaAdapter(options.output);
+      if (typeof adapter === "string") throw invalidOutputSchema(adapter);
       const tools = new Map<string, { route?: RouteDef; fn?: ToolDef; spec: ToolSpec }>();
       for (const entry of options.tools ?? []) {
         const fn = isTool(entry) ? entry : undefined;
@@ -412,8 +419,8 @@ export function createAI(config?: AIConfig): AI {
       const maxSteps = Math.max(1, options.maxSteps ?? 5);
       await guard(options.for, requested);
       const messages = buildMessages(options);
-      const schema = options.output;
-      const jsonSchema = schema ? toJSONSchema(schema) : undefined;
+      const schema = adapter;
+      const jsonSchema = adapter?.jsonSchema;
       if (schema) {
         const instruction =
           "Respond with only a JSON value that matches this JSON Schema. No prose, no code fences.\n" + JSON.stringify(jsonSchema);
@@ -507,7 +514,7 @@ export function createAI(config?: AIConfig): AI {
           let ok = false;
           try {
             parsed = extractJson(response.text);
-            const result = schema.safeParse(parsed);
+            const result = await schema.validate(parsed);
             if (result.ok) {
               parsed = result.value;
               ok = true;

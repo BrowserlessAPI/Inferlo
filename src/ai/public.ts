@@ -15,6 +15,7 @@ export type { AISdkProvider, AISdkLanguageModel, AISdkEmbeddingModel, AISdkOptio
 export { uiChatBody, fromUIMessages } from "./ui.ts";
 export type { UIChatMessage } from "./ui.ts";
 export type { ToolDef, FunctionToolOptions, ToolContext } from "./tool.ts";
+export type { StandardSchema } from "./standard-schema.ts";
 export { openai, openaiCompatible, anthropic, gemini, ollama, mockProvider, ProviderError } from "./providers.ts";
 export type { TracingConfig, OtelApi, OtelSpan } from "../tracing.ts";
 export type { AI, AIConfig, GenerateOptions, GenerateResult, StreamResult, StreamResponseInit, Usage, Pricing, Step, ToolCallResult } from "./index.ts";

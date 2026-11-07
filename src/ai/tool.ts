@@ -9,13 +9,18 @@
  * The model's arguments are validated against input before the function runs.
  */
 import { InferloError } from "../errors.ts";
-import { ObjectSchema, ValidationError, type Infer, type Shape } from "../schema.ts";
+import { ObjectSchema, type Shape } from "../schema.ts";
 import type { ToolSpec } from "./providers.ts";
+import { type InferOutput, isStandardSchema, schemaAdapter, type SchemaAdapter, type StandardSchema, validateOrThrow } from "./standard-schema.ts";
 
-export interface FunctionToolOptions<I extends ObjectSchema<Shape>> {
+export interface FunctionToolOptions<I extends ObjectSchema<Shape> | StandardSchema> {
   /** What the tool does and when to use it. The model reads this to decide when to call it. */
   description: string;
-  /** Schema of the arguments, a t.object({ ... }). The model's arguments are validated against it. */
+  /**
+   * Schema of the arguments: a t.object({ ... }), or an object schema of a Standard Schema library with JSON Schema
+   * support (z.object() from Zod 4.2+, type({ ... }) from ArkType 2.1.28+, Valibot's toStandardJsonSchema(v.object())).
+   * The model's arguments are validated against it.
+   */
   input: I;
 }
 
@@ -31,11 +36,26 @@ export interface ToolDef<Input = any> {
   readonly kind: "inferlo.tool";
   readonly name: string;
   readonly description: string;
-  readonly input: ObjectSchema<Shape>;
+  /** The input schema as given: a t.object() or a Standard Schema. */
+  readonly input: ObjectSchema<Shape> | StandardSchema;
   readonly handler: (ctx: ToolContext<Input>) => unknown;
 }
 
-export class ToolBuilder<I extends ObjectSchema<Shape>> {
+/** The JSON Schema and validator of each tool's input, made once when the tool is defined. */
+const adapters = new WeakMap<object, SchemaAdapter>();
+
+function adapterFor(def: ToolDef): SchemaAdapter {
+  let adapter = adapters.get(def.input);
+  if (!adapter) {
+    const made = schemaAdapter(def.input);
+    if (typeof made === "string") throw invalid(def.name, [`input: ${made}`]);
+    adapter = made;
+    adapters.set(def.input, adapter);
+  }
+  return adapter;
+}
+
+export class ToolBuilder<I extends ObjectSchema<Shape> | StandardSchema> {
   readonly name: string;
   readonly options: FunctionToolOptions<I>;
 
@@ -48,7 +68,7 @@ export class ToolBuilder<I extends ObjectSchema<Shape>> {
    * The tool's work. Return any JSON value (or a string) for the model. Throw httpError(404, "...")
    * to send a failed tool result to the model; any other error rejects ai.generate.
    */
-  handle(handler: (ctx: ToolContext<Infer<I>>) => unknown): ToolDef<Infer<I>> {
+  handle(handler: (ctx: ToolContext<InferOutput<I>>) => unknown): ToolDef<InferOutput<I>> {
     if (typeof handler !== "function") throw invalid(this.name, ["handle() needs a function"]);
     return { kind: "inferlo.tool", name: this.name, description: this.options.description, input: this.options.input, handler: handler as ToolDef["handler"] };
   }
@@ -58,13 +78,18 @@ export class ToolBuilder<I extends ObjectSchema<Shape>> {
 const TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 
 /** Define a tool the model can call: tool("getWeather", { description, input: t.object({ ... }) }).handle(fn). */
-export function tool<I extends ObjectSchema<Shape>>(name: string, options: FunctionToolOptions<I>): ToolBuilder<I> {
+export function tool<I extends ObjectSchema<Shape> | StandardSchema>(name: string, options: FunctionToolOptions<I>): ToolBuilder<I> {
   const problems: string[] = [];
   if (typeof name !== "string" || !TOOL_NAME.test(name)) problems.push("the name must be letters, digits, _ and -, starting with a letter, at most 64 characters");
   if (!options || typeof options !== "object") problems.push("options must be an object with a description and an input schema");
   else {
     if (typeof options.description !== "string" || !options.description.trim()) problems.push("description must say what the tool does");
-    if (!(options.input instanceof ObjectSchema)) problems.push("input must be a t.object({ ... }) schema");
+    if (isStandardSchema(options.input)) {
+      const made = schemaAdapter(options.input);
+      if (typeof made === "string") problems.push(`input: ${made}`);
+      else if (made.jsonSchema.type !== "object") problems.push("input must be an object schema (z.object({ ... }), type({ ... })), because tool arguments are named");
+      else adapters.set(options.input, made);
+    } else if (!(options.input instanceof ObjectSchema)) problems.push("input must be a t.object({ ... }) schema or an object schema of a Standard Schema library (z.object({ ... }))");
   }
   if (problems.length) throw invalid(name, problems);
   return new ToolBuilder(name, options);
@@ -82,7 +107,7 @@ export function isTool(value: unknown): value is ToolDef {
 
 /** What the model is offered for a function tool. Internal. */
 export function functionToolSpec(def: ToolDef): ToolSpec {
-  return { name: def.name, description: def.description, inputSchema: def.input.toJSONSchema() };
+  return { name: def.name, description: def.description, inputSchema: def.input instanceof ObjectSchema ? def.input.toJSONSchema() : adapterFor(def).jsonSchema };
 }
 
 /**
@@ -92,9 +117,8 @@ export function functionToolSpec(def: ToolDef): ToolSpec {
  */
 export async function runFunctionTool(def: ToolDef, input: unknown, signal: AbortSignal | undefined): Promise<{ status: number; output: unknown; text: string }> {
   try {
-    const parsed = def.input.safeParse(input);
-    if (!parsed.ok) throw new ValidationError(parsed.issues, "tool input");
-    const output = await def.handler({ input: parsed.value, ...(signal ? { signal } : {}) });
+    const value = await validateOrThrow(adapterFor(def), input, "tool input");
+    const output = await def.handler({ input: value, ...(signal ? { signal } : {}) });
     if (typeof output === "string") return { status: 200, output, text: output };
     const text = JSON.stringify(output ?? null);
     return { status: 200, output: output ?? null, text };

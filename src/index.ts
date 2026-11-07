@@ -44,6 +44,7 @@ export { tool, isTool, ToolBuilder } from "./ai/tool.ts";
 export { aiSdk } from "./ai/ai-sdk.ts";
 export type { AISdkProvider, AISdkLanguageModel, AISdkEmbeddingModel, AISdkOptions } from "./ai/ai-sdk.ts";
 export type { ToolDef, FunctionToolOptions, ToolContext } from "./ai/tool.ts";
+export type { StandardSchema } from "./ai/standard-schema.ts";
 export type {
   AI,
   AIConfig,

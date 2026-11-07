@@ -215,7 +215,9 @@
     "@types/passport": "^1.0.17",
     "@types/passport-local": "^1.0.38",
     "@types/pg": "^8.15.0",
+    "@valibot/to-json-schema": "^1.8.0",
     "ai": "^7.0.163",
+    "arktype": "^2.2.9",
     "astro": "^7.4.7",
     "autocannon": "^8.0.0",
     "better-auth": "^1.7.18",
@@ -246,6 +248,7 @@
     "sequelize": "^6.37.8",
     "typeorm": "^1.1.2",
     "typescript": "^5.9.3",
+    "valibot": "^1.5.0",
     "zod": "^4.6.7"
   },
   "publishConfig": {

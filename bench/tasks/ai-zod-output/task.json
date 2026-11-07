@@ -1,0 +1,5 @@
+{
+  "title": "AI structured output with a Zod schema",
+  "prompt": "The team describes its data with Zod. Create src/triage.ts that exports `triageSchema`, a Zod schema (from the zod package) for an object with `priority` (one of \"low\", \"normal\" or \"urgent\") and `tags` (an array of at most 5 strings), and `export async function triage(ai: AI, text: string)` (the AI type from @browserlessapi/inferlo/ai) that asks the \"fast\" model alias to triage the support ticket text, using Inferlo's structured output with triageSchema itself (do not write a second schema with t.*), and returns the validated object.",
+  "packages": ["zod"]
+}

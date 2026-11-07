@@ -114,6 +114,11 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] postgres.js as Inferlo's connection pool: `postgres({ pool: postgresJsPool(sql) })` from `@browserlessapi/inferlo/postgres-js` runs Inferlo on the app's postgres.js instance (one pool), with postgres.js queries and Inferlo models in one transaction through `tx.$pgClient()`, `examples/with-postgres-js` and the model, job queue, rate limit and audit tests on both drivers, tested in CI on postgres.js 3 and latest
 - [ ] Drizzle and Prisma part 2b: Prisma Migrate next to `inferlo db migrate` in development (`prisma migrate dev` drift checks and Inferlo's tables, `tables.external` in prisma.config.ts), tested in CI with the Prisma schema engine on the oldest supported and latest Prisma
 - [x] LangChain.js: Inferlo AI aliases as a LangChain chat model and Inferlo tools (routes and `tool()`) as LangChain tools, tested on the oldest supported and latest `@langchain/core`
+- [x] Zod, Valibot and ArkType in the AI module: any Standard Schema with Standard JSON Schema as `ai.generate({ output })` and `tool()` input, so apps reuse their existing schemas, tested on the first releases with Standard JSON Schema and the latest
+- [ ] Pino: `createApp({ logging: { logger: pino() } })` writes Inferlo's request, job and error logs through an app's pino logger (Fastify's and NestJS's default), keeping request ids, trace ids and redaction, tested on the oldest supported and latest pino
+- [ ] Sentry: errors from routes, jobs and AI calls reported to `@sentry/node` (or any Sentry SDK) with the request id, user id and route, secrets redacted, through an `onError` hook that stays free of the Sentry dependency, tested on the oldest supported and latest Sentry SDK
+- [ ] BullMQ: `jobQueue: { store: bullmq(queue) }` runs Inferlo jobs (retries, cron, events, tracing, tenants) on an app's existing BullMQ queues, as a separate entry point, tested on the oldest supported and latest BullMQ and Redis
+- [ ] OpenAI Agents SDK and Mastra: Inferlo AI aliases as their model provider and Inferlo tools (routes and `tool()`) as their tools, so agents built with them get Inferlo's fallback, budgets and usage tracking, tested on the oldest supported and latest versions
 
 ### Core
 

@@ -80,6 +80,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
 | Vercel AI SDK UI (`toResponse({ format: "ai-sdk" })` for `useChat`) | `ai` package 5.0.0 and newer (UI message stream protocol v1) |
 | LangChain.js (`/langchain`: `toLangChainModel`, `toLangChainTools`) | `@langchain/core` 0.3 (newest 0.3.x) and 1.x |
+| Zod, ArkType and Valibot schemas in the AI module (`ai.generate({ output })`, `tool()` input) | zod 4.2 and later, arktype 2.1.28 and later, `@valibot/to-json-schema` 1.5 and later |
 | Vercel AI SDK providers (`aiSdk(provider)`) | `@ai-sdk/*` provider packages for `ai` 5 and newer (language model specifications v2, v3 and v4); tested with `@ai-sdk/openai-compatible` 1.0.0, 2 and the latest |
 | Drizzle ORM (next to Inferlo on one Postgres database, `db.$pgClient()`) | `drizzle-orm` 0.44.0 and newer |
 | Kysely (next to Inferlo on one Postgres database, `db.$pgClient()`) | `kysely` 0.28.0 and newer |

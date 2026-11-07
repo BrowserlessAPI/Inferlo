@@ -539,6 +539,34 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/langchain.test.ts
 
+  standard-schema:
+    name: Standard Schema (${{ matrix.versions.name }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        versions:
+          # Oldest releases with Standard JSON Schema: zod 4.2.0, arktype 2.1.28, @valibot/to-json-schema 1.5.0
+          # (toStandardJsonSchema, with valibot 1.2.0, the oldest it accepts).
+          - { name: oldest, packages: "zod@4.2.0 arktype@2.1.28 valibot@1.2.0 @valibot/to-json-schema@1.5.0" }
+          - { name: latest, packages: "zod@latest arktype@latest valibot@latest @valibot/to-json-schema@latest" }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      # --legacy-peer-deps: prisma pins its own valibot, which does not matter to this test.
+      - run: npm install --no-save --legacy-peer-deps ${{ matrix.versions.packages }}
+      - run: node -p "['zod','arktype','valibot','@valibot/to-json-schema'].map((p) => p + ' ' + require('./node_modules/' + p + '/package.json').version).join(', ')"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/ai-standard-schema.test.ts
+
   drizzle:
     name: Drizzle ORM ${{ matrix.drizzle }} on PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest

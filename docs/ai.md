@@ -136,6 +136,33 @@ object.priority; // "low" | "normal" | "urgent"
 
 Inferlo sends the JSON Schema to the model, extracts the JSON (tolerating code fences), validates it, and if it does not match, asks the model once to fix it, quoting the exact problems. If it still fails you get IL5002. Model fields can be reused directly: `priority: Ticket.fields.priority`.
 
+### Zod, Valibot and ArkType schemas
+
+Apps that already describe their data with Zod, Valibot or ArkType (often when `@browserlessapi/inferlo/ai` runs inside Express, NestJS, Fastify or Next.js) can pass those schemas as `output`, and as a [tool's](#tools-let-the-model-call-your-functions) `input`. Any [Standard Schema](https://standardschema.dev) that also implements Standard JSON Schema works:
+
+```ts
+import { createAI } from "@browserlessapi/inferlo/ai";
+import { z } from "zod";
+
+const Triage = z.object({
+  priority: z.enum(["low", "normal", "urgent"]),
+  summary: z.string().max(300).describe("One sentence for the agent"),
+});
+
+const { object } = await ai.generate({ model: "fast", prompt: ticket.body, output: Triage });
+object.priority; // "low" | "normal" | "urgent", typed by Zod
+```
+
+| Library | Pass | Needs |
+|---|---|---|
+| Zod | `z.object({ ... })` | zod 4.2 or later |
+| ArkType | `type({ ... })` | arktype 2.1.28 or later |
+| Valibot | `toStandardJsonSchema(v.object({ ... }))` from `@valibot/to-json-schema` | `@valibot/to-json-schema` 1.5 or later (a plain Valibot schema has no JSON Schema) |
+
+- The model is shown the library's own JSON Schema (`"~standard".jsonSchema.input`), and its answer is validated by the library, so transforms and defaults apply and `object` has the library's output type. Mismatches are sent back to the model with the library's messages, as with `t.*` schemas.
+- The schema must be expressible as JSON Schema: no `z.date()`, functions or input-side transforms. A schema that is not one, or that has no JSON Schema, raises IL5032 before any model is called.
+- Inside an Inferlo app, keep using `t.*` schemas for routes, models and jobs; Standard Schema support is for the AI module only, so existing schemas can be reused there.
+
 ## Tools: let the model call your functions
 
 Make a tool from a plain function with `tool(name, { description, input }).handle(fn)` and pass it in `tools`. Function tools work everywhere: with `createAI` from `@browserlessapi/inferlo/ai` in any framework, and with `ctx.ai` in a route handler, next to route tools.
@@ -155,7 +182,7 @@ export const getWeather = tool("getWeather", {
 const { text, steps } = await ai.generate({ model: "fast", prompt: "Do I need an umbrella in Oslo?", tools: [getWeather] });
 ```
 
-- **Input is validated.** The model's arguments are checked against `input` (defaults applied) before your function runs. Invalid arguments go back to the model as a failed tool result with status 422 and IL1001, so it can correct itself.
+- **Input is validated.** The model's arguments are checked against `input` (defaults applied) before your function runs. `input` is a `t.object({ ... })`, or an object schema from Zod, ArkType or Valibot (see [Zod, Valibot and ArkType schemas](#zod-valibot-and-arktype-schemas)): `tool("fileTicket", { description, input: z.object({ title: z.string() }) })`. Invalid arguments go back to the model as a failed tool result with status 422 and IL1001, so it can correct itself.
 - **Output** is any JSON value, sent to the model as JSON, or a string, sent as it is. `steps[i].toolCalls` has the `output` with status 200.
 - **Errors.** Throw `httpError(404, "...")` (or `notFound`, `forbidden`, any `InferloError` with a status below 500) to send a failed tool result to the model. Any other error is not hidden: `ai.generate` rejects with it, after reporting the usage so far.
 - **Names** are letters, digits, `_` and `-` (the provider limit), and must be unique in one call. Invalid definitions raise IL5013.
