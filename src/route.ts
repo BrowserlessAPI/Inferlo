@@ -64,7 +64,7 @@ export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectS
    * resource, call access.authorize(name, { user, ticket }) in the handler instead. Typed from Register's permissions.
    */
   permission?: AppPermission;
-  /** Request body schema (JSON or form). */
+  /** Request body schema: JSON, a URL-encoded form, or multipart/form-data when it has t.file() fields. */
   body?: B;
   /** Query string schema. Strings are converted to numbers and booleans automatically. */
   query?: Q;

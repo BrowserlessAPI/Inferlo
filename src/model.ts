@@ -14,7 +14,7 @@
  *   export const Ticket = model("tickets", { title: t.string() }, { tenant: true })
  */
 import { InferloError } from "./errors.ts";
-import { ObjectSchema, Schema, t, type Def, type Shape, type ShapeInput, type ShapeOutput, type PartialShape } from "./schema.ts";
+import { ObjectSchema, Schema, containsFile, t, type Def, type Shape, type ShapeInput, type ShapeOutput, type PartialShape } from "./schema.ts";
 
 const TABLE_NAME = /^[a-z][a-z0-9_]{0,62}$/;
 const FIELD_NAME = /^[a-zA-Z][a-zA-Z0-9]{0,62}$/;
@@ -90,6 +90,11 @@ export class Model<N extends string = string, S extends Shape = Shape, T extends
       if (RESERVED.has(key)) {
         throw new InferloError("IL4006", `Model "${name}" defines "${key}", which Inferlo adds automatically.`, {
           fix: `Remove "${key}" from the model. Every model already has id, createdAt and updatedAt.`,
+        });
+      }
+      if (containsFile(fields[key]!)) {
+        throw new InferloError("IL1004", `Field "${name}.${key}" uses t.file(), which only works in route bodies.`, {
+          fix: "Accept the upload in a route body (body: t.object({ file: t.file() })), store the file elsewhere, and keep its key or URL in a t.string() field of the model.",
         });
       }
       if (!FIELD_NAME.test(key)) {

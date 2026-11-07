@@ -7,7 +7,7 @@ import type { App } from "./app.ts";
 import type { ModuleInfo } from "./module.ts";
 import { toolName } from "./mcp.ts";
 import { columnName } from "./model.ts";
-import type { AnySchema, JSONSchema } from "./schema.ts";
+import { containsFile, type AnySchema, type JSONSchema } from "./schema.ts";
 
 export interface FieldDescription {
   type: string;
@@ -71,6 +71,8 @@ export interface AppDescription {
     params?: JSONSchema;
     query?: JSONSchema;
     body?: JSONSchema;
+    /** "multipart/form-data" when the body has t.file() fields; otherwise the body is JSON (or a URL-encoded form). */
+    bodyType?: "multipart/form-data";
   }[];
   ai: { configured: boolean; aliases: Record<string, string[]> };
   jobs: { name: string; module?: string; summary?: string; retries: number; input: JSONSchema }[];
@@ -162,6 +164,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       if (o.params) out.params = o.params.toJSONSchema();
       if (o.query) out.query = o.query.toJSONSchema();
       if (o.body) out.body = o.body.toJSONSchema();
+      if (o.body && containsFile(o.body)) out.bodyType = "multipart/form-data";
       return out;
     }),
     ai: { configured: app.ai.configured, aliases: app.ai.aliases },

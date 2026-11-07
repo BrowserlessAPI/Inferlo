@@ -23,6 +23,7 @@ export type Kind =
   | "json"
   | "array"
   | "object"
+  | "file"
   | "any";
 
 export interface Def {
@@ -35,6 +36,8 @@ export interface Def {
   max?: number;
   pattern?: RegExp;
   values?: readonly (string | number | boolean)[];
+  /** t.file(): accepted media types ("image/png", "image/*"); empty means any type. */
+  fileTypes?: readonly string[];
   item?: AnySchema;
   shape?: Shape;
   unknownKeys?: "strict" | "strip";
@@ -292,7 +295,66 @@ export const t = {
   ref: <const Table extends string>(table: Table, options: { onDelete?: "restrict" | "cascade" | "set null" } = {}) =>
     new RefSchema<Table>(base("ref", { refTable: table, onDelete: options.onDelete ?? "restrict" })),
   any: () => new Schema<unknown>(base("any", { optional: true })),
+  /**
+   * An uploaded file in a multipart/form-data body: body: t.object({ avatar: t.file({ maxBytes: 2_000_000, types: ["image/png", "image/jpeg"] }) }).
+   * The handler gets a web File. maxBytes defaults to 10 MiB; types defaults to any type. Only in route bodies.
+   */
+  file: (options: FileOptions = {}) => new Schema<File>(fileDef(options)),
 };
+
+/** Options of t.file(). */
+export interface FileOptions {
+  /** Largest accepted file in bytes. Default 10 MiB (10485760). */
+  maxBytes?: number;
+  /** Accepted media types, exact ("image/png") or by family ("image/*"). Default: any type. */
+  types?: readonly string[];
+}
+
+/** Default t.file() limit: 10 MiB. */
+export const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
+const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/([a-z0-9][a-z0-9!#$&^_.+-]*|\*)$/;
+
+function fileDef(options: FileOptions): Def {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw new InferloError("IL1004", "t.file() takes an options object.", { fix: 't.file({ maxBytes: 2_000_000, types: ["image/png", "image/jpeg"] }), or t.file() for any file up to 10 MiB.' });
+  }
+  for (const key of Object.keys(options)) {
+    if (key !== "maxBytes" && key !== "types") {
+      throw new InferloError("IL1004", `Unknown t.file() option "${key}".${didYouMean(key, ["maxBytes", "types"])}`, { fix: "t.file() takes maxBytes and types." });
+    }
+  }
+  const maxBytes = options.maxBytes ?? DEFAULT_FILE_MAX_BYTES;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+    throw new InferloError("IL1004", `t.file({ maxBytes }) must be a whole number of bytes above 0, got ${String(options.maxBytes)}.`, { fix: "Use t.file({ maxBytes: 5 * 1024 * 1024 }) for 5 MiB." });
+  }
+  const types = options.types ?? [];
+  if (!Array.isArray(types) || types.some((type) => typeof type !== "string" || !MEDIA_TYPE.test(type.toLowerCase()))) {
+    throw new InferloError("IL1004", `t.file({ types }) must be a list of media types such as "image/png" or "image/*", got ${JSON.stringify(options.types)}.`, { fix: 'Use t.file({ types: ["image/png", "image/jpeg"] }), or leave types out to accept any type.' });
+  }
+  return base("file", { max: maxBytes, fileTypes: types.map((type) => type.toLowerCase()) });
+}
+
+/** Whether a media type ("image/png; x=1") is one of the accepted types (exact or "image/*"). */
+export function fileTypeAccepted(type: string, accepted: readonly string[]): boolean {
+  if (!accepted.length) return true;
+  const actual = type.split(";")[0]!.trim().toLowerCase();
+  return accepted.some((a) => (a.endsWith("/*") ? actual.startsWith(a.slice(0, -1)) : actual === a));
+}
+
+/** Whether a schema has a t.file() anywhere in it. */
+export function containsFile(schema: AnySchema): boolean {
+  // Not a schema at all (a mistake reported by the caller's own checks): no files.
+  const def = (schema as AnySchema | undefined)?.def as Def | undefined;
+  if (!def || typeof def !== "object") return false;
+  if (def.kind === "file") return true;
+  if (def.kind === "array") return def.item !== undefined && containsFile(def.item);
+  if (def.kind === "object") return Object.values(def.shape ?? {}).some(containsFile);
+  return false;
+}
+
+function isFile(value: unknown): value is File {
+  return typeof Blob !== "undefined" && value instanceof Blob;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Validation
@@ -345,6 +407,15 @@ function check(schema: AnySchema, raw: unknown, path: (string | number)[], issue
     case "any":
     case "json":
       return value;
+
+    case "file": {
+      if (!isFile(value)) return fail("invalid_type", `Expected a file, got ${describeType(value)}. Send the body as multipart/form-data.`);
+      if (def.max !== undefined && value.size > def.max) return fail("file_too_large", `File is ${value.size} bytes, at most ${def.max} bytes are accepted.`);
+      if (def.min !== undefined && value.size < def.min) return fail("file_too_small", `File must be at least ${def.min} bytes.`);
+      const types = def.fileTypes ?? [];
+      if (!fileTypeAccepted(value.type, types)) return fail("file_type", `File type ${JSON.stringify(value.type || "unknown")} is not accepted. Expected ${types.join(", ")}.`);
+      return value;
+    }
 
     case "string":
     case "text":
@@ -506,6 +577,12 @@ export function toJSONSchema(schema: AnySchema): JSONSchema {
       if (required.length) out.required = required;
       break;
     }
+    case "file":
+      // OpenAPI 3.1 file in a multipart body; the accepted types go in the request body's encoding.
+      out = { type: "string", format: "binary" };
+      if (def.fileTypes?.length === 1) out.contentMediaType = def.fileTypes[0];
+      out["x-inferlo-max-bytes"] = def.max;
+      break;
     case "json":
     case "any":
       out = {};

@@ -23,7 +23,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | Option | Purpose |
 |---|---|
 | `auth` | `"user"` (default, signed in), `"public"`, or a role name such as `"admin"` |
-| `body` | Request body schema (JSON or form-encoded) |
+| `body` | Request body schema (JSON, form-encoded, or multipart/form-data with `t.file()` fields; see [File uploads](#file-uploads)) |
 | `query` | Query string schema. Values are converted to numbers and booleans; unknown keys ignored |
 | `params` | Path parameter schema. Without it, params are strings |
 | `response` | Response schema for OpenAPI |
@@ -37,6 +37,36 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
 
 For WebSockets, `route.ws(path, { message, auth, rateLimit }).handle(fn)` runs the handler once per message, with the same auth, permissions and rate limits; see [WebSockets](websockets.md).
+
+## File uploads
+
+A `t.file()` field in the body makes the route take `multipart/form-data`, and the handler gets a web `File`:
+
+```ts
+export const uploadAvatar = route
+  .post("/me/avatar", {
+    body: t.object({
+      avatar: t.file({ maxBytes: 2 * 1024 * 1024, types: ["image/png", "image/jpeg"] }),
+      caption: t.string().max(200).optional(),
+    }),
+  })
+  .handle(async ({ body, user }) => {
+    const bytes = new Uint8Array(await body.avatar.arrayBuffer());
+    // Store the bytes (object storage, a CDN), then keep the key in a t.string() field of a model.
+    return { name: body.avatar.name, size: body.avatar.size, type: body.avatar.type, by: user.id };
+  });
+
+export const attach = route
+  .post("/tickets/:id/attachments", { params: IdParams, body: t.object({ files: t.array(t.file({ maxBytes: 5_000_000 })).max(10) }) })
+  .handle(({ body }) => ({ count: body.files.length }));
+```
+
+- `t.file({ maxBytes, types })`: `maxBytes` defaults to 10 MiB; `types` lists accepted media types, exact (`"image/png"`) or by family (`"image/*"`), and defaults to any type. Several files: `t.array(t.file()).max(n)` (the `.max(n)` is required).
+- Limits are checked before the handler runs. The body is read as it streams in and cut off with **413 IL2004** once it passes `maxBodySize` (the text fields) plus every file field's `maxBytes` (times `.max(n)` for lists), so a huge upload is never read into memory. Then each file is checked: too large (`file_too_large`), a type not in `types` (`file_type`), or, for PNG, JPEG, GIF, WebP, PDF and ZIP, content that does not match the declared type (`file_content`: a script sent as `image/png` is refused). These answer **422 IL1001** with the field's path in `details`.
+- The other fields of the form are strings, converted to numbers, booleans and dates like query strings. A field sent several times becomes a list; a file input left empty in an HTML form counts as left out, so `.optional()` works.
+- Files arrive in memory as `File` objects (up to the limits above); store them in the handler or a job. Files can only be top-level fields of a route body: not in models (store the file elsewhere and keep its key in a `t.string()`), query strings or responses, and a route with files cannot be an MCP or AI tool. These raise IL1004 when the app starts. A body that is not valid multipart answers 400 IL2015.
+- Clients send a `FormData` without setting `Content-Type` themselves (fetch adds the boundary): `fetch("/me/avatar", { method: "POST", body: formData })`. In tests: `app.request("/me/avatar", { method: "POST", body: formData, as: user })`. HTML forms need `enctype="multipart/form-data"`; with [cookie sessions](auth.md#cookie-sessions), put the hidden `_csrf` field before the file inputs.
+- OpenAPI describes the body as `multipart/form-data` with `format: binary` file fields and their accepted types in `encoding`, and `inferlo describe` shows `bodyType: "multipart/form-data"`.
 
 ## Rate limiting
 

@@ -36,6 +36,7 @@ type Signup = Infer<typeof Signup>;
 | `t.object({...})` | object | `jsonb` |
 | `t.json<T>()` | `T` | `jsonb` |
 | `t.any()` | `unknown` | `jsonb` |
+| `t.file({ maxBytes, types })` | `File` (route bodies only, sent as multipart/form-data; see [File uploads](routes.md#file-uploads)) | not stored |
 
 ## Modifiers
 

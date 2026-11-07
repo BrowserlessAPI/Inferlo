@@ -1,0 +1,4 @@
+{
+  "title": "Accept an image upload",
+  "prompt": "Add avatar uploads. Create src/routes/avatars.ts with `export const uploadAvatar`: POST /me/avatar for signed-in users that takes a multipart/form-data body with one file field `image` (a PNG or JPEG of at most 1000000 bytes) and an optional text field `alt` (at most 120 characters). It answers { name, size, type, alt } with the uploaded file's name, size in bytes and media type, and alt or null. Invalid files must be refused before the handler runs. Register the routes module in src/app.ts."
+}

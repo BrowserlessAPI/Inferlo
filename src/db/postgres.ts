@@ -60,6 +60,9 @@ export function columnType(schema: AnySchema): string {
     case "object":
     case "any":
       return "jsonb";
+    case "file":
+      // model() rejects t.file() fields, so this is only reached by a hand-built schema.
+      throw new InferloError("IL1004", "t.file() fields cannot be stored in a database column.", { fix: "Store the file elsewhere and keep its key or URL in a t.string() field." });
   }
 }
 

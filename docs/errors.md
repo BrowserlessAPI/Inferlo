@@ -19,10 +19,13 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ## Validation (1xxx)
 
 ### IL1001
-**Invalid input (422).** A body, query string, path parameter, insert or update did not match its schema. `details` lists each problem with its `path` and an issue `code`: `required`, `invalid_type`, `too_short`, `too_long`, `too_small`, `too_big`, `invalid_enum`, `invalid_email`, `invalid_url`, `invalid_uuid`, `invalid_date`, `invalid_format`, `unknown_key`, `read_only`. `unknown_key` and `invalid_enum` include a "Did you mean" hint.
+**Invalid input (422).** A body, query string, path parameter, insert or update did not match its schema. `details` lists each problem with its `path` and an issue `code`: `required`, `invalid_type`, `too_short`, `too_long`, `too_small`, `too_big`, `invalid_enum`, `invalid_email`, `invalid_url`, `invalid_uuid`, `invalid_date`, `invalid_format`, `unknown_key`, `read_only`, and for uploaded files `file_too_large`, `file_too_small`, `file_type` and `file_content` (the file's bytes do not match its declared type). `unknown_key` and `invalid_enum` include a "Did you mean" hint.
 
 ### IL1003
 **pick() named a field that does not exist.** Check the spelling against the model.
+
+### IL1004
+**Invalid file field.** `t.file({ maxBytes, types })` takes a whole number of bytes above 0 and a list of media types such as `"image/png"` or `"image/*"`. Files can only be top-level fields of a route body (`body: t.object({ avatar: t.file() })`), a list of files needs a limit (`t.array(t.file()).max(10)`), and a route with files cannot be an MCP or AI tool, because tools send JSON. Models cannot store files: store the file elsewhere and keep its key or URL in a `t.string()` field. See [File uploads](routes.md#file-uploads).
 
 ## Routing (2xxx)
 
@@ -69,6 +72,8 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2014
 **Invalid room or broadcast.** A room name in `socket.join(room)`, `socket.leave(room)` or `sockets.broadcast(room, data)` must be a string of 1 to 200 characters, and `broadcast` needs data that can be sent as JSON (not `undefined`). Name rooms after what they are about, with its id: `` socket.join(`project:${params.id}`) ``. See [Rooms and broadcast](websockets.md#rooms-and-broadcast).
 
+### IL2015
+**Request body is not valid multipart/form-data (400).** The route takes files, the request said `Content-Type: multipart/form-data`, but the body could not be read as a form (a missing or wrong boundary, or a cut-off body). Send a `FormData` body without setting `Content-Type` yourself (fetch adds the boundary), or an HTML form with `enctype="multipart/form-data"`. See [File uploads](routes.md#file-uploads).
 ## Auth (3xxx)
 
 ### IL3001

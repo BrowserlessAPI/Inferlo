@@ -187,10 +187,16 @@ function readCookie(header: string | null, name: string): string | undefined {
   return undefined;
 }
 
-/** A field of a URL-encoded form body, read from a copy of the request (at most 64 KiB) so the route can still read it. */
+/**
+ * A field of a URL-encoded form body (at most 64 KiB), or of the first 64 KiB of a multipart/form-data body (so a
+ * _csrf field before the file inputs is found without reading the files), read from a copy of the request so the
+ * route can still read it.
+ */
 async function formField(req: Request, field: string): Promise<string | null> {
-  if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/x-www-form-urlencoded")) return null;
-  if (Number(req.headers.get("content-length") ?? "0") > MAX_FORM_BYTES) return null;
+  const type = (req.headers.get("content-type") ?? "").toLowerCase();
+  const multipart = type.startsWith("multipart/form-data");
+  if (!type.includes("application/x-www-form-urlencoded") && !multipart) return null;
+  if (!multipart && Number(req.headers.get("content-length") ?? "0") > MAX_FORM_BYTES) return null;
   // Cloned before req.body is touched: on Bun 1.3, a body stream read before clone() comes back empty.
   const body = req.clone().body;
   if (!body) return null;
@@ -207,14 +213,36 @@ async function formField(req: Request, field: string): Promise<string | null> {
   } finally {
     void reader.cancel().catch(() => {});
   }
-  if (size > MAX_FORM_BYTES) return null;
+  if (size > MAX_FORM_BYTES && !multipart) return null;
   const bytes = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  if (multipart) return multipartField(bytes.subarray(0, MAX_FORM_BYTES), req.headers.get("content-type") ?? "", field);
   return new URLSearchParams(new TextDecoder().decode(bytes)).get(field);
+}
+
+/** A text field among the complete parts at the start of a multipart/form-data body. */
+function multipartField(bytes: Uint8Array, contentType: string, field: string): string | null {
+  const boundary = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType);
+  if (!boundary) return null;
+  const delimiter = `--${boundary[1] ?? boundary[2]}`;
+  // latin1 keeps one character per byte, so the text can be split like the bytes.
+  const text = new TextDecoder("latin1").decode(bytes);
+  const parts = text.split(delimiter);
+  // The last piece is the end marker or a part cut off at 64 KiB; neither is a complete field.
+  for (const part of parts.slice(1, -1)) {
+    const split = part.indexOf("\r\n\r\n");
+    if (split < 0) continue;
+    const headers = part.slice(0, split);
+    const name = /content-disposition:[^\r\n]*;\s*name="([^"]*)"/i.exec(headers)?.[1];
+    if (name !== field || /filename=/i.test(headers)) continue;
+    const value = part.slice(split + 4).replace(/\r\n$/, "");
+    return new TextDecoder().decode(Uint8Array.from(value, (c) => c.charCodeAt(0)));
+  }
+  return null;
 }
 
 function base64url(bytes: Uint8Array): string {

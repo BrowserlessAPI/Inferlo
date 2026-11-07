@@ -46,7 +46,7 @@ Inferlo must be a production-grade, general-purpose framework at the level of Ne
 - [x] Microservices part 3b: events between services: a transport interface (`createApp({ events: { transport } })`) and a Redis Streams transport (at-least-once delivery, one consumer group per service, delivered to the same `on(event, job)` subscriptions, tested on the oldest supported and latest Redis)
 - [ ] Microservices part 4: NATS, RabbitMQ and Kafka event transports as separate entry points (peer dependencies), each tested on its oldest supported and latest versions
 - [ ] GraphQL support generated from models and routes (optional module)
-- [ ] File uploads part 1: `t.file({ maxBytes, types })` in multipart bodies (`body: t.object({ avatar: t.file(...) })`), streamed with size and type limits checked before the handler runs, documented in OpenAPI
+- [x] File uploads part 1: `t.file({ maxBytes, types })` in multipart bodies (`body: t.object({ avatar: t.file(...) })`), streamed with size and type limits checked before the handler runs, documented in OpenAPI
 - [ ] File uploads part 2: a storage interface (`createApp({ storage })`) with local disk and S3-compatible stores (signed download URLs, no AWS SDK dependency), tested against MinIO on its oldest supported and latest versions
 - [x] Multi-tenancy part 1: `tenant` scoping for models (`model("tickets", { ... }, { tenant: true })`) so every query, insert and update in `ctx.db` is filtered by and stamped with the current tenant from the auth result, with no way to forget the filter
 - [x] Multi-tenancy part 2a: jobs (the tenant travels with the job, also through events and between services) and `inferlo describe` showing which models are tenant-scoped

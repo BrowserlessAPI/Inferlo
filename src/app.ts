@@ -22,6 +22,7 @@ import { checkRateLimit, databaseRateLimitStore, memoryRateLimitStore, rateLimit
 import { clientIp, clientIps, clientSignals, keepEventStreamOpen, platformWaitUntil } from "./client-ip.ts";
 import { redisJobStore } from "./redis-jobs.ts";
 import { knownBodies } from "./response-body.ts";
+import { checkFileContents, checkFileFields, fileBudget, isMultipart, readMultipart } from "./files.ts";
 import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFor, stopWorkers, withTenant, type AppJobs, type Jobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
 import { checkEventsConfig, invalidTransport, type AppEvents, type Events, type EventsConfig, type EventTransport } from "./events.ts";
 import { redisEventTransport } from "./redis-events.ts";
@@ -320,9 +321,13 @@ function corsHeaders(config: CorsConfig, origin: string | null): Record<string, 
 }
 
 async function readBody(req: Request, limit: number, signal?: AbortSignal): Promise<string> {
+  return new TextDecoder().decode(await readBytes(req, limit, signal));
+}
+
+async function readBytes(req: Request, limit: number, signal?: AbortSignal): Promise<Uint8Array> {
   const length = Number(req.headers.get("content-length") ?? "0");
   if (length > limit) throw new InferloError("IL2004", `Request body is larger than ${limit} bytes.`, { status: 413 });
-  if (!req.body) return "";
+  if (!req.body) return new Uint8Array(0);
   const reader = req.body.getReader();
   // Stop reading a slow body once the request timed out.
   signal?.addEventListener("abort", () => void reader.cancel().catch(() => {}), { once: true });
@@ -344,7 +349,7 @@ async function readBody(req: Request, limit: number, signal?: AbortSignal): Prom
     all.set(c, offset);
     offset += c.byteLength;
   }
-  return new TextDecoder().decode(all);
+  return all;
 }
 
 function queryObject(url: URL): Record<string, string | string[]> {
@@ -431,6 +436,13 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       throw new InferloError("IL6006", `Two routes are exported as "${r.name}".`, { fix: "Give each route export a unique name; it is used for MCP tools and describe." });
     }
     names.set(r.name, r);
+  }
+  // Routes with t.file() fields take multipart/form-data bodies up to maxBodySize plus their files' maxBytes.
+  const fileBudgets = new Map<RouteDef, number>();
+  for (const r of routes) {
+    checkFileFields(r);
+    const budget = fileBudget(r.options.body);
+    if (budget > 0) fileBudgets.set(r, budget);
   }
   const needsAuth = routes.filter((r) => (r.options.auth ?? "user") !== "public");
   if (needsAuth.length && !config.auth) {
@@ -617,6 +629,11 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     if (!found) {
       throw new InferloError("IL5011", `Tool ${route?.method} ${route?.path} is not a route of this app.`, {
         fix: "Pass routes that are registered in createApp({ routes }) to ai.generate({ tools }).",
+      });
+    }
+    if (fileBudgets.has(found)) {
+      throw new InferloError("IL1004", `Route ${found.method} ${found.path} takes files, so it cannot be an AI tool (tools send JSON).`, {
+        fix: "Pass routes without t.file() fields to ai.generate({ tools }).",
       });
     }
     return toolDefinition(found);
@@ -992,9 +1009,19 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         // WebSocket routes answer the upgrade here; their handler then runs once per message.
         if (def.websocket) return await acceptSocket(def, req, url, headers, rest, { user, params, query, requestId, ip });
         let body: unknown;
-        if (opts.body) {
+        const contentType = req.headers.get("content-type") ?? "";
+        const filesLimit = fileBudgets.get(def);
+        if (opts.body && filesLimit !== undefined && isMultipart(contentType) && method !== "GET" && method !== "HEAD") {
+          // File uploads: read with the route's limit (maxBodySize plus its files' maxBytes), then check sizes,
+          // types and file contents before the handler runs.
+          const bytes = await readBytes(req, maxBody + filesLimit, timeout.signal);
+          body = parseOrThrow(opts.body, await readMultipart(bytes, contentType, opts.body), "request body", true);
+          const issues = await checkFileContents(opts.body, body as Record<string, unknown>);
+          if (issues.length) throw new ValidationError(issues, "request body");
+        }
+        else if (opts.body) {
           const text = method === "GET" || method === "HEAD" ? "" : await readBody(req, maxBody, timeout.signal);
-          const type = req.headers.get("content-type") ?? "";
+          const type = contentType;
           let raw: unknown = undefined;
           if (text) {
             if (type.includes("application/x-www-form-urlencoded")) {

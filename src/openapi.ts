@@ -3,7 +3,7 @@ import { describeDeprecation, resolveDeprecation } from "./deprecation.ts";
 import type { App } from "./app.ts";
 import type { ModuleInfo } from "./module.ts";
 import { toolName } from "./mcp.ts";
-import type { JSONSchema } from "./schema.ts";
+import { containsFile, type AnySchema, type JSONSchema } from "./schema.ts";
 
 const errorSchema: JSONSchema = {
   type: "object",
@@ -22,6 +22,18 @@ const errorSchema: JSONSchema = {
   },
   required: ["error"],
 };
+
+// A body with t.file() fields is multipart/form-data, with each file field's accepted types in its encoding.
+function requestBody(body: AnySchema): Record<string, unknown> {
+  const schema = body.toJSONSchema();
+  if (!containsFile(body)) return { required: !body.def.optional, content: { "application/json": { schema } } };
+  const encoding: Record<string, { contentType: string }> = {};
+  for (const [name, field] of Object.entries(body.def.shape ?? {})) {
+    const types = field.def.kind === "file" ? field.def.fileTypes : field.def.kind === "array" ? field.def.item!.def.fileTypes : undefined;
+    if (types?.length) encoding[name] = { contentType: types.join(", ") };
+  }
+  return { required: !body.def.optional, content: { "multipart/form-data": Object.keys(encoding).length ? { schema, encoding } : { schema } } };
+}
 
 export function buildOpenAPI(app: App<any>, options: { description?: string; auth: boolean; modules?: ModuleInfo; version?: string }): Record<string, unknown> {
   const paths: Record<string, Record<string, unknown>> = {};
@@ -51,7 +63,7 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
       // Routes of a feature module are tagged with its name unless they set their own tags.
       tags: o.tags ?? (options.modules?.routeModule.has(route) ? [options.modules.routeModule.get(route)!] : undefined),
       parameters: parameters.length ? parameters : undefined,
-      requestBody: o.body ? { required: !o.body.def.optional, content: { "application/json": { schema: o.body.toJSONSchema() } } } : undefined,
+      requestBody: o.body ? requestBody(o.body) : undefined,
       responses: {
         "200": { description: "Success", content: o.response ? { "application/json": { schema: o.response.toJSONSchema() } } : undefined },
         ...(o.body || o.query || o.params ? { "422": { description: "Validation failed (IL1001)", content: { "application/json": { schema: errorSchema } } } } : {}),
