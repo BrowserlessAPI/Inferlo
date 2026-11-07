@@ -1218,6 +1218,40 @@ createApp({
 });
 ```
 
+## Single sign-on with OpenID Connect
+
+Browser apps whose users sign in with their company's identity provider (Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, Ping, OneLogin, JumpCloud, Authentik, Zitadel or any other OpenID Connect provider) use `oidc()`. It runs the authorization code flow with PKCE, state and nonce, checks the ID token with Web Crypto, and ends in a [cookie session](#cookie-sessions). No runtime dependency:
+
+```ts
+// src/sso.ts
+import { oidc } from "@browserlessapi/inferlo";
+import { settings } from "./config.ts"; // OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET (listed in secrets)
+import { session } from "./session.ts";  // sessions({ secret, user }), as above
+
+export const sso = oidc({
+  issuer: settings.OIDC_ISSUER,            // "https://acme.okta.com", exactly as the provider's OpenID configuration names it
+  clientId: settings.OIDC_CLIENT_ID,
+  clientSecret: settings.OIDC_CLIENT_SECRET,
+  session,
+  // Which of the app's users signs in: find (or create) the user, or return null to refuse.
+  async userId(claims, { db }) {
+    if (!claims.email_verified || !claims.email) return null;
+    return (await db.users.findOne({ email: claims.email }))?.id ?? null;
+  },
+});
+
+// src/app.ts
+createApp({ auth: session, routes: [notes, sso], ... });
+```
+
+- **Routes.** `routes: [sso]` adds `GET /auth/login` and `GET /auth/callback` (public routes, listed in OpenAPI and `inferlo describe`). Link to `/auth/login?returnTo=/path` (or `sso.loginPath`); after the sign-in the browser goes to `returnTo`, which must be a path on the app (anything else becomes `/`, so the link cannot send users to another site). Register `<your app's URL>/auth/callback` as the redirect URI at the provider; when the app runs behind a proxy that changes the URL it sees, set `redirectUri` to that URL. `basePath: "/sso/okta"` moves both routes, to sign in with more than one provider.
+- **What is checked.** The login route keeps a random state, nonce and PKCE verifier in a short-lived cookie (`HttpOnly`, `SameSite=Lax`, 10 minutes, a `__Host-` cookie on https). The callback accepts only the state that browser started, refuses an `iss` parameter naming another provider (RFC 9207) and an `error` from the provider, exchanges the code with the verifier and the client secret (`client_secret_basic`, or `client_secret_post` when the provider only takes that; public clients leave out `clientSecret`), then checks the ID token: its signature against the provider's keys (RS, PS, ES and EdDSA algorithms, keys found and cached as for [`jwt()`](#access-tokens-from-an-identity-provider-jwt)), `iss`, `aud` (the client id, and `azp` when there are several audiences), `exp`, `iat` and the nonce. The pending sign-in is used once. A failed check answers 400 IL3009 and signs nobody in.
+- **The user.** `userId(claims, { db, req, tokens })` gets the ID token's claims (`sub`, `email`, `email_verified`, `name` and whatever the provider adds, such as `groups` or Entra ID's `tid`) and the provider's tokens (`tokens.accessToken` for its APIs; Inferlo does not store them). Return the id of the app's user to start the session, or `null` to refuse (403 IL3011). Trust `claims.email` only when `claims.email_verified` is true, or match users on `claims.sub` (store it on the user the first time).
+- `scopes` (default `["openid", "email", "profile"]`) asks for more claims, such as `["email", "groups"]`; `openid` is always sent.
+- The provider's OpenID configuration is loaded on the first sign-in and kept for 10 minutes; its endpoints must be https (plain http only on localhost). When the provider cannot be reached, or refuses the client id or secret, the sign-in answers 502 IL3010 with the cause in the log. Invalid options raise IL6047 at startup.
+- Sign out with `session.signOut(ctx)` as for password sign-in; this ends the app's session, not the user's session at the provider.
+- Tested against a local stand-in provider and against [oidc-provider](https://github.com/panva/node-oidc-provider) (a certified OpenID Connect server), 9.0.0 and the latest, in `test/oidc.test.ts` and `test/oidc-provider.test.ts`.
+
 ## Access tokens from an identity provider (JWT)
 
 APIs whose users sign in with an identity provider (Auth0, Okta, Microsoft Entra ID, Google, Keycloak, Clerk, WorkOS, Amazon Cognito, Supabase) receive the provider's access tokens as `Authorization: Bearer <token>`. `jwt()` checks them, with Web Crypto and no runtime dependency:
@@ -4880,6 +4914,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Errors do not leak.** Unexpected errors answer `500` with IL9000 and `"Internal server error"`; the real error is logged. Readiness checks show `"Check failed."`.
 - **Secrets stay out of logs.** Authorization and cookie headers, tokens, API keys, passwords in URLs, the AI provider keys and your `config({ secrets })` are replaced with `"[redacted]"` in everything the app logs (below).
 - **Cookie sessions resist CSRF.** `sessions()` cookies are signed, `HttpOnly`, `Secure` and `SameSite=Lax`, and requests that change data with a session cookie must send the session's CSRF token (IL3005); see [Cookie sessions](auth.md#cookie-sessions).
+- **Single sign-on is checked end to end.** `oidc()` uses the authorization code flow with PKCE, a one-time state and nonce, and checks the ID token's signature, issuer, audience and expiry before it starts a session; `returnTo` can only point at the app. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
 - **Access tokens are fully checked.** `jwt({ issuer, audience })` requires the audience, checks the signature with the issuer's keys and the expiry, and never accepts `none` or an algorithm that does not match the key; see [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
 - **Security headers** are sent on every response (below).
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
@@ -5555,6 +5590,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Auth.js (`@browserlessapi/inferlo/authjs`) | `@auth/core` 0.41.0 and newer |
 | Passport.js (`@browserlessapi/inferlo/passport`, with Express 4 or 5) | `passport` 0.6.0 and newer |
 | Sequelize (next to Inferlo on one Postgres database) | `sequelize` 6.36.0 and newer 6.x |
+| OpenID Connect providers (`oidc()`) | any provider that publishes an OpenID configuration and signs ID tokens with RS, PS, ES or EdDSA; tested against `oidc-provider` 9.0.0 and the latest |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | Astro (`/astro`) | 5 (newest 5.x) and newer |
@@ -5678,6 +5714,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL3008
 **Identity provider keys unavailable (503).** A request sent an access token, and `jwt()` could not load the identity provider's signing keys (its OpenID configuration or key set did not answer, answered an error, or was not a JSON Web Key Set), with none cached from before. The token may be valid; it cannot be checked. Make sure the server can reach the provider (the `issuer`'s `/.well-known/openid-configuration` and its `jwks_uri`, or `jwksUrl`), and that the `issuer` matches the `issuer` field of that configuration exactly. Keys that were loaded once keep working while the provider is unreachable. See [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
+
+### IL3009
+**Single sign-on could not be completed (400).** The `oidc()` callback refused what came back from the identity provider: the sign-in was not started in this browser or is older than 10 minutes (the pending sign-in cookie is missing or expired), the `state` does not match, the answer names another provider (`iss`), the provider answered an `error` (such as `access_denied`) or refused the code (used or expired), or the ID token is not valid for this app (signature, issuer, audience, expiry or nonce). Nobody is signed in. Start the sign-in again from the app's login link (`/auth/login`), in the same browser. If it keeps failing, check the `issuer`, `clientId` and the redirect URI registered at the provider (`<app URL>/auth/callback`, or `redirectUri`). See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+
+### IL3010
+**Identity provider unavailable for single sign-on (502).** `oidc()` could not load the provider's OpenID configuration (`<issuer>/.well-known/openid-configuration`, whose `issuer` must match exactly), its token endpoint did not answer, or the provider refused the app's client id or secret (`invalid_client`). The log has the cause. Check that the server can reach the provider and that `issuer`, `clientId` and `clientSecret` are the ones the provider shows for this app. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+
+### IL3011
+**Account may not sign in (403).** The identity provider signed the user in, but `oidc({ userId })` returned `null` for them (an unknown or unverified email, a user who is not allowed in), so no session was started. Give the user access in the app, or change `userId`. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
 
 ## Database (4xxx)
 
@@ -5948,6 +5993,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6046
 **Passport user cannot be used (500).** Either the app was not given an Express (or node:http) request, so there is no `req.user` to read (mount it after Passport: `server.use(passport.session()); server.use("/api", toNodeHandler(app))`; `app.listen()` and `app.fetch()` have no Express request), or Passport's user has no `id` (make `deserializeUser` return the user with its id, or map it yourself: `passportSession({ user: (u) => ({ id: String(u.userId), roles: [] }) })`). See [Passport.js](auth.md#passportjs).
+
+### IL6047
+**Invalid `oidc()` options.** `oidc({ issuer, clientId, clientSecret, session, userId, redirectUri, scopes, basePath })` needs the `issuer` (https, except on localhost), the `clientId`, the `session` from `sessions()` the sign-in ends in, and a `userId(claims, { db })` function; `clientSecret` is a non-empty string or left out for a public client, `redirectUri` is an https URL, `scopes` is a list of scope names and `basePath` a path such as `"/auth"`. At sign-in, `userId` must return the user's id as a non-empty string or `null`. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
 
 ## Environment (7xxx)
 

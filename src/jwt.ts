@@ -58,7 +58,7 @@ export interface JwtOptions {
   tenant?: (user: AppUser) => string | null | undefined;
 }
 
-const ASYMMETRIC: JwtAlgorithm[] = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA", "Ed25519"];
+export const ASYMMETRIC: JwtAlgorithm[] = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA", "Ed25519"];
 const HMAC: JwtAlgorithm[] = ["HS256", "HS384", "HS512"];
 const OPTIONS = ["issuer", "audience", "jwksUrl", "secret", "algorithms", "user", "clockToleranceSeconds", "cacheMs", "roles", "tenant"];
 const MAX_TOKEN = 16 * 1024;
@@ -83,7 +83,7 @@ function invalid(message: string, fixText = fix): InferloError {
   return new InferloError("IL6042", message, { fix: fixText });
 }
 
-function isLocal(url: URL): boolean {
+export function isLocal(url: URL): boolean {
   return ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
 }
 
@@ -188,6 +188,41 @@ export function jwt(options: JwtOptions): AuthConfig {
   if (secret === undefined && jwksUrl === undefined) checkUrl(issuer, "issuer");
   const toUser = options.user ?? defaultUser;
 
+  const verify = createJwtVerifier({ issuer, audiences, secret, allowed, tolerance, cacheMs, jwksUrl });
+
+  return {
+    async resolve(req, { db }) {
+      const authorization = req.headers.get("authorization");
+      if (!authorization || !/^bearer\s+/i.test(authorization)) return null;
+      const claims = await verify(authorization.replace(/^bearer\s+/i, "").trim());
+      if (!claims) return null;
+      return (await toUser(claims, { db, req })) ?? null;
+    },
+    ...(options.roles ? { roles: options.roles } : {}),
+    ...(options.tenant ? { tenant: options.tenant } : {}),
+  };
+}
+
+/** What createJwtVerifier needs: the checked options of jwt(), or of oidc() for ID tokens. */
+export interface JwtVerifierConfig {
+  issuer: string;
+  audiences: string[];
+  secret?: string;
+  allowed: JwtAlgorithm[];
+  tolerance: number;
+  cacheMs: number;
+  jwksUrl?: string;
+  /** Finds the key set's URL another way (oidc() shares its OpenID configuration). Default: the issuer's discovery. */
+  discoverJwksUrl?: () => Promise<string>;
+}
+
+/**
+ * Verifies JWTs for an issuer and audience: the signature against the issuer's keys (cached, fetched again for a
+ * rotated key) or a shared secret, then iss, aud, exp, nbf, iat and sub. Resolves to the claims, or null for any
+ * token that is not valid. Throws 503 IL3008 when no keys could ever be loaded. Internal: used by jwt() and oidc().
+ */
+export function createJwtVerifier(config: JwtVerifierConfig): (token: string) => Promise<JwtClaims | null> {
+  const { issuer, audiences, secret, allowed, tolerance, cacheMs, jwksUrl } = config;
   // Signing keys: fetched on first use, kept for cacheMs, and fetched again (at most every 30 s) for an unknown key id.
   let keys: Jwk[] | undefined;
   let fetchedAt = 0;
@@ -205,6 +240,7 @@ export function jwt(options: JwtOptions): AuthConfig {
 
   const load = async (): Promise<Jwk[]> => {
     let url = jwksUrl;
+    if (!url && config.discoverJwksUrl) url = await config.discoverJwksUrl();
     if (!url) {
       const discovery = await getJson(`${issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`);
       if (discovery.issuer !== issuer) throw new Error(`the OpenID configuration names the issuer ${JSON.stringify(discovery.issuer)}, not ${JSON.stringify(issuer)}`);
@@ -331,15 +367,5 @@ export function jwt(options: JwtOptions): AuthConfig {
     return claims as JwtClaims;
   };
 
-  return {
-    async resolve(req, { db }) {
-      const authorization = req.headers.get("authorization");
-      if (!authorization || !/^bearer\s+/i.test(authorization)) return null;
-      const claims = await verify(authorization.replace(/^bearer\s+/i, "").trim());
-      if (!claims) return null;
-      return (await toUser(claims, { db, req })) ?? null;
-    },
-    ...(options.roles ? { roles: options.roles } : {}),
-    ...(options.tenant ? { tenant: options.tenant } : {}),
-  };
+  return verify;
 }

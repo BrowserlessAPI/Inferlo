@@ -1,0 +1,4 @@
+{
+  "title": "Single sign-on with OpenID Connect",
+  "prompt": "Employees now sign in with the company's OpenID Connect provider instead of a password. Add OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET settings to src/config.ts (required strings; the client secret is a secret). Create src/sso.ts with Inferlo's built-in OpenID Connect sign-in for that provider, ending in the existing cookie session from src/session.ts, with its routes at GET /auth/login and GET /auth/callback, and add it to the app's routes. Sign in the existing user whose email matches the provider's email claim, only when the provider says the email is verified; refuse unknown or unverified emails. Keep the password login and API keys working."
+}

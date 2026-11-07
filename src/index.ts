@@ -88,6 +88,8 @@ export type { Permissions, PermissionRule, PermissionInput } from "./permissions
 export { bearer, hashToken, createToken, hashPassword, verifyPassword, safeEqual } from "./auth.ts";
 export { sessions } from "./sessions.ts";
 export { jwt } from "./jwt.ts";
+export { oidc } from "./oidc.ts";
+export type { Oidc, OidcOptions, OidcClaims, OidcTokens } from "./oidc.ts";
 export type { JwtOptions, JwtClaims, JwtAlgorithm } from "./jwt.ts";
 export type { TracingConfig, OtelApi, OtelSpan } from "./tracing.ts";
 export type { Sessions, SessionsOptions, SessionData, SessionCookieOptions, SessionResponseContext } from "./sessions.ts";

@@ -195,6 +195,40 @@ createApp({
 });
 ```
 
+## Single sign-on with OpenID Connect
+
+Browser apps whose users sign in with their company's identity provider (Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, Ping, OneLogin, JumpCloud, Authentik, Zitadel or any other OpenID Connect provider) use `oidc()`. It runs the authorization code flow with PKCE, state and nonce, checks the ID token with Web Crypto, and ends in a [cookie session](#cookie-sessions). No runtime dependency:
+
+```ts
+// src/sso.ts
+import { oidc } from "@browserlessapi/inferlo";
+import { settings } from "./config.ts"; // OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET (listed in secrets)
+import { session } from "./session.ts";  // sessions({ secret, user }), as above
+
+export const sso = oidc({
+  issuer: settings.OIDC_ISSUER,            // "https://acme.okta.com", exactly as the provider's OpenID configuration names it
+  clientId: settings.OIDC_CLIENT_ID,
+  clientSecret: settings.OIDC_CLIENT_SECRET,
+  session,
+  // Which of the app's users signs in: find (or create) the user, or return null to refuse.
+  async userId(claims, { db }) {
+    if (!claims.email_verified || !claims.email) return null;
+    return (await db.users.findOne({ email: claims.email }))?.id ?? null;
+  },
+});
+
+// src/app.ts
+createApp({ auth: session, routes: [notes, sso], ... });
+```
+
+- **Routes.** `routes: [sso]` adds `GET /auth/login` and `GET /auth/callback` (public routes, listed in OpenAPI and `inferlo describe`). Link to `/auth/login?returnTo=/path` (or `sso.loginPath`); after the sign-in the browser goes to `returnTo`, which must be a path on the app (anything else becomes `/`, so the link cannot send users to another site). Register `<your app's URL>/auth/callback` as the redirect URI at the provider; when the app runs behind a proxy that changes the URL it sees, set `redirectUri` to that URL. `basePath: "/sso/okta"` moves both routes, to sign in with more than one provider.
+- **What is checked.** The login route keeps a random state, nonce and PKCE verifier in a short-lived cookie (`HttpOnly`, `SameSite=Lax`, 10 minutes, a `__Host-` cookie on https). The callback accepts only the state that browser started, refuses an `iss` parameter naming another provider (RFC 9207) and an `error` from the provider, exchanges the code with the verifier and the client secret (`client_secret_basic`, or `client_secret_post` when the provider only takes that; public clients leave out `clientSecret`), then checks the ID token: its signature against the provider's keys (RS, PS, ES and EdDSA algorithms, keys found and cached as for [`jwt()`](#access-tokens-from-an-identity-provider-jwt)), `iss`, `aud` (the client id, and `azp` when there are several audiences), `exp`, `iat` and the nonce. The pending sign-in is used once. A failed check answers 400 IL3009 and signs nobody in.
+- **The user.** `userId(claims, { db, req, tokens })` gets the ID token's claims (`sub`, `email`, `email_verified`, `name` and whatever the provider adds, such as `groups` or Entra ID's `tid`) and the provider's tokens (`tokens.accessToken` for its APIs; Inferlo does not store them). Return the id of the app's user to start the session, or `null` to refuse (403 IL3011). Trust `claims.email` only when `claims.email_verified` is true, or match users on `claims.sub` (store it on the user the first time).
+- `scopes` (default `["openid", "email", "profile"]`) asks for more claims, such as `["email", "groups"]`; `openid` is always sent.
+- The provider's OpenID configuration is loaded on the first sign-in and kept for 10 minutes; its endpoints must be https (plain http only on localhost). When the provider cannot be reached, or refuses the client id or secret, the sign-in answers 502 IL3010 with the cause in the log. Invalid options raise IL6047 at startup.
+- Sign out with `session.signOut(ctx)` as for password sign-in; this ends the app's session, not the user's session at the provider.
+- Tested against a local stand-in provider and against [oidc-provider](https://github.com/panva/node-oidc-provider) (a certified OpenID Connect server), 9.0.0 and the latest, in `test/oidc.test.ts` and `test/oidc-provider.test.ts`.
+
 ## Access tokens from an identity provider (JWT)
 
 APIs whose users sign in with an identity provider (Auth0, Okta, Microsoft Entra ID, Google, Keycloak, Clerk, WorkOS, Amazon Cognito, Supabase) receive the provider's access tokens as `Authorization: Bearer <token>`. `jwt()` checks them, with Web Crypto and no runtime dependency:

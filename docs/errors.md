@@ -104,6 +104,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL3008
 **Identity provider keys unavailable (503).** A request sent an access token, and `jwt()` could not load the identity provider's signing keys (its OpenID configuration or key set did not answer, answered an error, or was not a JSON Web Key Set), with none cached from before. The token may be valid; it cannot be checked. Make sure the server can reach the provider (the `issuer`'s `/.well-known/openid-configuration` and its `jwks_uri`, or `jwksUrl`), and that the `issuer` matches the `issuer` field of that configuration exactly. Keys that were loaded once keep working while the provider is unreachable. See [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
 
+### IL3009
+**Single sign-on could not be completed (400).** The `oidc()` callback refused what came back from the identity provider: the sign-in was not started in this browser or is older than 10 minutes (the pending sign-in cookie is missing or expired), the `state` does not match, the answer names another provider (`iss`), the provider answered an `error` (such as `access_denied`) or refused the code (used or expired), or the ID token is not valid for this app (signature, issuer, audience, expiry or nonce). Nobody is signed in. Start the sign-in again from the app's login link (`/auth/login`), in the same browser. If it keeps failing, check the `issuer`, `clientId` and the redirect URI registered at the provider (`<app URL>/auth/callback`, or `redirectUri`). See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+
+### IL3010
+**Identity provider unavailable for single sign-on (502).** `oidc()` could not load the provider's OpenID configuration (`<issuer>/.well-known/openid-configuration`, whose `issuer` must match exactly), its token endpoint did not answer, or the provider refused the app's client id or secret (`invalid_client`). The log has the cause. Check that the server can reach the provider and that `issuer`, `clientId` and `clientSecret` are the ones the provider shows for this app. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+
+### IL3011
+**Account may not sign in (403).** The identity provider signed the user in, but `oidc({ userId })` returned `null` for them (an unknown or unverified email, a user who is not allowed in), so no session was started. Give the user access in the app, or change `userId`. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+
 ## Database (4xxx)
 
 ### IL4001
@@ -373,6 +382,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6046
 **Passport user cannot be used (500).** Either the app was not given an Express (or node:http) request, so there is no `req.user` to read (mount it after Passport: `server.use(passport.session()); server.use("/api", toNodeHandler(app))`; `app.listen()` and `app.fetch()` have no Express request), or Passport's user has no `id` (make `deserializeUser` return the user with its id, or map it yourself: `passportSession({ user: (u) => ({ id: String(u.userId), roles: [] }) })`). See [Passport.js](auth.md#passportjs).
+
+### IL6047
+**Invalid `oidc()` options.** `oidc({ issuer, clientId, clientSecret, session, userId, redirectUri, scopes, basePath })` needs the `issuer` (https, except on localhost), the `clientId`, the `session` from `sessions()` the sign-in ends in, and a `userId(claims, { db })` function; `clientSecret` is a non-empty string or left out for a public client, `redirectUri` is an https URL, `scopes` is a list of scope names and `basePath` a path such as `"/auth"`. At sign-in, `userId` must return the user's id as a non-empty string or `null`. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
 
 ## Environment (7xxx)
 

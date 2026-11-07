@@ -90,6 +90,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Auth.js (`@browserlessapi/inferlo/authjs`) | `@auth/core` 0.41.0 and newer |
 | Passport.js (`@browserlessapi/inferlo/passport`, with Express 4 or 5) | `passport` 0.6.0 and newer |
 | Sequelize (next to Inferlo on one Postgres database) | `sequelize` 6.36.0 and newer 6.x |
+| OpenID Connect providers (`oidc()`) | any provider that publishes an OpenID configuration and signs ID tokens with RS, PS, ES or EdDSA; tested against `oidc-provider` 9.0.0 and the latest |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | Astro (`/astro`) | 5 (newest 5.x) and newer |

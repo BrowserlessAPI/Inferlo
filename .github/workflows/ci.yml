@@ -884,6 +884,31 @@ jobs:
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/passport.test.ts
 
+  oidc:
+    name: OpenID Connect (oidc-provider ${{ matrix.oidc }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 9.0.0 = oldest supported (the first release of oidc-provider's maintained major; it fixes only its newest
+        # major), latest = newest release. oidc-provider is the certified OpenID Connect server the sign-in is tested against.
+        oidc: ["9.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save oidc-provider@${{ matrix.oidc }}
+      - run: node -p "'oidc-provider ' + require('./node_modules/oidc-provider/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/oidc.test.ts test/oidc-provider.test.ts test/jwt.test.ts
+
   koa:
     name: Koa ${{ matrix.koa }}
     runs-on: ubuntu-latest
