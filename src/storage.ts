@@ -7,8 +7,11 @@
  *   const file = await storage.get(`avatars/${user.id}.png`);               // a web File, or null
  *   await storage.delete(`avatars/${user.id}.png`);                         // true when it existed
  *
+ *   const link = await storage.url(`reports/${id}.pdf`, { expiresIn: 300 });  // signed download URL (s3Storage only)
+ *
  * The store is chosen once in createApp({ storage }): memoryStorage() (one process, tests), diskStorage({ dir })
- * (a local or mounted directory), or any object that implements StorageStore.
+ * (a local or mounted directory), s3Storage({ bucket, region, ... }) (AWS S3, Cloudflare R2, MinIO), or any object
+ * that implements StorageStore.
  */
 import { InferloError } from "./errors.ts";
 
@@ -31,6 +34,11 @@ export interface StorageStore {
   get(key: string): Promise<{ bytes: Uint8Array; type: string } | null>;
   /** Remove the key. Resolves to true when it existed. */
   delete(key: string): Promise<boolean>;
+  /**
+   * Optional: a URL that downloads the key without credentials until it expires (expiresIn: seconds, 1 to 604800).
+   * Stores without it (memory, disk) make storage.url() throw IL6050.
+   */
+  url?(key: string, expiresIn: number): Promise<string>;
 }
 
 export interface StoragePutOptions {
@@ -50,7 +58,20 @@ export interface Storage {
   get(key: string): Promise<File | null>;
   /** Remove the file. Resolves to true when it existed. */
   delete(key: string): Promise<boolean>;
+  /**
+   * A signed URL that downloads the file without credentials for `expiresIn` seconds (1 to 604800, seven days), for
+   * example to let a browser fetch a large file straight from S3. Only stores that sign URLs (s3Storage) have it;
+   * memory and disk stores throw IL6050. Anyone with the URL can download the file until it expires.
+   */
+  url(key: string, options: StorageUrlOptions): Promise<string>;
 }
+
+export interface StorageUrlOptions {
+  /** Seconds the URL stays valid: 1 to 604800 (seven days, the S3 limit). Required, so links never live by accident. */
+  expiresIn: number;
+}
+
+const MAX_URL_EXPIRY_SECONDS = 604_800;
 
 const MAX_KEY_LENGTH = 1024;
 const SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,254}$/;
@@ -101,7 +122,7 @@ function blobType(data: unknown): string {
 export function checkStorageStore(value: unknown): StorageStore | undefined {
   if (value === undefined) return undefined;
   const store = value as Partial<StorageStore> | null;
-  if (!store || typeof store !== "object" || typeof store.name !== "string" || !store.name || typeof store.put !== "function" || typeof store.get !== "function" || typeof store.delete !== "function") {
+  if (!store || typeof store !== "object" || typeof store.name !== "string" || !store.name || typeof store.put !== "function" || typeof store.get !== "function" || typeof store.delete !== "function" || (store.url !== undefined && typeof store.url !== "function")) {
     throw new InferloError("IL6038", "Invalid storage option in createApp.", {
       fix: 'Pass a store: createApp({ storage: diskStorage({ dir: "./uploads" }) }), memoryStorage() in tests, or an object with name, put(key, bytes, type), get(key) and delete(key).',
     });
@@ -138,6 +159,22 @@ export function createStorage(store: StorageStore | undefined): Storage {
       const s = need();
       checkStorageKey(key);
       return s.delete(key);
+    },
+    async url(key, options) {
+      const s = need();
+      checkStorageKey(key);
+      const expiresIn = (options as Partial<StorageUrlOptions> | undefined)?.expiresIn;
+      if (typeof expiresIn !== "number" || !Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_URL_EXPIRY_SECONDS) {
+        throw new InferloError("IL6039", `Invalid expiresIn ${JSON.stringify(expiresIn)} for storage.url(): a whole number of seconds from 1 to ${MAX_URL_EXPIRY_SECONDS}.`, {
+          fix: "Pass how long the link stays valid, in seconds: await storage.url(key, { expiresIn: 300 }).",
+        });
+      }
+      if (typeof s.url !== "function") {
+        throw new InferloError("IL6050", `storage.url() needs a store that signs URLs; the "${s.name}" store does not.`, {
+          fix: "Serve the file from a route instead (return new Response(await storage.get(key))), or use s3Storage({ ... }), whose storage.url() gives signed download links.",
+        });
+      }
+      return s.url(key, expiresIn);
     },
   };
 }

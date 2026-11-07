@@ -361,7 +361,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid `storage` option.** `createApp({ storage })` takes a store: `diskStorage({ dir })` (which needs a non-empty `dir`), `memoryStorage()`, or your own object with a `name`, `put(key, bytes, type)`, `get(key)` and `delete(key)`. Example: `createApp({ storage: diskStorage({ dir: env("UPLOADS_DIR", { default: "./uploads" }) }) })`. See [File storage](storage.md#stores).
 
 ### IL6039
-**Invalid storage key, media type or data.** Storage keys are segments of letters, digits, `.`, `_` and `-` separated by `/`, up to 1024 characters, and no segment may be empty or start with `.`, so `..`, a leading `/` and hidden files are refused before any store sees them. Build keys from ids you control, never from a file name the client sent: `` storage.put(`avatars/${user.id}.png`, body.avatar) ``. The `type` must be a plain media type such as `image/png`, and the data a `File`, `Blob`, `Uint8Array`, `ArrayBuffer` or string. See [File storage](storage.md#the-api).
+**Invalid storage key, media type, data or link expiry.** Storage keys are segments of letters, digits, `.`, `_` and `-` separated by `/`, up to 1024 characters, and no segment may be empty or start with `.`, so `..`, a leading `/` and hidden files are refused before any store sees them. Build keys from ids you control, never from a file name the client sent: `` storage.put(`avatars/${user.id}.png`, body.avatar) ``. The `type` must be a plain media type such as `image/png`, and the data a `File`, `Blob`, `Uint8Array`, `ArrayBuffer` or string. The `expiresIn` of `storage.url(key, { expiresIn })` is required, a whole number of seconds from 1 to 604800. See [File storage](storage.md#the-api).
 
 ### IL6040
 **Invalid `validateResponses` option.** `createApp({ validateResponses })` takes `"warn"` (log mismatches once per route, the default outside production), `"error"` (answer 500 IL2016, for tests) or `false` (no check, the default in production). See [Response validation](routes.md#response-validation).
@@ -385,6 +385,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6047
 **Invalid `oidc()` options.** `oidc({ issuer, clientId, clientSecret, session, userId, redirectUri, scopes, basePath, authorizationParams, postLogoutRedirectUri })` needs the `issuer` (https, except on localhost), the `clientId`, the `session` from `sessions()` the sign-in ends in, and a `userId(claims, { db })` function; `clientSecret` is a non-empty string or left out for a public client, `redirectUri` is an https URL, `scopes` is a list of scope names, `basePath` a path such as `"/auth"`, `authorizationParams` an object of string values that does not set the flow's own parameters (`response_type`, `client_id`, `redirect_uri`, `scope`, `state`, `nonce`, `code_challenge`, `code_challenge_method`, `response_mode`, `request`, `request_uri`), and `postLogoutRedirectUri` an https URL. At sign-in, `userId` must return the user's id as a non-empty string or `null`. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+
+### IL6048
+**Invalid `s3Storage()` options.** `s3Storage({ bucket, region, accessKeyId, secretAccessKey, sessionToken, endpoint, pathStyle, timeoutMs })` needs an S3 bucket name (3 to 63 lowercase letters, digits, `.` and `-`), a region (`"eu-central-1"`, or `"auto"` on Cloudflare R2) and a non-empty access key id and secret, and takes only those options. `endpoint` is the store's origin (`"https://<account id>.r2.cloudflarestorage.com"`), https except on localhost, without a path, query or credentials; `pathStyle` is `true` or `false` (bucket names with dots need `pathStyle: true` on https); `timeoutMs` is 1000 to 300000. See [S3, R2 and MinIO](storage.md#s3-r2-and-minio).
+
+### IL6049
+**S3 request failed (502).** The object store refused a request from `s3Storage()` or did not answer in time. The message names the operation (`PutObject`, `GetObject`, `HeadObject`, `DeleteObject`), the key, the bucket and S3's error code: `AccessDenied` (the key may not use the bucket: grant `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject`), `NoSuchBucket` (wrong bucket, region or endpoint), `SignatureDoesNotMatch` or `InvalidAccessKeyId` (wrong secret or key id), `RequestTimeTooSkewed` (the server clock is off), `InvalidToken` or `ExpiredToken` (renew temporary credentials). Credentials never appear in the message. See [S3, R2 and MinIO](storage.md#s3-r2-and-minio).
+
+### IL6050
+**The store has no signed URLs.** `storage.url(key, { expiresIn })` needs a store that signs download URLs, such as `s3Storage()`; `memoryStorage()` and `diskStorage()` cannot. Serve those files from a route (`return new Response(await storage.get(key))`), or move them to `s3Storage()`. Your own `StorageStore` can add `url(key, expiresIn)`. See [Signed download URLs](storage.md#signed-download-urls).
 
 ## Environment (7xxx)
 

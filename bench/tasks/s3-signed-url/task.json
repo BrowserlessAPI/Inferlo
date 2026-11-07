@@ -1,0 +1,4 @@
+{
+  "title": "Signed S3 download links",
+  "prompt": "Keep the app's files in S3 with Inferlo's built-in S3 storage store, configured in createApp in src/app.ts. Add S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (required; the two keys are secrets) and S3_ENDPOINT (optional, for R2 or MinIO; pass it as the store's endpoint when set) to the app's config. Create src/routes/reports.ts with `export const reportLink`, GET /reports/:name/link for signed-in users, where name is letters, digits and dashes with optional dot-separated parts (for example q3-2026.pdf), that redirects with status 303 to a signed download URL of the file stored under the key `reports/<user id>/<name>`, valid for 300 seconds, and register the module in src/app.ts."
+}
