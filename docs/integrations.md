@@ -1057,6 +1057,50 @@ export const createShipment = route
 
 Inferlo models can store the id of a Kysely row as a plain field (`shipmentId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with `kysely` 0.28.0 and the latest release, on the oldest supported and the newest PostgreSQL.
 
+## Knex
+
+An app that already uses [Knex](https://knexjs.org) on Postgres (common in Express and Koa apps) can add Inferlo next to it, on the same database, without moving its tables or migrations. A tested example is in `examples/with-knex`.
+
+**Two pools, one database.** Knex opens its own pool from its `connection` setting; give Inferlo a `pg` pool with `postgres({ pool })` (or `postgres({ url })`). Keep the two `max` sizes together under the server's `max_connections`:
+
+```ts
+// src/db.ts
+import knexFactory from "knex";
+import pg from "pg";
+
+export const knex = knexFactory({ client: "pg", connection: process.env.DATABASE_URL, pool: { min: 0, max: 5 } });
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+
+// src/app.ts
+export const app = createApp({ models, db: postgres({ pool }), routes, jobs, auth });
+```
+
+**Knex in routes and jobs.** Import `knex` where you need it, as any module: `await knex("crm_contacts").select("id", "email").where({ company_id: id })`. Inferlo adds no wrapper, so Knex queries do not get `ctx.db`'s request timeout or tenant filter; keep Inferlo models (`ctx.db`) for tables that need them. Check for missing rows (`.first()` resolves to `undefined`) and throw `notFound()` (404, IL4001); Knex's own errors, including database errors such as a unique violation, answer 500 with the details logged, never sent.
+
+**One transaction for both.** Start the transaction with Inferlo and run Knex queries on the transaction's connection, which `tx.$pgClient()` returns, with Knex's `.connection(client)`. Both commit together, and an error in either rolls both back:
+
+```ts
+export const createContact = route
+  .post("/contacts", { body: t.object({ companyId: t.int(), email: t.email(), note: t.string().min(1).max(2000) }) })
+  .handle(({ body, db }) =>
+    db.$transaction(async (tx) => {
+      const client = await tx.$pgClient<pg.PoolClient>();
+      const [contact] = await knex("crm_contacts").insert({ company_id: body.companyId, email: body.email }).returning(["id", "email"]).connection(client);
+      const note = await tx.contact_notes.insert({ contactId: contact.id, body: body.note });
+      return { contact, note };
+    }),
+  );
+```
+
+- Add `.connection(client)` to every Knex query that belongs to the transaction; a query without it runs on Knex's own pool and commits on its own.
+- Do not start the transaction with `knex.transaction()` and use Inferlo inside it: Inferlo would not see Knex's connection. Do not release or end the client; it belongs to the transaction, which Inferlo commits or rolls back and returns to the pool.
+
+**Migrations.** Each tool manages its own tables. `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create, so Knex's tables and its `knex_migrations` and `knex_migrations_lock` tables are safe. `knex migrate:latest` runs only its own migration files and never compares the database with a schema, so it leaves Inferlo's tables alone (the example tests both directions). Give new Inferlo models table names your Knex migrations do not use; Inferlo's built-in tables start with `inferlo_` or are `audit_log`.
+
+**Shutting down.** Close in order: `await app.close()` (stops requests and jobs), then `await knex.destroy()`, then `await pool.end()`.
+
+Inferlo models can store the id of a Knex row as a plain field (`contactId: t.int().index()`); `t.ref` points only at Inferlo models. Tested with `knex` 3.1.0 on the oldest supported PostgreSQL and the latest Knex on the newest PostgreSQL.
+
 ## Prisma
 
 An app that already uses [Prisma](https://www.prisma.io) on Postgres can add Inferlo next to it, on the same database, without moving its tables. Prisma 6 and 7 are supported through Prisma's `pg` driver adapter (`@prisma/adapter-pg`); with Prisma 6, use the `prisma-client` generator with `engineType = "client"`. A tested example is in `examples/with-prisma`.

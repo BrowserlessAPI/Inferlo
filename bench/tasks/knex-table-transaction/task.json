@@ -1,0 +1,5 @@
+{
+  "title": "One transaction across a Knex table and an Inferlo model",
+  "prompt": "The app shares its Postgres database with older code that uses Knex (the instance exported from src/knex.ts), which owns the table crm_contacts (id serial primary key, company_id integer, email varchar unique). Create src/routes/contacts.ts with `export const createContact`: POST /contacts with the body { companyId, email, note } (companyId an integer, email an email address, note a string of 1 to 2000 characters). It must insert a row into crm_contacts with Knex and a ContactNote (model contact_notes: contactId, body) for that contact in the same database transaction, so that either both are saved or neither is. Answer 201 with { contactId, note }. Register the routes module in src/app.ts.",
+  "packages": ["knex"]
+}

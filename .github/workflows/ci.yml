@@ -751,6 +751,47 @@ jobs:
       - run: npx tsc --noEmit -p examples/with-sequelize
       - run: node --test --test-reporter=spec "examples/with-sequelize/test/*.test.ts"
 
+  knex:
+    name: Knex ${{ matrix.knex }} on PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.1.0 = oldest supported (Knex has no long-term support releases and fixes only its newest release;
+        # 3.1.0, December 2023, was the newest release for more than two years, until March 2026), latest = newest
+        # release. Each runs on the oldest supported and the newest PostgreSQL.
+        include:
+          - knex: "3.1.0"
+            postgres: "14"
+          - knex: "latest"
+            postgres: "latest"
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: inferlo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      INFERLO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/inferlo_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save knex@${{ matrix.knex }}
+      - run: node -p "'knex ' + require('./node_modules/knex/package.json').version"
+      - run: npx tsc --noEmit -p examples/with-knex
+      - run: node --test --test-reporter=spec "examples/with-knex/test/*.test.ts"
+
   koa:
     name: Koa ${{ matrix.koa }}
     runs-on: ubuntu-latest
