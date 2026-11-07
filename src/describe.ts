@@ -90,7 +90,7 @@ export interface AppDescription {
   storage: string | null;
 }
 
-export const INFERLO_VERSION = "0.7.0";
+export const INFERLO_VERSION = "0.8.0";
 
 function field(name: string, schema: AnySchema): FieldDescription {
   const d = schema.def;
