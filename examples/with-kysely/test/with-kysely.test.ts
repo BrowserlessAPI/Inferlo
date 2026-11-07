@@ -19,6 +19,20 @@ async function migratorFor(db: unknown): Promise<Migrator> {
 }
 let warehouseId = 0;
 
+/**
+ * Kysely's Migrator first lists every table in the database. The other example test files run at the same time
+ * on the same test database and create and drop their own tables, so a table can disappear between Kysely's
+ * listing and its column query (42P01, "relation does not exist"). That is a race between test files, not a
+ * migration error: try again.
+ */
+async function migrateToLatest(): Promise<{ error?: unknown; results?: unknown[] }> {
+  for (let attempt = 1; ; attempt++) {
+    const result = await migrator.migrateToLatest();
+    if (!result.error || (result.error as { code?: string }).code !== "42P01" || attempt === 5) return result;
+    await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+  }
+}
+
 async function dropAll() {
   await sql`DROP TABLE IF EXISTS shipments, warehouses, tracking_events, kysely_migration, kysely_migration_lock`.execute(ctx.kysely);
 }
@@ -29,7 +43,7 @@ before(async () => {
   await dropAll();
   // The existing app's tables, created by Kysely's Migrator; then Inferlo's.
   migrator = await migratorFor(ctx.kysely);
-  const { error } = await migrator.migrateToLatest();
+  const { error } = await migrateToLatest();
   assert.ifError(error);
   await ctx.app.db.$sync();
   const warehouse = await ctx.kysely.insertInto("warehouses").values({ name: "Rotterdam" }).returning("id").executeTakeFirstOrThrow();
@@ -83,7 +97,7 @@ test("a missing warehouse is 404, routes stay private and validate input", { ski
 test("Kysely's Migrator and Inferlo's sync leave each other's tables alone", { skip }, async () => {
   const statements = await ctx.app.db.$sync({ dryRun: true });
   assert.deepEqual(statements.filter((s) => /"(shipments|warehouses|kysely_migration\w*)"/.test(s)), [], statements.join("\n"));
-  const again = await migrator.migrateToLatest();
+  const again = await migrateToLatest();
   assert.ifError(again.error);
   assert.deepEqual(again.results, []);
   const columns = await ctx.app.db.$sql("select column_name from information_schema.columns where table_name = 'tracking_events' order by column_name");

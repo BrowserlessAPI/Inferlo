@@ -14,9 +14,12 @@ const quiet = { info() {}, error() {}, warn() {} };
 const BASE = "http://app.test";
 const SECRET = "better-auth-test-secret-0123456789abcdef0123456789";
 
+/** The in-memory tables of each Better Auth instance, to change a user directly in a test. */
+const tables = new WeakMap<object, { user: Record<string, unknown>[] }>();
+
 function makeAuth(extra: Record<string, unknown> = {}) {
-  const db = { user: [], session: [], account: [], verification: [] };
-  return betterAuth({
+  const db = { user: [] as Record<string, unknown>[], session: [], account: [], verification: [] };
+  const auth = betterAuth({
     database: memoryAdapter(db),
     secret: SECRET,
     baseURL: BASE,
@@ -26,6 +29,8 @@ function makeAuth(extra: Record<string, unknown> = {}) {
     logger: { disabled: true },
     ...extra,
   });
+  tables.set(auth, db);
+  return auth;
 }
 
 const me = route.get("/me").handle(({ user }) => user);
@@ -49,8 +54,11 @@ async function signUp(app: { fetch(req: Request): Promise<Response> }, email: st
   return { cookie, token };
 }
 
+// One Better Auth instance for the tests that sign in: on Deno, a second instance's api.getSession can read the
+// first instance's tables once both served requests in one process. Apps have one instance.
+const auth = makeAuth({ trustedOrigins: ["https://admin.app.test"] });
+
 describe("betterAuthSession()", () => {
-  const auth = makeAuth();
   const session = betterAuthSession(auth);
   const app = createApp({ routes: [{ me, createNote, adminOnly, open }], auth: session, middleware: [session.middleware], logger: quiet });
 
@@ -123,9 +131,9 @@ describe("betterAuthSession()", () => {
   test("roles come from the admin plugin's user.role", async () => {
     const { cookie } = await signUp(app, "boss@example.com");
     assert.equal((await call(app, "/admin/stats", { headers: { cookie } })).status, 403);
-    const ctx = await auth.$context;
-    const found = await ctx.internalAdapter.findUserByEmail("boss@example.com");
-    await ctx.internalAdapter.updateUser(found!.user.id, { role: "admin,support" });
+    // As an admin would with the admin plugin's setRole; changed in Better Auth's table directly here.
+    const row = tables.get(auth)!.user.find((u) => u.email === "boss@example.com")!;
+    row.role = "admin,support";
     const res = await call(app, "/admin/stats", { headers: { cookie } });
     assert.equal(res.status, 200, await res.clone().text());
     assert.deepEqual(((await (await call(app, "/me", { headers: { cookie } })).json()) as { roles: string[] }).roles, ["admin", "support"]);
@@ -134,7 +142,6 @@ describe("betterAuthSession()", () => {
 
 describe("betterAuthSession() options", () => {
   test("user maps the session to the app's user, and null refuses it", async () => {
-    const auth = makeAuth();
     const session = betterAuthSession(auth, {
       user: ({ user, session: s }) => (user.email.startsWith("blocked") ? null : { id: user.id, email: user.email, sessionId: s.id, roles: ["member"] }),
     });
@@ -148,7 +155,6 @@ describe("betterAuthSession() options", () => {
   });
 
   test("trustedOrigins (and Better Auth's own) may change data with the cookie", async () => {
-    const auth = makeAuth({ trustedOrigins: ["https://admin.app.test"] });
     const fromAuth = betterAuthSession(auth);
     const app = createApp({ routes: [{ createNote }], auth: fromAuth, middleware: [fromAuth.middleware], logger: quiet });
     const { cookie } = await signUp(app, "trusted@example.com");
