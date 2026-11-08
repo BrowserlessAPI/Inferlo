@@ -12,6 +12,8 @@ import { toTanStackHandlers } from "../src/tanstack-start.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const users = new Map([["demo", { id: "00000000-0000-4000-8000-000000000001", roles: [] as string[] }]]);
+// TanStack Start's handler needs Node.js module hooks to load its virtual entries; Bun and Deno run the other tests.
+// (Older Bun releases ignore node:test's skip option, so the test is only declared on Node.js.)
 const isNode = !("Bun" in globalThis) && !("Deno" in globalThis);
 
 function makeApp(cors = false) {
@@ -136,28 +138,30 @@ describe("toTanStackHandlers", () => {
   });
 });
 
-describe("in TanStack Start's own request handler", { skip: isNode ? false : "needs Node.js module hooks to load TanStack Start's virtual entries" }, () => {
-  test("a splat server route at /api/$ serves the whole app", async () => {
-    const fetch = await start(routeTree());
-    const doc = await fetch(new Request("http://localhost:3000/api/openapi.json"));
-    assert.equal(doc.status, 200);
-    assert.ok((await doc.json()).paths["/items"]);
-    const list = await fetch(new Request("http://localhost:3000/api/items?q=x"));
-    assert.deepEqual(await list.json(), { items: [], q: "x" });
-    const anon = await fetch(new Request("http://localhost:3000/api/items", { method: "POST", headers: json, body: JSON.stringify({ name: "a" }) }));
-    assert.equal(anon.status, 401);
-    assert.equal((await anon.json()).error.code, "IL3001");
-    const created = await fetch(new Request("http://localhost:3000/api/items", { method: "POST", headers: { ...json, authorization: "Bearer demo" }, body: JSON.stringify({ name: "Lamp" }) }));
-    assert.equal(created.status, 201);
-    assert.equal((await created.json()).name, "Lamp");
-    const removed = await fetch(new Request("http://localhost:3000/api/items/3", { method: "DELETE", headers: { authorization: "Bearer demo" } }));
-    assert.deepEqual(await removed.json(), { deleted: "3" });
-    assert.deepEqual(await (await fetch(new Request("http://localhost:3000/api"))).json(), { root: true });
-    const stream = await fetch(new Request("http://localhost:3000/api/chat"));
-    assert.match(stream.headers.get("content-type") ?? "", /text\/event-stream/);
-    const text = [...(await stream.text()).matchAll(/event: text\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]!)).join("");
-    assert.equal(text, "Hello from AI.");
-    const head = await fetch(new Request("http://localhost:3000/api/items", { method: "HEAD" }));
-    assert.equal(head.status, 200);
+if (isNode) {
+  describe("in TanStack Start's own request handler", () => {
+    test("a splat server route at /api/$ serves the whole app", async () => {
+      const fetch = await start(routeTree());
+      const doc = await fetch(new Request("http://localhost:3000/api/openapi.json"));
+      assert.equal(doc.status, 200);
+      assert.ok((await doc.json()).paths["/items"]);
+      const list = await fetch(new Request("http://localhost:3000/api/items?q=x"));
+      assert.deepEqual(await list.json(), { items: [], q: "x" });
+      const anon = await fetch(new Request("http://localhost:3000/api/items", { method: "POST", headers: json, body: JSON.stringify({ name: "a" }) }));
+      assert.equal(anon.status, 401);
+      assert.equal((await anon.json()).error.code, "IL3001");
+      const created = await fetch(new Request("http://localhost:3000/api/items", { method: "POST", headers: { ...json, authorization: "Bearer demo" }, body: JSON.stringify({ name: "Lamp" }) }));
+      assert.equal(created.status, 201);
+      assert.equal((await created.json()).name, "Lamp");
+      const removed = await fetch(new Request("http://localhost:3000/api/items/3", { method: "DELETE", headers: { authorization: "Bearer demo" } }));
+      assert.deepEqual(await removed.json(), { deleted: "3" });
+      assert.deepEqual(await (await fetch(new Request("http://localhost:3000/api"))).json(), { root: true });
+      const stream = await fetch(new Request("http://localhost:3000/api/chat"));
+      assert.match(stream.headers.get("content-type") ?? "", /text\/event-stream/);
+      const text = [...(await stream.text()).matchAll(/event: text\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]!)).join("");
+      assert.equal(text, "Hello from AI.");
+      const head = await fetch(new Request("http://localhost:3000/api/items", { method: "HEAD" }));
+      assert.equal(head.status, 200);
+    });
   });
-});
+}

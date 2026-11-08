@@ -10,21 +10,25 @@ const mock = () => ({
   models: { fast: "anthropic:claude-haiku-4-5" },
 });
 const signedIn = { "content-type": "application/json", authorization: "Bearer demo-token" };
+// TanStack Start's handler needs Node.js module hooks to load its virtual entries; Bun and Deno run the other tests.
+// (Older Bun releases ignore node:test's skip option, so the test is only declared on Node.js.)
 const isNode = !("Bun" in globalThis) && !("Deno" in globalThis);
 
-test("TanStack Start's request handler serves the app from src/routes/api/$.ts", { skip: isNode ? false : "needs Node.js module hooks to load TanStack Start's virtual entries" }, async () => {
-  const { startHandler } = await import("../../../test/fixtures/tanstack-start/start-handler.ts");
-  // The router entry is the project's own src/router.ts, with the route tree TanStack Router generated.
-  const fetch = await startHandler(new URL("../src/router.ts", import.meta.url).href);
-  const doc = await (await fetch(new Request("http://localhost:3000/api/openapi.json"))).json();
-  assert.ok(doc.paths["/summaries"].post);
-  const anon = await fetch(new Request("http://localhost:3000/api/summaries", { method: "POST", body: JSON.stringify({ text: "x" }) }));
-  assert.equal(anon.status, 401);
-  const invalid = await fetch(new Request("http://localhost:3000/api/summaries", { method: "POST", headers: signedIn, body: JSON.stringify({ text: "" }) }));
-  assert.equal(invalid.status, 422);
-  const empty = await fetch(new Request("http://localhost:3000/classify", { method: "POST", body: new URLSearchParams({ text: " " }) }));
-  assert.equal(empty.status, 400);
-});
+if (isNode) {
+  test("TanStack Start's request handler serves the app from src/routes/api/$.ts", async () => {
+    const { startHandler } = await import("../../../test/fixtures/tanstack-start/start-handler.ts");
+    // The router entry is the project's own src/router.ts, with the route tree TanStack Router generated.
+    const fetch = await startHandler(new URL("../src/router.ts", import.meta.url).href);
+    const doc = await (await fetch(new Request("http://localhost:3000/api/openapi.json"))).json();
+    assert.ok(doc.paths["/summaries"].post);
+    const anon = await fetch(new Request("http://localhost:3000/api/summaries", { method: "POST", body: JSON.stringify({ text: "x" }) }));
+    assert.equal(anon.status, 401);
+    const invalid = await fetch(new Request("http://localhost:3000/api/summaries", { method: "POST", headers: signedIn, body: JSON.stringify({ text: "" }) }));
+    assert.equal(invalid.status, 422);
+    const empty = await fetch(new Request("http://localhost:3000/classify", { method: "POST", body: new URLSearchParams({ text: " " }) }));
+    assert.equal(empty.status, 400);
+  });
+}
 
 test("Inferlo routes call the AI and stream to the browser", async () => {
   const { POST, GET } = toTanStackHandlers(makeApp(mock()), { prefix: "/api" });
