@@ -15,6 +15,23 @@ async function dropAll() {
   await ctx.pool.query(`drop table if exists "projects", "session", "account", "verification", "user" cascade`);
 }
 
+/**
+ * Better Auth's pending migrations, read again if another example test drops or changes one of its own tables while
+ * Better Auth (through Kysely) reads the database's tables (42P01 or 42703): the example tests share one test database
+ * and run at the same time.
+ */
+async function pendingMigrations(): Promise<Awaited<ReturnType<typeof getMigrations>>> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await getMigrations(ctx.auth.options);
+    } catch (error) {
+      const code = String((error as { code?: unknown }).code ?? "");
+      if (attempt === 20 || (code !== "42P01" && code !== "42703")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+    }
+  }
+}
+
 function call(path: string, init: { method?: string; headers?: Record<string, string>; json?: unknown } = {}) {
   const headers: Record<string, string> = { ...init.headers };
   if (init.json !== undefined) headers["content-type"] = "application/json";
@@ -32,7 +49,7 @@ before(async () => {
   ctx = makeApp({ databaseUrl: PG_URL, secret: "with-better-auth-example-secret-0123456789abcdef", baseURL: BASE, logger: quiet });
   await dropAll();
   // Better Auth's tables, from its own migrations (npx @better-auth/cli migrate in a real app), then Inferlo's.
-  const { runMigrations } = await getMigrations(ctx.auth.options);
+  const { runMigrations } = await pendingMigrations();
   await runMigrations();
   await ctx.app.db.$sync();
 });
@@ -96,7 +113,7 @@ test("sign-out ends the session for Inferlo routes too", { skip }, async () => {
 });
 
 test("Better Auth's migrations and Inferlo's sync leave each other's tables alone", { skip }, async () => {
-  const pending = await getMigrations(ctx.auth.options);
+  const pending = await pendingMigrations();
   assert.deepEqual(pending.toBeCreated, []);
   assert.deepEqual(pending.toBeAdded, []);
   const statements = await ctx.app.db.$sync({ dryRun: true });
