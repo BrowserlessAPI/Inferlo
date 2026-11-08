@@ -1,0 +1,51 @@
+name: Set up Deno
+description: >-
+  denoland/setup-deno, tried twice, then the same Deno release from the deno package on npm. Deno's builds
+  are downloaded from GitHub releases, which sometimes answer 502 or 504 for minutes at a time; npm serves
+  the same builds, so a CI job tests the Deno version it asked for instead of failing before its first test.
+inputs:
+  deno-version:
+    description: A Deno version such as v2.9.0, or vx.x.x for the newest release.
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: first
+      uses: denoland/setup-deno@v2
+      continue-on-error: true
+      with:
+        deno-version: ${{ inputs.deno-version }}
+    - if: steps.first.outcome == 'failure'
+      shell: bash
+      run: sleep 20
+    - id: second
+      if: steps.first.outcome == 'failure'
+      uses: denoland/setup-deno@v2
+      continue-on-error: true
+      with:
+        deno-version: ${{ inputs.deno-version }}
+    - if: steps.first.outcome == 'failure' && steps.second.outcome == 'failure'
+      shell: bash
+      env:
+        DENO_VERSION: ${{ inputs.deno-version }}
+      run: |
+        version="${DENO_VERSION#v}"
+        if [ "$version" = "x.x.x" ]; then version=latest; fi
+        echo "GitHub release download failed twice; installing deno@${version} from npm"
+        for attempt in 1 2 3; do
+          timeout --kill-after=20 180 npm install --global "deno@${version}" && break
+          if [ "$attempt" = 3 ]; then exit 1; fi
+          sleep 10
+        done
+        echo "$(npm prefix --global)/bin" >> "$GITHUB_PATH"
+    - shell: bash
+      env:
+        DENO_VERSION: ${{ inputs.deno-version }}
+      run: |
+        deno --version
+        expected="${DENO_VERSION#v}"
+        installed="$(deno --version | head -n 1 | cut -d ' ' -f 2)"
+        if [ "$expected" != "x.x.x" ] && [ "$installed" != "$expected" ]; then
+          echo "Expected Deno ${expected}, got ${installed}"
+          exit 1
+        fi

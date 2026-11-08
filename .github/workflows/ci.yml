@@ -170,7 +170,7 @@ jobs:
       - run: node -p "'bullmq ' + require('./node_modules/bullmq/package.json').version"
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/bullmq.test.ts
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
         with:
           bun-version: latest
       - run: bun test test/bullmq.test.ts
@@ -407,7 +407,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
         if: matrix.runtime == 'bun'
         with:
           bun-version: latest
@@ -630,7 +630,7 @@ jobs:
       - run: node -p "'@openai/agents-core ' + require('./node_modules/@openai/agents-core/package.json').version"
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/openai-agents.test.ts
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
         with:
           bun-version: latest
       - run: bun test test/openai-agents.test.ts
@@ -658,7 +658,7 @@ jobs:
       - run: node -p "'graphql ' + require('./node_modules/graphql/package.json').version"
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/graphql.test.ts
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
         with:
           bun-version: latest
       - run: bun test test/graphql.test.ts
@@ -687,7 +687,7 @@ jobs:
       - run: node -p "'@mastra/core ' + require('./node_modules/@mastra/core/package.json').version"
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/mastra.test.ts
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
         with:
           bun-version: latest
       - run: bun test test/mastra.test.ts
@@ -751,7 +751,7 @@ jobs:
       - run: docker logs nats 2>&1 | grep -m1 "Version"
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/nats-events.test.ts
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
         with:
           bun-version: latest
       - run: bun test test/nats-events.test.ts
@@ -789,7 +789,7 @@ jobs:
       - run: docker exec rabbitmq rabbitmqctl version
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/rabbitmq-events.test.ts
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
         with:
           bun-version: latest
       - run: bun test test/rabbitmq-events.test.ts
@@ -1546,7 +1546,7 @@ jobs:
       INFERLO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/inferlo_test
     steps:
       - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
         with:
           bun-version: ${{ matrix.bun }}
       - run: bun --version
@@ -1591,7 +1591,7 @@ jobs:
       # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
       - name: npm ci
         run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
-      - uses: denoland/setup-deno@v2
+      - uses: ./.github/actions/setup-deno
         with:
           deno-version: ${{ matrix.deno }}
       - run: deno --version
