@@ -989,6 +989,34 @@ export const support = route
 - Hosted tools (web search, file search, code interpreter) run only on OpenAI's own models: an agent that uses them with `toOpenAIAgentsModel` raises IL5033, like other invalid arguments.
 - `@openai/agents-core` (installed with `@openai/agents`) is an optional peer dependency; the core package never loads it. Tested with `@openai/agents-core` 0.20.0 and the latest release.
 
+## Mastra
+
+`@browserlessapi/inferlo/mastra` lets [Mastra](https://mastra.ai) agents (`@mastra/core`) run on Inferlo's AI, with any provider Inferlo supports, and use Inferlo tools:
+
+```ts
+import { Agent } from "@mastra/core/agent";
+import { toMastraModel, toMastraTools } from "@browserlessapi/inferlo/mastra";
+
+export const support = route
+  .post("/support", { body: t.object({ question: t.string().max(4000) }), rateLimit: { max: 20, per: "minute" } })
+  .handle(async ({ body, ai, user }) => {
+    const agent = new Agent({
+      id: "support",
+      name: "Support",
+      instructions: "Answer questions about orders. Open a ticket when you cannot help.",
+      model: toMastraModel(ai, { model: "fast", for: user.id }),
+      tools: toMastraTools([getOrder, createTicket], { ai }),
+    });
+    const result = await agent.generate(body.question);
+    return { answer: result.text };
+  });
+```
+
+- **`toMastraModel(ai, { model, for })`** is a language model in the AI SDK's format (specification v2, which every Mastra 1.x release accepts) that calls Inferlo's AI: the alias and its fallback models, budgets (`allow`), usage tracking (`onUsage`, with `for`), tracing and every configured provider (Anthropic, Gemini, Ollama, AI SDK providers). Pass it as an agent's `model`. Mastra runs the agent loop, tools, memory and workflows; `instructions`, `modelSettings.temperature` and `modelSettings.maxOutputTokens` are used, and the result's `usage` counts the tokens. Other model settings (`topP`, `seed`, ...) are not passed on and come back as warnings. Structured output (`agent.generate(input, { structuredOutput: { schema } })`) is asked for in the instructions and the JSON is taken out of the answer, so `result.object` is the parsed object. `agent.stream()` works; the answer arrives as one text chunk. Images in user messages (URLs, base64 or bytes) reach vision models; other files raise IL5034.
+- **`toMastraTools(tools, { ai })`** turns Inferlo function tools (`tool(name, ...).handle(fn)`) into Mastra tools (made with Mastra's `createTool`), keyed by name for an agent's `tools`, with the tool's schema and validation (invalid input goes back to the model as the problem). Routes work too when you pass a request's `ctx.ai`: each call runs as the signed-in user, with the route's auth, permissions, validation and rate limits. Without `ai`, a route raises IL5009. Mastra's own `createTool()` tools work next to them: `tools: { ...toMastraTools([getOrder], { ai }), forecast }`.
+- Provider tools (such as OpenAI's web search) run only on that provider's own models: an agent that uses them with `toMastraModel` raises IL5034, like other invalid arguments.
+- `@mastra/core` is an optional peer dependency; the core package never loads it. Tested with `@mastra/core` 1.0.0 (the first release of Mastra 1) and the latest release, on Node.js, Bun and Deno.
+
 ## Drizzle ORM
 
 An app that already uses [Drizzle](https://orm.drizzle.team) on Postgres can add Inferlo next to it, on the same database, without moving its tables. A tested example is in `examples/with-drizzle`.

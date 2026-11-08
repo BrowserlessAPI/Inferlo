@@ -261,6 +261,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5033
 **Invalid OpenAI Agents SDK arguments.** `toOpenAIAgentsModel(ai, { model, for })` from `@browserlessapi/inferlo/openai-agents` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits with the agent's `modelSettings`); `toOpenAIAgentsTools([...], { ai })` takes Inferlo function tools and routes. Agents that run on `toOpenAIAgentsModel` cannot use OpenAI's hosted tools (web search, file search, code interpreter), which only OpenAI's own models run: use function tools, or give that agent an OpenAI model. See [OpenAI Agents SDK](integrations.md#openai-agents-sdk).
 
+### IL5034
+**Invalid Mastra arguments.** `toMastraModel(ai, { model, for })` from `@browserlessapi/inferlo/mastra` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits with the agent's `modelSettings`); `toMastraTools([...], { ai })` takes an array of Inferlo function tools and routes. Agents that run on `toMastraModel` cannot use provider tools (such as OpenAI's web search), which only that provider's own models run: use function tools, or give that agent the provider's model. Messages can carry images (PNG, JPEG, GIF and WebP) but no other files, and an image given as base64 or bytes needs its media type. See [Mastra](integrations.md#mastra).
+
 ## App configuration (6xxx)
 
 ### IL6001

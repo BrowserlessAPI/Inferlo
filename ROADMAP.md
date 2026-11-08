@@ -122,7 +122,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Sentry: errors from routes, jobs and AI calls reported to `@sentry/node` (or any Sentry SDK) with the request id, user id and route, secrets redacted, through `createApp({ onError })` and `sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry`, tested on `@sentry/node` 9.0.0 and latest
 - [x] BullMQ: `jobQueue: { store: bullmqJobStore(queue, worker) }` runs Inferlo jobs (retries, cron, events, tracing, tenants) on an app's existing BullMQ queues, as a separate entry point, tested on the oldest supported and latest BullMQ and Redis
 - [x] OpenAI Agents SDK and Mastra part 1: OpenAI Agents SDK, `toOpenAIAgentsModel(ai, { model, for })` as an agent's model and `toOpenAIAgentsTools([...], { ai })` for Inferlo tools (routes and `tool()`), so agents get Inferlo's aliases, fallback, budgets and usage tracking, tested on `@openai/agents-core` 0.20.0 and latest
-- [ ] OpenAI Agents SDK and Mastra part 2: Mastra, Inferlo AI aliases as a Mastra model and Inferlo tools as Mastra tools, tested on the oldest supported and latest Mastra
+- [x] OpenAI Agents SDK and Mastra part 2: Mastra, `toMastraModel(ai, { model, for })` as an agent's model and `toMastraTools([...], { ai })` for Inferlo tools (routes and `tool()`), tested on `@mastra/core` 1.0.0 and latest
 
 ### Core
 

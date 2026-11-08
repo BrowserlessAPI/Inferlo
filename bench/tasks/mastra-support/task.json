@@ -1,0 +1,5 @@
+{
+  "title": "Mastra agent on Inferlo's AI with an Inferlo tool",
+  "prompt": "Part of the team builds agents with Mastra (@mastra/core). Create src/routes/support.ts exporting `support`: POST /support with body { question } (a string of at most 4000 characters) that answers { answer } (a string). Also export a function tool `orderStatus` named \"orderStatus\" (description \"Status of an order\") whose input is { orderId } (a string) and which returns { orderId, status: \"shipped\" }. Inside the handler, create a Mastra Agent with id \"support\", name \"Support\" and the instructions \"You answer support questions.\", whose model is the request's Inferlo AI client through Inferlo's Mastra integration, using the \"fast\" alias and tracking usage for the signed-in user, and whose tools are the orderStatus tool through the same integration. Answer with the text of agent.generate() on the question. Register the route module in src/app.ts.",
+  "packages": ["@mastra/core"]
+}

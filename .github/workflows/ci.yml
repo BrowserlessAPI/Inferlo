@@ -609,6 +609,35 @@ jobs:
           bun-version: latest
       - run: bun test test/openai-agents.test.ts
 
+  mastra:
+    name: Mastra (@mastra/core ${{ matrix.mastra }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.0.0 = oldest supported (the first release of Mastra 1, its stable major; Mastra has no long-term
+        # support releases and 0.x gets no more releases), latest = newest release.
+        mastra: ["1.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @mastra/core@${{ matrix.mastra }}
+      - run: node -p "'@mastra/core ' + require('./node_modules/@mastra/core/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/mastra.test.ts
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun test test/mastra.test.ts
+
   standard-schema:
     name: Standard Schema (${{ matrix.versions.name }})
     runs-on: ubuntu-latest
