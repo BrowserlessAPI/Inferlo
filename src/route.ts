@@ -16,6 +16,7 @@ import type { Jobs } from "./jobs.ts";
 import type { AnyModel } from "./model.ts";
 import type { Audit } from "./audit.ts";
 import type { Cache, RouteCache } from "./cache.ts";
+import type { RouteIdempotency } from "./idempotency.ts";
 import type { Storage } from "./storage.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
@@ -97,6 +98,13 @@ export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectS
    * ctx.cache.invalidate(tag). Responses carry an ETag, so clients revalidate with If-None-Match (304).
    */
   cache?: RouteCache;
+  /**
+   * Idempotency keys for POST, PUT, PATCH and DELETE routes: true, or { ttlMs, required }. A request with an
+   * Idempotency-Key header runs once; repeats with the same key (from the same user) get the first answer, with
+   * Idempotent-Replayed: true, for ttlMs (default 24 hours). A repeat while the first still runs answers 409 IL2018,
+   * one with a different body 422 IL2019; with required: true, requests without a key answer 400 IL2017.
+   */
+  idempotency?: true | RouteIdempotency;
 }
 
 type PathParams<P extends string> = P extends `${string}:${infer Param}/${infer Rest}`

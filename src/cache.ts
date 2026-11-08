@@ -52,6 +52,8 @@ export interface Cache {
 export interface CacheStore {
   get(key: string): Promise<string | undefined>;
   set(key: string, json: string, ttlMs: number, tags: readonly string[]): Promise<void>;
+  /** Store the entry only when the key has none (or an expired one), atomically. True when it was stored (idempotency keys). */
+  add(key: string, json: string, ttlMs: number): Promise<boolean>;
   delete(key: string): Promise<void>;
   invalidate(tags: readonly string[]): Promise<void>;
   clear(): Promise<void>;
@@ -184,6 +186,12 @@ export function memoryCacheStore(maxEntries = 10_000, now: () => number = Date.n
         }
       }
     },
+    async add(key, json, ttlMs) {
+      const entry = entries.get(key);
+      if (entry && entry.expiresAt > now()) return false;
+      await this.set(key, json, ttlMs, []);
+      return true;
+    },
     async delete(key) {
       entries.delete(key);
     },
@@ -232,6 +240,16 @@ export function databaseCacheStore(adapter: Adapter): CacheStore {
       );
       // Expired rows are never read; remove them now and then so the table does not grow without bound.
       if (++writes % 100 === 0) await query('DELETE FROM "inferlo_cache" WHERE "expires_at" <= now()');
+    },
+    async add(key, json, ttlMs) {
+      // Inserted, or written over an expired entry; a live entry is left alone (one statement, so it is atomic).
+      const rows = await query(
+        `INSERT INTO "inferlo_cache" ("key", "value", "tags", "expires_at") VALUES ($1, $2, '{}', now() + $3 * interval '1 millisecond')
+         ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "tags" = EXCLUDED."tags", "expires_at" = EXCLUDED."expires_at"
+         WHERE "inferlo_cache"."expires_at" <= now() RETURNING "key"`,
+        [key, json, ttlMs],
+      );
+      return rows.length > 0;
     },
     async delete(key) {
       await query('DELETE FROM "inferlo_cache" WHERE "key" = $1', [key]);

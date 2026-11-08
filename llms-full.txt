@@ -704,6 +704,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `rateLimit` | `{ max, per, by }` to limit requests per user, tenant or IP (see below) |
 | `deprecated` | `true`, or `{ since, sunset, link }` to send deprecation headers (see below) |
 | `cache` | `{ ttlMs, by: "user" \| "public", tags }` to cache a GET route's JSON responses (see [Caching](caching.md#caching-route-responses)) |
+| `idempotency` | `true`, or `{ ttlMs, required }`, so a POST, PUT, PATCH or DELETE request retried with the same `Idempotency-Key` header runs once (see [Idempotency keys](#idempotency-keys)) |
 | `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
@@ -760,6 +761,32 @@ export const summarize = route
 - Counts are kept in memory by default (one process, tests). With several instances, keep them in Postgres: `createApp({ rateLimit: { store: "database" } })` uses the `inferlo_rate_limits` table, created on first use (IL6008 without Postgres). Or keep them in Redis: `createApp({ redis, rateLimit: { store: "redis" } })` (see [Redis](redis.md)).
 - The client IP comes from the server (`app.listen()`, Bun and Deno). Behind a load balancer or proxy, set `createApp({ trustProxy: true })` to use the first `X-Forwarded-For` address; leave it off otherwise, because clients can send that header themselves.
 - Invalid options raise IL6007 when the app starts.
+
+## Idempotency keys
+
+Clients retry requests after a timeout or a dropped connection. For requests that must not happen twice (a payment, an order, a sent email), let the client send an `Idempotency-Key` header and turn on `idempotency`:
+
+```ts
+export const createOrder = route
+  .post("/orders", { body: NewOrder, idempotency: true })   // or { ttlMs: 86_400_000, required: true }
+  .handle(async ({ body, db, status }) => {
+    status(201);
+    return db.orders.create(body);
+  });
+```
+
+```ts
+// Client: a new key per order, the same key when retrying it.
+const key = crypto.randomUUID();
+await fetch("/orders", { method: "POST", headers: { "Idempotency-Key": key, "Content-Type": "application/json" }, body });
+```
+
+- The first request with a key runs the handler. Repeats with the same key on the same route, from the same user, get the first answer (status, headers and body) with `Idempotent-Replayed: true`, without running the handler, for `ttlMs` (default 24 hours, at most 30 days).
+- A repeat that arrives while the first request still runs answers **409** IL2018 (retry it a moment later). A key used again with a different request (another body, query or path) answers **422** IL2019.
+- Errors and 5xx answers release the key, so the client can retry. Answers that set a cookie, event streams (`text/event-stream`) and bodies over 1 MB are not stored: repeats of them answer 409 IL2018.
+- Without the header the request runs as usual; with `required: true` it answers **400** IL2017. Keys are 1 to 255 visible ASCII characters (send a UUID).
+- Keys are kept in the app cache (`createApp({ cache: { store } })`), claimed atomically, so with the database or Redis store a key runs once across every instance. Keys of requests without a user are shared by everyone, so clients must send random keys.
+- The check runs after auth, permissions, rate limits and input validation, so repeats are counted by the rate limit and invalid requests never claim a key. OpenAPI lists the `Idempotency-Key` header. Only POST, PUT, PATCH and DELETE routes take the option; anything else raises IL6058 when the app starts.
 
 ## Deprecating routes
 
@@ -5224,6 +5251,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Access tokens are fully checked.** `jwt({ issuer, audience })` requires the audience, checks the signature with the issuer's keys and the expiry, and never accepts `none` or an algorithm that does not match the key; see [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
 - **Security headers** are sent on every response (below).
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
+- **Retries do not repeat payments.** `idempotency: true` on a POST, PUT, PATCH or DELETE route runs a request with an `Idempotency-Key` header once and answers retries with the first answer; keys belong to one user and answers that set cookies are never replayed (see [Idempotency keys](routes.md#idempotency-keys)).
 - **WebSockets only accept their own origin.** A `route.ws` socket may only be opened from the app's own origin or one listed in `cors.origin` (IL3006), because browsers send cookies with WebSocket upgrades from any page; each message is validated and limited like a request (see [WebSockets](websockets.md)).
 
 ## Security headers
@@ -6064,6 +6092,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2016
 **The response does not match the route's response schema.** Outside production (see `createApp({ validateResponses })`), Inferlo checks each JSON answer of a route with a `response` schema against it, as clients receive it (JSON, dates as ISO strings). A field is missing, has the wrong type, or is not in the schema (object schemas reject unknown fields, which finds fields that should not be sent, such as a password hash). With `"warn"` (the default) the answer is sent and this is logged once per route; with `"error"` the request answers 500 with the field paths in `details`. Return exactly what the schema describes, for example `{ id: row.id, email: row.email, name: row.name }` instead of the whole row, or change the schema. See [Response validation](routes.md#response-validation).
 
+### IL2017
+**Idempotency-Key missing or invalid (400).** The route takes idempotency keys with `required: true` and the request had no `Idempotency-Key` header, or the key is not 1 to 255 visible ASCII characters. Send a new random key (a UUID) with each request, and the same key when you retry it. See [Idempotency keys](routes.md#idempotency-keys).
+
+### IL2018
+**A request with this Idempotency-Key is still running (409).** Another request with the same key, route and user has not finished yet; retry a moment later with the same key. Also answered for repeats of a request whose answer was not stored (it set a cookie, was an event stream or was larger than 1 MB). See [Idempotency keys](routes.md#idempotency-keys).
+
+### IL2019
+**Idempotency-Key reused for a different request (422).** The key was used before on this route by the same user, with another body, query or path. Send a new key for each new request; reuse a key only to retry exactly the same request. See [Idempotency keys](routes.md#idempotency-keys).
+
 ## Auth (3xxx)
 
 ### IL3001
@@ -6404,6 +6441,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6057
 **Invalid `bullmqJobStore()` arguments.** `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq` needs a BullMQ `Queue` and a `Worker` of the same queue created without a processor and with `autorun: false` (`new Worker("inferlo", null, { connection, autorun: false })`), so only Inferlo takes the queue's jobs. See [BullMQ](jobs.md#bullmq).
+
+### IL6058
+**Invalid `idempotency` route option.** `idempotency` takes `true` or `{ ttlMs, required }` (`ttlMs` a whole number of milliseconds from 1000 to 30 days, `required` true or false), on POST, PUT, PATCH and DELETE routes only. See [Idempotency keys](routes.md#idempotency-keys).
 
 ## Environment (7xxx)
 

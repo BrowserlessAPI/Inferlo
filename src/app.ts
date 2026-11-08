@@ -7,6 +7,7 @@ import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
 import { readEnv } from "./env.ts";
 import { checkStorageStore, createStorage, type Storage, type StorageStore } from "./storage.ts";
+import { beginIdempotency, checkRouteIdempotency, IDEMPOTENCY_HEADER } from "./idempotency.ts";
 import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
 import { bindDb, checkTenantId, createDb, guardAdapter, type Db, type TenantScope } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
@@ -517,6 +518,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     }
   }
   for (const r of routes) if (r.options.cache !== undefined) checkRouteCache(r.options.cache, r.method, `${r.method} ${r.path}`);
+  for (const r of routes) if (r.options.idempotency !== undefined) checkRouteIdempotency(r.options.idempotency, r.method, `${r.method} ${r.path}`);
   const requestTimeoutMs = config.requestTimeoutMs === undefined ? 60_000 : checkTimeout(config.requestTimeoutMs, "createApp({ requestTimeoutMs })");
   const validateResponses = resolveValidateResponses(config.validateResponses);
   const warnedResponses = new Set<RouteDef>();
@@ -1138,96 +1140,129 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             return cachedAnswer(JSON.stringify(hit.body), hit.etag);
           }
         }
-        const handlerHeaders: [string, string][] = [];
-
-        let status = 0;
-        const ctx: AnyContext = {
-          body,
-          query,
-          params,
-          user,
-          get db() {
-            // Built on first use: after a timeout, new queries fail with IL2007 instead of running.
-            // Tenant-scoped tables are filtered by the signed-in user's tenant (none without one).
-            return (requestDb ??= bindDb(models, guardAdapter(adapter, timeout.signal), tenantScope(user))) as never;
-          },
-          // ctx.ai and ctx.audit are built on first use too, so routes that do not use them pay nothing.
-          get ai() {
-            const value = toolsFor(req, signal());
-            Object.defineProperty(ctx, "ai", { value, enumerable: true });
-            return value;
-          },
-          get signal() {
-            return signal();
-          },
-          requestId,
-          // With a tenant, jobs and events queued by the request carry it.
-          get jobs() {
-            return tenantQueues().jobs;
-          },
-          get events() {
-            return tenantQueues().events;
-          },
-          cache,
-          storage,
-          get sockets() {
-            return socketHub.forTenant(tenantOf(tenantScope(user)));
-          },
-          req,
-          url,
-          headers: req.headers,
-          state,
-          status: (code: number) => void (status = code),
-          header: (name: string, value: string) => {
-            // Set-Cookie is added, not replaced, so a handler can set several cookies.
-            if (name.toLowerCase() === "set-cookie") headers.append(name, value);
-            else headers.set(name, value);
-            handlerHeaders.push([name.toLowerCase(), value]);
-          },
-          waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e, { requestId }))),
-          get audit() {
-            const value = createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, tenantId: tenantOf(tenantScope(user)), source: `${def.method} ${def.path}`, requestId });
-            Object.defineProperty(ctx, "audit", { value, enumerable: true });
-            return value;
-          },
-        };
-        const result = await def.handler(ctx);
-        if (result instanceof Response) {
+        // Idempotency keys: a repeat of a finished request gets its stored answer instead of running again.
+        const idempotent = opts.idempotency
+          ? await beginIdempotency({
+              store: cacheStore,
+              option: opts.idempotency,
+              method,
+              route: def.path,
+              url,
+              key: req.headers.get(IDEMPOTENCY_HEADER),
+              userId: user?.id,
+              body,
+              runningTtlMs: (limit === false ? 300_000 : limit) + 30_000,
+            })
+          : null;
+        if (idempotent instanceof Response) {
           headers.forEach((v, k) => {
-            if (k !== "set-cookie" && !result.headers.has(k)) result.headers.set(k, v);
+            if (!idempotent.headers.has(k)) idempotent.headers.set(k, v);
           });
-          for (const cookie of headers.getSetCookie()) result.headers.append("set-cookie", cookie);
-          return result;
+          return idempotent;
         }
-        if (result === undefined) return new Response(null, { status: status || 204, headers });
-        if (validateResponses && opts.response && (status || 200) < 300) {
-          const issues = responseIssues(opts.response, result);
-          if (issues) {
-            const where = `${def.method} ${def.path}`;
-            const summary = issues.slice(0, 5).map((i) => `${i.path.length ? i.path.join(".") : "(root)"}: ${i.message}`).join("; ") + (issues.length > 5 ? ` (and ${issues.length - 5} more)` : "");
-            if (validateResponses === "error") {
-              throw new InferloError("IL2016", `${where}: the response does not match the route's response schema. ${summary}`, {
-                expose: true,
-                fix: "Return what the route's response schema describes, or change the schema. Fields not in an object schema count as mismatches, so the check also finds fields that should not be sent.",
-                details: issues.map((i) => ({ path: i.path, code: i.code, message: i.message })),
-              });
-            }
-            if (!warnedResponses.has(def)) {
-              warnedResponses.add(def);
-              logger.error(`IL2016 ${where}: the response does not match the route's response schema (sent anyway; logged once per route). ${summary}`, undefined, { requestId });
+        if (!idempotent) return await answer();
+        let answered: Response;
+        try {
+          answered = await answer();
+        } catch (error) {
+          await idempotent.release().catch((e: unknown) => logger.error("idempotency key: releasing failed", e, { requestId }));
+          throw error;
+        }
+        await idempotent.finish(answered).catch((e: unknown) => logger.error("idempotency key: storing the answer failed", e, { requestId }));
+        return answered;
+
+        async function answer(): Promise<Response> {
+          const handlerHeaders: [string, string][] = [];
+
+          let status = 0;
+          const ctx: AnyContext = {
+            body,
+            query,
+            params,
+            user,
+            get db() {
+              // Built on first use: after a timeout, new queries fail with IL2007 instead of running.
+              // Tenant-scoped tables are filtered by the signed-in user's tenant (none without one).
+              return (requestDb ??= bindDb(models, guardAdapter(adapter, timeout.signal), tenantScope(user))) as never;
+            },
+            // ctx.ai and ctx.audit are built on first use too, so routes that do not use them pay nothing.
+            get ai() {
+              const value = toolsFor(req, signal());
+              Object.defineProperty(ctx, "ai", { value, enumerable: true });
+              return value;
+            },
+            get signal() {
+              return signal();
+            },
+            requestId,
+            // With a tenant, jobs and events queued by the request carry it.
+            get jobs() {
+              return tenantQueues().jobs;
+            },
+            get events() {
+              return tenantQueues().events;
+            },
+            cache,
+            storage,
+            get sockets() {
+              return socketHub.forTenant(tenantOf(tenantScope(user)));
+            },
+            req,
+            url,
+            headers: req.headers,
+            state,
+            status: (code: number) => void (status = code),
+            header: (name: string, value: string) => {
+              // Set-Cookie is added, not replaced, so a handler can set several cookies.
+              if (name.toLowerCase() === "set-cookie") headers.append(name, value);
+              else headers.set(name, value);
+              handlerHeaders.push([name.toLowerCase(), value]);
+            },
+            waitUntil: (p: Promise<unknown>) => void pending.push(p.catch((e) => logger.error("waitUntil task failed", e, { requestId }))),
+            get audit() {
+              const value = createAudit(models, redactor, () => ctx.db as never, { userId: user?.id ?? null, tenantId: tenantOf(tenantScope(user)), source: `${def.method} ${def.path}`, requestId });
+              Object.defineProperty(ctx, "audit", { value, enumerable: true });
+              return value;
+            },
+          };
+          const result = await def.handler(ctx);
+          if (result instanceof Response) {
+            headers.forEach((v, k) => {
+              if (k !== "set-cookie" && !result.headers.has(k)) result.headers.set(k, v);
+            });
+            for (const cookie of headers.getSetCookie()) result.headers.append("set-cookie", cookie);
+            return result;
+          }
+          if (result === undefined) return new Response(null, { status: status || 204, headers });
+          if (validateResponses && opts.response && (status || 200) < 300) {
+            const issues = responseIssues(opts.response, result);
+            if (issues) {
+              const where = `${def.method} ${def.path}`;
+              const summary = issues.slice(0, 5).map((i) => `${i.path.length ? i.path.join(".") : "(root)"}: ${i.message}`).join("; ") + (issues.length > 5 ? ` (and ${issues.length - 5} more)` : "");
+              if (validateResponses === "error") {
+                throw new InferloError("IL2016", `${where}: the response does not match the route's response schema. ${summary}`, {
+                  expose: true,
+                  fix: "Return what the route's response schema describes, or change the schema. Fields not in an object schema count as mismatches, so the check also finds fields that should not be sent.",
+                  details: issues.map((i) => ({ path: i.path, code: i.code, message: i.message })),
+                });
+              }
+              if (!warnedResponses.has(def)) {
+                warnedResponses.add(def);
+                logger.error(`IL2016 ${where}: the response does not match the route's response schema (sent anyway; logged once per route). ${summary}`, undefined, { requestId });
+              }
             }
           }
+          // Only plain 200 JSON answers are cached, never one that sets a cookie.
+          if (cacheKey && (status || 200) === 200 && !handlerHeaders.some(([name]) => name === "set-cookie")) {
+            const body = JSON.stringify(result);
+            const etag = await etagFor(body);
+            await cache.set(cacheKey, { body: JSON.parse(body), headers: handlerHeaders, etag } satisfies CachedResponse, { ttlMs: routeCache!.ttlMs, tags: routeCache!.tags ?? [] });
+            cacheHeaders("MISS", etag);
+            return cachedAnswer(body, etag);
+          }
+          const response = json(result, status || 200, headers);
+          return method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;
         }
-        // Only plain 200 JSON answers are cached, never one that sets a cookie.
-        if (cacheKey && (status || 200) === 200 && !handlerHeaders.some(([name]) => name === "set-cookie")) {
-          const body = JSON.stringify(result);
-          const etag = await etagFor(body);
-          await cache.set(cacheKey, { body: JSON.parse(body), headers: handlerHeaders, etag } satisfies CachedResponse, { ttlMs: routeCache!.ttlMs, tags: routeCache!.tags ?? [] });
-          cacheHeaders("MISS", etag);
-          return cachedAnswer(body, etag);
-        }
-        const response = json(result, status || 200, headers);
-        return method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;
       };
       if (limit === false) return await run();
       let timer: ReturnType<typeof setTimeout> | undefined;

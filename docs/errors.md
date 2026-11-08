@@ -78,6 +78,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2016
 **The response does not match the route's response schema.** Outside production (see `createApp({ validateResponses })`), Inferlo checks each JSON answer of a route with a `response` schema against it, as clients receive it (JSON, dates as ISO strings). A field is missing, has the wrong type, or is not in the schema (object schemas reject unknown fields, which finds fields that should not be sent, such as a password hash). With `"warn"` (the default) the answer is sent and this is logged once per route; with `"error"` the request answers 500 with the field paths in `details`. Return exactly what the schema describes, for example `{ id: row.id, email: row.email, name: row.name }` instead of the whole row, or change the schema. See [Response validation](routes.md#response-validation).
 
+### IL2017
+**Idempotency-Key missing or invalid (400).** The route takes idempotency keys with `required: true` and the request had no `Idempotency-Key` header, or the key is not 1 to 255 visible ASCII characters. Send a new random key (a UUID) with each request, and the same key when you retry it. See [Idempotency keys](routes.md#idempotency-keys).
+
+### IL2018
+**A request with this Idempotency-Key is still running (409).** Another request with the same key, route and user has not finished yet; retry a moment later with the same key. Also answered for repeats of a request whose answer was not stored (it set a cookie, was an event stream or was larger than 1 MB). See [Idempotency keys](routes.md#idempotency-keys).
+
+### IL2019
+**Idempotency-Key reused for a different request (422).** The key was used before on this route by the same user, with another body, query or path. Send a new key for each new request; reuse a key only to retry exactly the same request. See [Idempotency keys](routes.md#idempotency-keys).
+
 ## Auth (3xxx)
 
 ### IL3001
@@ -418,6 +427,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6057
 **Invalid `bullmqJobStore()` arguments.** `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq` needs a BullMQ `Queue` and a `Worker` of the same queue created without a processor and with `autorun: false` (`new Worker("inferlo", null, { connection, autorun: false })`), so only Inferlo takes the queue's jobs. See [BullMQ](jobs.md#bullmq).
+
+### IL6058
+**Invalid `idempotency` route option.** `idempotency` takes `true` or `{ ttlMs, required }` (`ttlMs` a whole number of milliseconds from 1000 to 30 days, `required` true or false), on POST, PUT, PATCH and DELETE routes only. See [Idempotency keys](routes.md#idempotency-keys).
 
 ## Environment (7xxx)
 

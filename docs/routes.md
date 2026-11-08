@@ -32,6 +32,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `rateLimit` | `{ max, per, by }` to limit requests per user, tenant or IP (see below) |
 | `deprecated` | `true`, or `{ since, sunset, link }` to send deprecation headers (see below) |
 | `cache` | `{ ttlMs, by: "user" \| "public", tags }` to cache a GET route's JSON responses (see [Caching](caching.md#caching-route-responses)) |
+| `idempotency` | `true`, or `{ ttlMs, required }`, so a POST, PUT, PATCH or DELETE request retried with the same `Idempotency-Key` header runs once (see [Idempotency keys](#idempotency-keys)) |
 | `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
@@ -88,6 +89,32 @@ export const summarize = route
 - Counts are kept in memory by default (one process, tests). With several instances, keep them in Postgres: `createApp({ rateLimit: { store: "database" } })` uses the `inferlo_rate_limits` table, created on first use (IL6008 without Postgres). Or keep them in Redis: `createApp({ redis, rateLimit: { store: "redis" } })` (see [Redis](redis.md)).
 - The client IP comes from the server (`app.listen()`, Bun and Deno). Behind a load balancer or proxy, set `createApp({ trustProxy: true })` to use the first `X-Forwarded-For` address; leave it off otherwise, because clients can send that header themselves.
 - Invalid options raise IL6007 when the app starts.
+
+## Idempotency keys
+
+Clients retry requests after a timeout or a dropped connection. For requests that must not happen twice (a payment, an order, a sent email), let the client send an `Idempotency-Key` header and turn on `idempotency`:
+
+```ts
+export const createOrder = route
+  .post("/orders", { body: NewOrder, idempotency: true })   // or { ttlMs: 86_400_000, required: true }
+  .handle(async ({ body, db, status }) => {
+    status(201);
+    return db.orders.create(body);
+  });
+```
+
+```ts
+// Client: a new key per order, the same key when retrying it.
+const key = crypto.randomUUID();
+await fetch("/orders", { method: "POST", headers: { "Idempotency-Key": key, "Content-Type": "application/json" }, body });
+```
+
+- The first request with a key runs the handler. Repeats with the same key on the same route, from the same user, get the first answer (status, headers and body) with `Idempotent-Replayed: true`, without running the handler, for `ttlMs` (default 24 hours, at most 30 days).
+- A repeat that arrives while the first request still runs answers **409** IL2018 (retry it a moment later). A key used again with a different request (another body, query or path) answers **422** IL2019.
+- Errors and 5xx answers release the key, so the client can retry. Answers that set a cookie, event streams (`text/event-stream`) and bodies over 1 MB are not stored: repeats of them answer 409 IL2018.
+- Without the header the request runs as usual; with `required: true` it answers **400** IL2017. Keys are 1 to 255 visible ASCII characters (send a UUID).
+- Keys are kept in the app cache (`createApp({ cache: { store } })`), claimed atomically, so with the database or Redis store a key runs once across every instance. Keys of requests without a user are shared by everyone, so clients must send random keys.
+- The check runs after auth, permissions, rate limits and input validation, so repeats are counted by the rate limit and invalid requests never claim a key. OpenAPI lists the `Idempotency-Key` header. Only POST, PUT, PATCH and DELETE routes take the option; anything else raises IL6058 when the app starts.
 
 ## Deprecating routes
 

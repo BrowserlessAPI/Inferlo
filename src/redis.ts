@@ -96,6 +96,10 @@ export function redisCacheStore(client: RedisClient, prefix: string): CacheStore
       const keys = [entry(key), ...tags.map(tag)];
       await client.sendCommand(["EVAL", SET_ENTRY, String(keys.length), ...keys, json, String(ttlMs)]);
     },
+    async add(key, json, ttlMs) {
+      const reply = await client.sendCommand(["SET", entry(key), json, "PX", String(ttlMs), "NX"]);
+      return reply !== null && reply !== undefined;
+    },
     async delete(key) {
       await client.sendCommand(["DEL", entry(key)]);
     },

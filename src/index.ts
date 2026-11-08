@@ -80,6 +80,7 @@ export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, Jo
 export { AuditLog, auditChanges } from "./audit.ts";
 export type { Audit, AuditEntry, AuditChange } from "./audit.ts";
 export type { Cache, CacheConfig, CacheSetOptions, RouteCache } from "./cache.ts";
+export type { RouteIdempotency } from "./idempotency.ts";
 export { memoryStorage } from "./storage.ts";
 export type { Storage, StorageStore, StoredFile, StoragePutOptions, StorageUrlOptions } from "./storage.ts";
 export { diskStorage } from "./disk-storage.ts";

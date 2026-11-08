@@ -16,6 +16,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Access tokens are fully checked.** `jwt({ issuer, audience })` requires the audience, checks the signature with the issuer's keys and the expiry, and never accepts `none` or an algorithm that does not match the key; see [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
 - **Security headers** are sent on every response (below).
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
+- **Retries do not repeat payments.** `idempotency: true` on a POST, PUT, PATCH or DELETE route runs a request with an `Idempotency-Key` header once and answers retries with the first answer; keys belong to one user and answers that set cookies are never replayed (see [Idempotency keys](routes.md#idempotency-keys)).
 - **WebSockets only accept their own origin.** A `route.ws` socket may only be opened from the app's own origin or one listed in `cors.origin` (IL3006), because browsers send cookies with WebSocket upgrades from any page; each message is validated and limited like a request (see [WebSockets](websockets.md)).
 
 ## Security headers

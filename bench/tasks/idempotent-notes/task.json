@@ -1,0 +1,4 @@
+{
+  "title": "Safe retries with idempotency keys",
+  "prompt": "Mobile clients retry POST /notes when the network drops, which creates duplicate notes. Clients will send an Idempotency-Key header (a new UUID per note, the same one on retries). Make a retried POST /notes with the same key create the note only once and answer with the first response. Requests without the header must keep working as before."
+}

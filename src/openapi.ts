@@ -55,6 +55,15 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
         parameters.push({ name, in: "query", required: required.has(name), schema });
       }
     }
+    if (o.idempotency) {
+      parameters.push({
+        name: "Idempotency-Key",
+        in: "header",
+        required: o.idempotency !== true && o.idempotency.required === true,
+        description: "A new random key (a UUID) per request, sent again when the request is retried: repeats get the first answer.",
+        schema: { type: "string", minLength: 1, maxLength: 255 },
+      });
+    }
     const isPublic = (o.auth ?? "user") === "public";
     const operation: Record<string, unknown> = {
       operationId: route.name ?? toolName(route),
@@ -71,6 +80,12 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
         ...(o.permission ? { "403": { description: `Needs the "${o.permission}" permission (IL3004)`, content: { "application/json": { schema: errorSchema } } } } : {}),
         ...(o.rateLimit
           ? { "429": { description: `Too many requests (IL2005): ${o.rateLimit.max} per ${o.rateLimit.per} per ${o.rateLimit.by ?? "user"}`, content: { "application/json": { schema: errorSchema } } } }
+          : {}),
+        ...(o.idempotency
+          ? {
+              "409": { description: "A request with this Idempotency-Key is still running (IL2018)", content: { "application/json": { schema: errorSchema } } },
+              ...(o.body || o.query || o.params ? {} : { "422": { description: "Idempotency-Key reused for a different request (IL2019)", content: { "application/json": { schema: errorSchema } } } }),
+            }
           : {}),
       },
       security: !isPublic && options.auth ? [{ bearerAuth: [] }] : undefined,
