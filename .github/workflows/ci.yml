@@ -609,6 +609,34 @@ jobs:
           bun-version: latest
       - run: bun test test/openai-agents.test.ts
 
+  graphql:
+    name: GraphQL (graphql ${{ matrix.graphql }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 16 = oldest supported (newest 16.x: graphql-js 16 still gets releases next to 17), latest = newest release.
+        graphql: ["16", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save graphql@${{ matrix.graphql }}
+      - run: node -p "'graphql ' + require('./node_modules/graphql/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/graphql.test.ts
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun test test/graphql.test.ts
+
   mastra:
     name: Mastra (@mastra/core ${{ matrix.mastra }})
     runs-on: ubuntu-latest

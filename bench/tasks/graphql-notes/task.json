@@ -1,0 +1,5 @@
+{
+  "title": "GraphQL API over the notes routes",
+  "prompt": "Clients want a GraphQL API next to the REST routes. Create src/routes/graphql.ts exporting `graphql`: a GraphQL endpoint at POST /graphql made with Inferlo's GraphQL integration, with the query fields `notes` (the listNotes route) and `note` (the getNote route) and the mutation field `createNote` (the createNote route), that refuses introspection queries. Give listNotes, getNote and createNote a response schema so clients can select fields: the note row (an array of rows for listNotes). Register the route module in src/app.ts.",
+  "packages": ["graphql"]
+}

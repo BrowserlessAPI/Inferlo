@@ -87,6 +87,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2019
 **Idempotency-Key reused for a different request (422).** The key was used before on this route by the same user, with another body, query or path. Send a new key for each new request; reuse a key only to retry exactly the same request. See [Idempotency keys](routes.md#idempotency-keys).
 
+### IL2020
+**Too many top-level GraphQL fields.** The GraphQL operation asks for more top-level fields (aliases and fragments included) than the endpoint's `maxFields` (default 20). Each top-level field runs a route, so split the work over several requests, or raise `graphqlRoute({ maxFields })`. Answered as a GraphQL error. See [GraphQL](graphql.md#limits).
+
 ## Auth (3xxx)
 
 ### IL3001
@@ -436,6 +439,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6058
 **Invalid `idempotency` route option.** `idempotency` takes `true` or `{ ttlMs, required }` (`ttlMs` a whole number of milliseconds from 1000 to 30 days, `required` true or false), on POST, PUT, PATCH and DELETE routes only. See [Idempotency keys](routes.md#idempotency-keys).
+
+### IL6059
+**Invalid `graphqlRoute()` options.** `graphqlRoute({ query, mutation, path, auth, rateLimit, introspection, maxFields })` from `@browserlessapi/inferlo/graphql` needs `query` with at least one field; `query` and `mutation` map GraphQL field names (letters, digits and underscores, not starting with `__`) to HTTP routes made with `route.get(...)` and the other methods, whose params, query and body field names are valid GraphQL names too. `path` is a fixed path starting with `/`, `maxFields` a whole number above 0 and `introspection` true or false. Also the code of a GraphQL error when a schema from `graphqlSchema()` is executed outside `graphqlRoute()`. See [GraphQL](graphql.md).
 
 ## Environment (7xxx)
 
