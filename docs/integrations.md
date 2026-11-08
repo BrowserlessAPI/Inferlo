@@ -962,6 +962,33 @@ export const assistant = route
 - `bindTools` also takes LangChain tools and OpenAI-style tool definitions.
 - `@langchain/core` is an optional peer dependency: install it (and `langchain` or `@langchain/langgraph` for agents) in your app. The core package never loads it. Tested with `@langchain/core` 0.3 (newest 0.3.x, maintained until December 2026) and the latest release (1.x). Invalid arguments raise IL5030.
 
+## OpenAI Agents SDK
+
+`@browserlessapi/inferlo/openai-agents` lets agents built with the [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/) (`@openai/agents`) run on Inferlo's AI, with any provider Inferlo supports, and use Inferlo tools:
+
+```ts
+import { Agent, run } from "@openai/agents";
+import { toOpenAIAgentsModel, toOpenAIAgentsTools } from "@browserlessapi/inferlo/openai-agents";
+
+export const support = route
+  .post("/support", { body: t.object({ question: t.string().max(4000) }), rateLimit: { max: 20, per: "minute" } })
+  .handle(async ({ body, ai, user }) => {
+    const agent = new Agent({
+      name: "Support",
+      instructions: "Answer questions about orders. Open a ticket when you cannot help.",
+      model: toOpenAIAgentsModel(ai, { model: "fast", for: user.id }),
+      tools: toOpenAIAgentsTools([getOrder, createTicket], { ai }),
+    });
+    const result = await run(agent, body.question);
+    return { answer: result.finalOutput };
+  });
+```
+
+- **`toOpenAIAgentsModel(ai, { model, for })`** is an Agents SDK `Model` that calls Inferlo's AI: the alias and its fallback models, budgets (`allow`), usage tracking (`onUsage`, with `for`), tracing and every configured provider (Anthropic, Gemini, Ollama, AI SDK providers). Pass it as an agent's `model`. The Agents SDK runs the agent loop, tools, handoffs (they reach the model as tools) and guardrails; `instructions`, `modelSettings.temperature` and `modelSettings.maxTokens` are used, and the run's `usage` counts the tokens. A JSON schema `outputType` is asked for in the instructions and the JSON is taken out of the answer, so `finalOutput` is the parsed object. Streamed runs (`run(agent, input, { stream: true })`) work; the answer arrives as one text chunk. Images in user input (`input_image` with a URL or a data URL) reach vision models.
+- **`toOpenAIAgentsTools(tools, { ai })`** turns Inferlo function tools (`tool(name, ...).handle(fn)`) into Agents SDK function tools, with the tool's schema and validation (invalid input goes back to the model as the problem). Routes work too when you pass a request's `ctx.ai`: each call runs as the signed-in user, with the route's auth, permissions, validation and rate limits. Without `ai`, a route raises IL5009. The Agents SDK's own `tool()` functions work next to them.
+- Hosted tools (web search, file search, code interpreter) run only on OpenAI's own models: an agent that uses them with `toOpenAIAgentsModel` raises IL5033, like other invalid arguments.
+- `@openai/agents-core` (installed with `@openai/agents`) is an optional peer dependency; the core package never loads it. Tested with `@openai/agents-core` 0.20.0 and the latest release.
+
 ## Drizzle ORM
 
 An app that already uses [Drizzle](https://orm.drizzle.team) on Postgres can add Inferlo next to it, on the same database, without moving its tables. A tested example is in `examples/with-drizzle`.

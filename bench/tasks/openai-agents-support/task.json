@@ -1,0 +1,5 @@
+{
+  "title": "OpenAI Agents SDK agent on Inferlo's AI",
+  "prompt": "Part of the team builds agents with the OpenAI Agents SDK (@openai/agents-core). Create src/routes/support.ts exporting `support`: POST /support with body { question } (a string of at most 4000 characters) that answers { answer } (a string). Inside the handler, create an Agent named \"Support\" with the instructions \"You answer support questions.\" whose model is the request's Inferlo AI client through Inferlo's OpenAI Agents SDK integration, using the \"fast\" alias and tracking usage for the signed-in user, and run it on the question with run() from @openai/agents-core. Register the route module in src/app.ts.",
+  "packages": ["@openai/agents-core"]
+}

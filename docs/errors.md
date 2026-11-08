@@ -258,6 +258,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5032
 **Invalid structured output schema.** `ai.generate({ output })` takes an Inferlo schema (`t.object({ ... })`) or a [Standard Schema](https://standardschema.dev) that implements Standard JSON Schema, because the model must be shown the shape: `z.object({ ... })` from zod 4.2 or later, `type({ ... })` from arktype 2.1.28 or later, or `toStandardJsonSchema(v.object({ ... }))` from `@valibot/to-json-schema` 1.5 or later (a plain Valibot schema has no JSON Schema). The schema must be expressible as JSON Schema: no dates as `Date` objects (use strings), functions or input-side transforms. The call is rejected before any model is called. See [Zod, Valibot and ArkType schemas](ai.md#zod-valibot-and-arktype-schemas).
 
+### IL5033
+**Invalid OpenAI Agents SDK arguments.** `toOpenAIAgentsModel(ai, { model, for })` from `@browserlessapi/inferlo/openai-agents` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits with the agent's `modelSettings`); `toOpenAIAgentsTools([...], { ai })` takes Inferlo function tools and routes. Agents that run on `toOpenAIAgentsModel` cannot use OpenAI's hosted tools (web search, file search, code interpreter), which only OpenAI's own models run: use function tools, or give that agent an OpenAI model. See [OpenAI Agents SDK](integrations.md#openai-agents-sdk).
+
 ## App configuration (6xxx)
 
 ### IL6001

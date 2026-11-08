@@ -580,6 +580,35 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/langchain.test.ts
 
+  openai-agents:
+    name: OpenAI Agents SDK (@openai/agents-core ${{ matrix.agents }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0.20.0 = oldest supported (the Agents SDK has no long-term support releases and fixes only its newest
+        # release; 0.20.0, October 2026, starts the minor line before the current one), latest = newest release.
+        agents: ["0.20.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @openai/agents-core@${{ matrix.agents }}
+      - run: node -p "'@openai/agents-core ' + require('./node_modules/@openai/agents-core/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/openai-agents.test.ts
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun test test/openai-agents.test.ts
+
   standard-schema:
     name: Standard Schema (${{ matrix.versions.name }})
     runs-on: ubuntu-latest
