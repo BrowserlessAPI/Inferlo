@@ -2,7 +2,7 @@
 // response schema outside production, so a missing, wrong or leaked field shows up while developing.
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { createApp, InferloError, route, setEnv, t } from "../src/index.ts";
+import { createApp, InferloError, memory, model, route, setEnv, t } from "../src/index.ts";
 
 const Note = t.object({ id: t.int(), title: t.string(), createdAt: t.date() });
 
@@ -135,4 +135,69 @@ describe("response validation", () => {
     assert.equal((await app.request("/c")).status, 500, "nothing was cached");
     assert.deepEqual(lines.filter((l) => l.message.startsWith("IL2016")), []);
   });
+});
+
+describe("response validation with model rows", () => {
+  // Regression: the fields Inferlo sets (id, createdAt, updatedAt, tenantId) are refused in input, and the same
+  // rule made every answer of a route with response: Model.row fail the check (IL2016, or 500 with "error").
+  const Ticket = model("tickets", { title: t.string().max(50) });
+  const Shared = model("shared_notes", { title: t.string() }, { tenant: true });
+
+  test("a row, a list of rows and a tenant-scoped row match their row schemas", async () => {
+    const { lines, logger } = capture();
+    const app = createApp({
+      models: [Ticket, Shared],
+      db: memory(),
+      logger,
+      validateResponses: "error",
+      auth: { resolve: () => ({ id: "u1", tenantId: "acme" }) },
+      routes: [
+        {
+          create: route.post("/tickets", { body: Ticket.create, response: Ticket.row }).handle(({ db, body }) => db.tickets!.insert(body)),
+          list: route.get("/tickets", { response: t.array(Ticket.row) }).handle(({ db }) => db.tickets!.findMany()),
+          shared: route.post("/shared", { body: Shared.create, response: Shared.row }).handle(({ db, body }) => db.shared_notes!.insert(body)),
+        },
+      ],
+    });
+    const created = await app.request("/tickets", { method: "POST", json: { title: "Broken login" } });
+    assert.equal(created.status, 200, await created.clone().text());
+    assert.equal(((await created.json()) as { title: string }).title, "Broken login");
+    assert.equal((await app.request("/tickets")).status, 200);
+    const shared = await app.request("/shared", { method: "POST", json: { title: "Plan" } });
+    assert.equal(shared.status, 200, await shared.clone().text());
+    assert.equal(((await shared.json()) as { tenantId: string }).tenantId, "acme");
+    assert.deepEqual(lines, []);
+  });
+
+  test("the fields Inferlo sets are still refused in request bodies", async () => {
+    const app = createApp({
+      models: [Ticket],
+      db: memory(),
+      routes: [{ create: route.post("/tickets", { auth: "public", body: Ticket.row }).handle(() => ({ ok: true })) }],
+    });
+    const res = await app.request("/tickets", { method: "POST", json: { id: "6f9619ff-8b86-4d01-b42d-00cf4fc964ff", title: "x", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" } });
+    assert.equal(res.status, 422);
+    assert.match(await res.text(), /set by the framework/);
+  });
+});
+
+test("null in an optional field of a row is accepted in answers, and still refused in request bodies", async () => {
+  const Doc = model("docs", { title: t.string(), note: t.string().optional(), meta: t.json().optional() });
+  const { lines, logger } = capture();
+  const app = createApp({
+    models: [Doc],
+    db: memory(),
+    logger,
+    validateResponses: "error",
+    routes: [
+      {
+        create: route.post("/docs", { auth: "public", body: Doc.create, response: Doc.row }).handle(({ db, body }) => db.docs!.insert(body)),
+      },
+    ],
+  });
+  const created = await app.request("/docs", { method: "POST", json: { title: "Plan" } });
+  assert.equal(created.status, 200, await created.clone().text());
+  assert.deepEqual(lines, []);
+  const refused = await app.request("/docs", { method: "POST", json: { title: "Plan", note: null } });
+  assert.equal(refused.status, 422);
 });

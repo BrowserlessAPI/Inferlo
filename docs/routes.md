@@ -202,6 +202,7 @@ export const me = route.get("/me", { response: Profile }).handle(async ({ db, us
 - `createApp({ validateResponses })`: `"warn"` (the default, unless the environment is production) sends the answer and logs `IL2016 GET /me: the response does not match ...` with the mismatched fields, once per route; `"error"` answers 500 IL2016 with the fields in `details` instead, for tests; `false` turns the check off.
 - The environment is `INFERLO_ENV`, then `NODE_ENV`; with `"production"` the default is `false`, so production pays nothing for the check.
 - The answer is checked as clients receive it (JSON, so dates are ISO strings), only for 2xx JSON answers of routes with a `response` schema. `Response` objects, empty (204) answers and errors are not checked. Values are never logged or sent, only field paths and what was expected.
+- A model's row schema matches the rows it returns: `response: Ticket.row` (or `t.array(Ticket.row)`) accepts the fields Inferlo sets (`id`, `createdAt`, `updatedAt`, `tenantId`), which request bodies may never send, and `null` in `.optional()` fields, which rows have for columns left out.
 - Invalid `validateResponses` values raise IL6040 when the app starts.
 
 ## Errors

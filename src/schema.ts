@@ -64,6 +64,25 @@ export interface ParseOptions {
   coerce?: boolean;
 }
 
+/**
+ * Internal options of check(). output: the value is an answer, so the fields Inferlo sets (id, createdAt, ...) are
+ * allowed, and null is allowed for optional fields (rows have null in optional columns that were left out).
+ */
+interface CheckOptions extends ParseOptions {
+  output?: boolean;
+}
+
+/**
+ * Issues of an answer against a route's response schema (createApp({ validateResponses })). Unlike parse, the fields
+ * Inferlo sets (id, createdAt, updatedAt, tenantId) are allowed and optional fields may be null, so a model's row
+ * schema matches its rows. Internal.
+ */
+export function responseIssues(schema: AnySchema, value: unknown): Issue[] {
+  const issues: Issue[] = [];
+  check(schema, value, [], issues, { output: true });
+  return issues;
+}
+
 export class ValidationError extends InferloError {
   readonly issues: Issue[];
   constructor(issues: Issue[], where = "input") {
@@ -378,7 +397,7 @@ function coerceValue(kind: Kind, value: unknown): unknown {
   return value;
 }
 
-function check(schema: AnySchema, raw: unknown, path: (string | number)[], issues: Issue[], options: ParseOptions): unknown {
+function check(schema: AnySchema, raw: unknown, path: (string | number)[], issues: Issue[], options: CheckOptions): unknown {
   const def = schema.def;
   let value = raw;
 
@@ -392,7 +411,8 @@ function check(schema: AnySchema, raw: unknown, path: (string | number)[], issue
     return undefined;
   }
   if (value === null) {
-    if (def.nullable) return null;
+    // Rows have null in optional columns that were left out, so answers may have null where the schema allows undefined.
+    if (def.nullable || (options.output && def.optional)) return null;
     issues.push({ path, code: "invalid_type", message: "Expected a value, got null." });
     return undefined;
   }
@@ -490,7 +510,7 @@ function check(schema: AnySchema, raw: unknown, path: (string | number)[], issue
       const input = value as Record<string, unknown>;
       const out: Record<string, unknown> = {};
       for (const [key, field] of Object.entries(shape)) {
-        if (field.def.system && input[key] !== undefined) {
+        if (field.def.system && input[key] !== undefined && !options.output) {
           issues.push({ path: [...path, key], code: "read_only", message: `"${key}" is set by the framework and cannot be sent.` });
           continue;
         }

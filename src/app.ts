@@ -30,7 +30,7 @@ import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobQueueNa
 import { checkEventsConfig, invalidTransport, type AppEvents, type Events, type EventsConfig, type EventTransport } from "./events.ts";
 import { redisEventTransport } from "./redis-events.ts";
 import type { Server } from "./serve.ts";
-import { Schema, ValidationError, type AnySchema, type Issue } from "./schema.ts";
+import { responseIssues, Schema, ValidationError, type AnySchema, type Issue } from "./schema.ts";
 import { createRedactor, redactingLogger, redactValues, secretsOf } from "./redact.ts";
 import { checkLogger, defaultLogger, loggingOptions, REQUEST_ID, type ErrorInfo, type LogFields, type LoggingConfig, type OnError } from "./logging.ts";
 import { clientTracing, jobTracing, requestTracing, traceAdapter, traceFields, type OtelSpan, type TracingConfig } from "./tracing.ts";
@@ -1239,7 +1239,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           }
           if (result === undefined) return new Response(null, { status: status || 204, headers });
           if (validateResponses && opts.response && (status || 200) < 300) {
-            const issues = responseIssues(opts.response, result);
+            const issues = answerIssues(opts.response, result);
             if (issues) {
               const where = `${def.method} ${def.path}`;
               const summary = issues.slice(0, 5).map((i) => `${i.path.length ? i.path.join(".") : "(root)"}: ${i.message}`).join("; ") + (issues.length > 5 ? ` (and ${issues.length - 5} more)` : "");
@@ -1605,13 +1605,13 @@ function resolveValidateResponses(value: "warn" | "error" | false | undefined): 
 }
 
 /** The issues of the answer as clients receive it (JSON), or undefined when it matches. */
-function responseIssues(schema: AnySchema, result: unknown): Issue[] | undefined {
+function answerIssues(schema: AnySchema, result: unknown): Issue[] | undefined {
   let sent: unknown;
   try {
     sent = JSON.parse(JSON.stringify(result));
   } catch {
     return undefined; // Not JSON: the answer itself fails with its own error.
   }
-  const parsed = schema.safeParse(sent);
-  return parsed.ok ? undefined : parsed.issues;
+  const issues = responseIssues(schema, sent);
+  return issues.length ? issues : undefined;
 }
