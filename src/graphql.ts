@@ -47,8 +47,11 @@ import {
 } from "graphql";
 import { routeToolsOf } from "./ai/index.ts";
 import { InferloError } from "./errors.ts";
+import type { App } from "./app.ts";
+import { clientIps } from "./client-ip.ts";
 import { graphqlEndpoints } from "./graphql-info.ts";
 import { toolDefinition } from "./mcp.ts";
+import { requestRunner } from "./request-runner.ts";
 import { route, type Auth, type RouteDef } from "./route.ts";
 import type { RateLimit } from "./rate-limit.ts";
 import { t } from "./schema.ts";
@@ -74,9 +77,18 @@ export interface GraphQLRouteOptions {
 }
 
 type JSONSchema = Record<string, any>;
-interface FieldContext {
-  run: (route: RouteDef, input: unknown) => Promise<{ status: number; output: unknown; text: string }>;
+
+/**
+ * The context graphqlContext(app, request) returns, for GraphQL Yoga and other GraphQL servers that execute a schema
+ * from graphqlSchema(). Fields read it to run their routes as the caller of the request.
+ */
+export interface GraphQLContext {
+  readonly inferlo: {
+    /** Runs a field's route with the credentials of the request. */
+    run(route: RouteDef, input: unknown): Promise<{ status: number; output: unknown; text: string }>;
+  };
 }
+type FieldContext = GraphQLContext["inferlo"];
 
 const NAME = /^[_A-Za-z][_0-9A-Za-z]*$/;
 const invalid = (message: string, fix: string) => new InferloError("IL6059", message, { fix });
@@ -223,7 +235,7 @@ function checkFields(kind: "query" | "mutation", fields: unknown): asserts field
   }
 }
 
-function fieldConfig(name: string, r: RouteDef, types: TypeBuilder, kind: "query" | "mutation"): GraphQLFieldConfig<unknown, FieldContext> {
+function fieldConfig(name: string, r: RouteDef, types: TypeBuilder, kind: "query" | "mutation"): GraphQLFieldConfig<unknown, unknown> {
   const definition = toolDefinition(r);
   const input = definition.inputSchema as JSONSchema;
   const required = new Set<string>(input.required ?? []);
@@ -240,12 +252,13 @@ function fieldConfig(name: string, r: RouteDef, types: TypeBuilder, kind: "query
     ...(o.deprecated ? { deprecationReason: typeof o.deprecated === "object" && o.deprecated.sunset ? `Stops working on ${String(o.deprecated.sunset)}.` : "Deprecated." } : {}),
     args,
     resolve: async (_source, values, context) => {
-      if (!context || typeof context.run !== "function") {
-        throw new GraphQLError("Inferlo GraphQL fields run only through graphqlRoute().", { extensions: { code: "IL6059" } });
+      const runner = (context as Partial<GraphQLContext> | null | undefined)?.inferlo;
+      if (!runner || typeof runner.run !== "function") {
+        throw new GraphQLError("Inferlo GraphQL fields run only through graphqlRoute(), or with graphqlContext(app, request) as the context.", { extensions: { code: "IL6059" } });
       }
       let result: Awaited<ReturnType<FieldContext["run"]>>;
       try {
-        result = await context.run(r, plain(values));
+        result = await runner.run(r, plain(values));
       } catch (error) {
         if (error instanceof GraphQLError) throw error;
         // Client errors keep their message; server errors (such as IL5011 for a route that is not registered with the
@@ -373,11 +386,13 @@ export function graphqlRoute(options: GraphQLRouteOptions): RouteDef {
       return format({ errors: [new GraphQLError("variables must be an object.", { extensions: { code: "IL1001" } })] });
     }
     const tools = routeToolsOf(ai);
-    const context: FieldContext = {
-      run: (r, input) => {
-        if (!tools) throw new GraphQLError("GraphQL fields need the request's context.", { extensions: { code: "IL6059" } });
-        if (signal.aborted) throw new GraphQLError("The request was cancelled.", { extensions: { code: "IL2007" } });
-        return tools.runner(r, input);
+    const context: GraphQLContext = {
+      inferlo: {
+        run: (r, input) => {
+          if (!tools) throw new GraphQLError("GraphQL fields need the request's context.", { extensions: { code: "IL6059" } });
+          if (signal.aborted) throw new GraphQLError("The request was cancelled.", { extensions: { code: "IL2007" } });
+          return tools.runner(r, input);
+        },
       },
     };
     return format(await execute({ schema, document, variableValues: variables, operationName: body.operationName, contextValue: context }));
@@ -385,4 +400,59 @@ export function graphqlRoute(options: GraphQLRouteOptions): RouteDef {
   // describe() and OpenAPI list the endpoint's fields and the routes behind them.
   graphqlEndpoints.set(endpoint.handler, { query: { ...options.query }, mutation: { ...(options.mutation ?? {}) } });
   return endpoint;
+}
+
+/** A Node.js request (node:http, Express, Fastify's request.raw), as Apollo Server and other Node.js servers pass it. */
+interface NodeRequestLike {
+  url?: string;
+  headers: Record<string, string | string[] | undefined>;
+  socket?: { remoteAddress?: string };
+}
+
+const contextError = (message: string) =>
+  new InferloError("IL6060", message, {
+    fix: "Pass the app from createApp() and the request your GraphQL server gives its context function: createYoga({ schema, context: ({ request }) => graphqlContext(app, request) }).",
+  });
+
+/** A Web Request with the method, URL and headers of a Node.js request, and its client address for per-IP rate limits. */
+function fromNode(req: NodeRequestLike): Request {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) {
+    // HTTP/2 pseudo-headers (":authority") are not header names.
+    if (value === undefined || name.startsWith(":")) continue;
+    for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
+  }
+  const host = headers.get("host") ?? "localhost";
+  const request = new Request(new URL(req.url ?? "/", `http://${host}`), { headers });
+  const ip = req.socket?.remoteAddress;
+  if (ip) clientIps.set(request, ip);
+  return request;
+}
+
+/**
+ * The GraphQL context for a request that reached GraphQL Yoga or another GraphQL server executing a schema from
+ * graphqlSchema(): each field runs its route as the caller of that request (its Authorization header, API key or
+ * session cookie), with the route's auth, permissions, validation, rate limits, tenant scope and audit.
+ *
+ *   const yoga = createYoga({ schema: graphqlSchema({ query: { notes: listNotes } }), context: ({ request }) => graphqlContext(app, request) });
+ *
+ * request is a Web Request or a Node.js request. The routes must be registered with the app.
+ */
+export function graphqlContext(app: App<any>, request: Request | NodeRequestLike): GraphQLContext {
+  if (!app || typeof app !== "object") throw contextError("graphqlContext(app, request) needs the app from createApp().");
+  const req = request as Partial<Request> & Partial<NodeRequestLike>;
+  if (!req || typeof req !== "object" || !req.headers || typeof req.headers !== "object") {
+    throw contextError("graphqlContext(app, request) needs the request: a Web Request or a Node.js request.");
+  }
+  const web = typeof (req.headers as Headers).get === "function" && typeof req.url === "string" ? (request as Request) : fromNode(request as NodeRequestLike);
+  const runner = requestRunner(app, web);
+  if (!runner) throw contextError("graphqlContext(app, request) needs the app from createApp().");
+  return {
+    inferlo: {
+      run: (r, input) => {
+        if (web.signal?.aborted) throw new GraphQLError("The request was cancelled.", { extensions: { code: "IL2007" } });
+        return runner(r, input);
+      },
+    },
+  };
 }

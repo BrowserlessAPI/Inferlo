@@ -336,6 +336,10 @@ const { text } = await ai.generate({ model: "fast", prompt: "File a ticket: the 
 
 A whole Inferlo app runs next to tRPC on the same server: mount `inferlo.fetch` (Web servers) or `toNodeHandler(inferlo)` (Node servers) under its own path. The [with-trpc example](../examples/with-trpc) uses both helpers with tRPC's fetch adapter, and CI tests it with tRPC 11.0.0 (the oldest supported major; tRPC 10 is no longer maintained) and the latest tRPC.
 
+## GraphQL Yoga
+
+An app that serves GraphQL with GraphQL Yoga 5 or 6 serves the app's routes as GraphQL fields there, without writing resolvers: `createYoga({ schema: graphqlSchema({ query: { notes: listNotes }, mutation: { createNote } }), context: ({ request }) => graphqlContext(app, request) })`, with both from `@browserlessapi/inferlo/graphql`. Each field runs its route as the caller of the request, with the route's auth, permissions, validation and rate limits. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).
+
 ## AdonisJS
 
 AdonisJS 6 and 7. `@browserlessapi/inferlo/adonisjs` is an AdonisJS provider: it binds the AI client from `config/ai.ts` in the container as `ai` and adds `ctx.ai` to every HTTP context. It has no runtime dependency on AdonisJS beyond the app it runs in, and never loads Inferlo's router, database or jobs code.

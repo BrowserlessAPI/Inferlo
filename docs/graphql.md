@@ -68,6 +68,30 @@ import { graphqlSchema } from "@browserlessapi/inferlo/graphql";
 console.log(printSchema(graphqlSchema({ query: { notes: listNotes, note: getNote }, mutation: { createNote } })));
 ```
 
-Its fields run routes only when executed through `graphqlRoute()`.
+Its fields run routes only when executed through `graphqlRoute()`, or by another GraphQL server with `graphqlContext()` as the context (next section).
+
+## GraphQL Yoga and other GraphQL servers
+
+Apps that already serve GraphQL with [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) can serve the same schema there, with plugins, subscriptions and the GraphiQL page Yoga adds. `graphqlContext(app, request)` is the context that lets each field run its route as the caller of the request:
+
+```ts
+import { createYoga } from "graphql-yoga";
+import { graphqlContext, graphqlSchema } from "@browserlessapi/inferlo/graphql";
+import { app } from "./app.ts";
+import { createNote, getNote, listNotes } from "./routes/notes.ts";
+
+export const yoga = createYoga({
+  schema: graphqlSchema({ query: { notes: listNotes, note: getNote }, mutation: { createNote } }),
+  context: ({ request }) => graphqlContext(app, request),
+});
+```
+
+- **Same rules as REST.** Each field calls its route with the request's `Authorization` header, API key or session cookie, so auth, permissions, validation, rate limits, tenant scope and audit entries are those of the route, and errors are GraphQL errors with the route's `code` and `status` in `extensions`, as with `graphqlRoute()`. The routes must be registered with the app (`createApp({ routes })`); a field whose route is not answers "Internal error." with IL5011.
+- **The request** is a Web `Request` (Yoga's `request`) or a Node.js request (Yoga's `req` when it runs in `node:http`, or what other Node.js servers pass to their context function). With a Node.js request, per-IP rate limits of the field routes use its socket address; with a Web `Request` from a server that does not record it, every client counts as one address unless `createApp({ trustProxy: true })` reads `X-Forwarded-For`.
+- **Your own context fields** sit next to it: `context: ({ request }) => ({ ...graphqlContext(app, request), requestedAt: Date.now() })`.
+- **Limits** of `graphqlRoute()` (`maxFields`, the document size, `introspection: false`) belong to that endpoint; with Yoga, use Yoga's own options and plugins for them. The routes' own rate limits apply either way.
+- Without `graphqlContext`, fields answer IL6059. Arguments that are not an app from `createApp()` and a request raise IL6060.
+
+Tested with GraphQL Yoga 5 (newest 5.x, with `graphql` 16) and the latest release (6), on Node.js, Bun and Deno.
 
 Each field is one in-process call of its route; nested data comes from the route's answer, so a field never runs extra queries per item. Tested with `graphql` 16 (newest 16.x) and the latest release (17), on Node.js, Bun and Deno.

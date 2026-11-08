@@ -450,7 +450,10 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid `idempotency` route option.** `idempotency` takes `true` or `{ ttlMs, required }` (`ttlMs` a whole number of milliseconds from 1000 to 30 days, `required` true or false), on POST, PUT, PATCH and DELETE routes only. See [Idempotency keys](routes.md#idempotency-keys).
 
 ### IL6059
-**Invalid `graphqlRoute()` options.** `graphqlRoute({ query, mutation, path, auth, rateLimit, introspection, maxFields })` from `@browserlessapi/inferlo/graphql` needs `query` with at least one field; `query` and `mutation` map GraphQL field names (letters, digits and underscores, not starting with `__`) to HTTP routes made with `route.get(...)` and the other methods, whose params, query and body field names are valid GraphQL names too. `path` is a fixed path starting with `/`, `maxFields` a whole number above 0 and `introspection` true or false. Also the code of a GraphQL error when a schema from `graphqlSchema()` is executed outside `graphqlRoute()`. See [GraphQL](graphql.md).
+**Invalid `graphqlRoute()` options.** `graphqlRoute({ query, mutation, path, auth, rateLimit, introspection, maxFields })` from `@browserlessapi/inferlo/graphql` needs `query` with at least one field; `query` and `mutation` map GraphQL field names (letters, digits and underscores, not starting with `__`) to HTTP routes made with `route.get(...)` and the other methods, whose params, query and body field names are valid GraphQL names too. `path` is a fixed path starting with `/`, `maxFields` a whole number above 0 and `introspection` true or false. Also the code of a GraphQL error when a schema from `graphqlSchema()` is executed outside `graphqlRoute()` without `graphqlContext(app, request)` as the context. See [GraphQL](graphql.md).
+
+### IL6060
+**Invalid `graphqlContext()` arguments.** `graphqlContext(app, request)` from `@browserlessapi/inferlo/graphql` needs the app from `createApp()` and the request your GraphQL server passes to its context function: a Web `Request` (GraphQL Yoga's `request`) or a Node.js request. Use `createYoga({ schema: graphqlSchema({ ... }), context: ({ request }) => graphqlContext(app, request) })`. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).
 
 ## Environment (7xxx)
 

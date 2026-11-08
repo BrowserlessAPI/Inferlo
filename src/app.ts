@@ -2,7 +2,7 @@
  * createApp wires models, routes, database, auth and AI together and gives you a standard
  * fetch(Request) => Response handler that runs on Node, Bun, Deno and edge runtimes.
  */
-import { bindTools, createAI, type AI, type AIConfig, type StreamResult, type Usage } from "./ai/index.ts";
+import { bindTools, createAI, type AI, type AIConfig, type StreamResult, type ToolRunner, type Usage } from "./ai/index.ts";
 import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
 import { readEnv } from "./env.ts";
@@ -38,6 +38,7 @@ import { resolveDeprecation, type ResolvedDeprecation } from "./deprecation.ts";
 import { createMetrics, hasMetricsToken, resolveMetrics, type AppMetrics, type MetricsConfig } from "./metrics.ts";
 import { INFERLO_VERSION } from "./describe.ts";
 import { registerRequestMatcher } from "./request-matcher.ts";
+import { registerRequestRunner } from "./request-runner.ts";
 import { versionDocPath, versionsOf } from "./api-version.ts";
 import { resolveModules, type AnyModule, type ModuleInfo, type ModuleModels } from "./module.ts";
 import { isPermissions, type Permissions } from "./permissions.ts";
@@ -689,8 +690,10 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     const { name, description, inputSchema } = registeredTool(route);
     return { name, description, inputSchema };
   };
-  const toolsFor = (req: Request, signal: AbortSignal): AI =>
-    bindTools(ai, async (route, input) => {
+  // Runs a registered route with the credentials of a request (a tool call of ctx.ai, a GraphQL field).
+  const runAs =
+    (req: Request): ToolRunner =>
+    async (route, input) => {
       const tool = registeredTool(route);
       const response = await callTool(app, tool, input as Record<string, unknown>, req, testUsers);
       const text = await response.text();
@@ -701,7 +704,8 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         // Not JSON: the model sees the text as it is.
       }
       return { name: tool.name, status: response.status, output, text: text || String(response.status) };
-    }, describeTool, signal);
+    };
+  const toolsFor = (req: Request, signal: AbortSignal): AI => bindTools(ai, runAs(req), describeTool, signal);
 
   const tenantScope = (user: AppUser | null): TenantScope => {
     if (!user) return "none";
@@ -1540,6 +1544,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       return buildOpenAPI(app, { description: config.description, auth: Boolean(config.auth), modules: moduleInfo, version: options.version });
     },
   };
+  registerRequestRunner(app, runAs);
   // Built-in endpoints with the methods dispatch answers them for (MCP takes every method).
   const readEndpoints = [health?.path, health?.readyPath, metricsConfig?.path].filter((p): p is string => typeof p === "string");
   registerRequestMatcher(app, (rawMethod, pathname) => {
