@@ -22,13 +22,14 @@ let warehouseId = 0;
 /**
  * Kysely's Migrator first lists every table in the database. The other example test files run at the same time
  * on the same test database and create and drop their own tables, so a table can disappear between Kysely's
- * listing and its column query (42P01, "relation does not exist"). That is a race between test files, not a
- * migration error: try again.
+ * listing and its column query (42P01, "relation does not exist"), or a column while it is read (42703). That is a
+ * race between test files, not a migration error: try again.
  */
 async function migrateToLatest(): Promise<{ error?: unknown; results?: unknown[] }> {
   for (let attempt = 1; ; attempt++) {
     const result = await migrator.migrateToLatest();
-    if (!result.error || (result.error as { code?: string }).code !== "42P01" || attempt === 5) return result;
+    const code = (result.error as { code?: string } | undefined)?.code;
+    if (!result.error || (code !== "42P01" && code !== "42703") || attempt === 20) return result;
     await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
   }
 }
