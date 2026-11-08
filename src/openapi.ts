@@ -1,6 +1,7 @@
 /** OpenAPI 3.1 document generated from routes. Served at /openapi.json by default. */
 import { describeDeprecation, resolveDeprecation } from "./deprecation.ts";
 import type { App } from "./app.ts";
+import { graphqlInfo } from "./graphql-info.ts";
 import type { ModuleInfo } from "./module.ts";
 import { toolName } from "./mcp.ts";
 import { containsFile, type AnySchema, type JSONSchema } from "./schema.ts";
@@ -39,6 +40,7 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
   const paths: Record<string, Record<string, unknown>> = {};
   // A version's document has its routes and the routes outside every version.
   // WebSocket routes (route.ws) have no HTTP operation to describe; describe() lists them.
+  const graphql = graphqlInfo(app.routes);
   const routes = (options.version === undefined ? app.routes : app.routes.filter((r) => r.version === undefined || r.version === options.version)).filter((r) => !r.websocket);
   for (const route of routes) {
     const o = route.options;
@@ -93,6 +95,8 @@ export function buildOpenAPI(app: App<any>, options: { description?: string; aut
       "x-inferlo-permission": o.permission,
       "x-inferlo-cache": o.cache ? { ttlMs: o.cache.ttlMs, by: o.cache.by ?? "user", tags: [...(o.cache.tags ?? [])] } : undefined,
       "x-inferlo-tool": o.tool ? toolName(route) : undefined,
+      "x-inferlo-graphql": graphql.endpoint(route),
+      "x-inferlo-graphql-fields": graphql.fields(route),
       deprecated: o.deprecated ? true : undefined,
       "x-inferlo-deprecation": typeof o.deprecated === "object" ? describeDeprecation(resolveDeprecation(o.deprecated, `${route.method} ${route.path}`)!) : undefined,
     };

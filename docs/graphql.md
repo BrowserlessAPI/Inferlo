@@ -49,6 +49,14 @@ GraphQL's `Int` is a 32-bit number; use `t.number()` (or a string) in the respon
 
 Invalid options and routes that cannot be fields raise IL6059 when the app starts. Fields must map to routes registered with the same app: a field whose route is not in `createApp({ routes })` answers "Internal error." with IL5011. Routes that take files (`t.file()`) cannot be fields.
 
+## In describe and OpenAPI
+
+`app.describe()` and `inferlo describe` show which routes the GraphQL API runs, so coding agents and reviewers see a route's GraphQL callers before they change it:
+
+- The endpoint's entry has `graphql: { query: { notes: "GET /notes", note: "GET /notes/:id" }, mutation: { createNote: "POST /notes" } }`, each field with the route it runs (under `apiVersion()`, the versioned path).
+- Each route that is a field has `graphqlFields: ["Query.notes"]` (one entry per field and endpoint that runs it). `inferlo describe` prints `graphql=7 fields` next to the endpoint and `graphql=Query.notes` next to its routes.
+- OpenAPI has the same lists as the extensions `x-inferlo-graphql` (on the endpoint's `POST` operation) and `x-inferlo-graphql-fields` (on each field's operation).
+
 ## Schema for clients
 
 `graphqlSchema({ query, mutation })` returns the same schema as a `GraphQLSchema`, for client code generation and schema checks in CI:

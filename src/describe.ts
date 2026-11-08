@@ -4,6 +4,7 @@
  */
 import { describeDeprecation, resolveDeprecation } from "./deprecation.ts";
 import type { App } from "./app.ts";
+import { graphqlInfo, type GraphQLFieldsDescription } from "./graphql-info.ts";
 import type { ModuleInfo } from "./module.ts";
 import type { JobQueueName } from "./jobs.ts";
 import { toolName } from "./mcp.ts";
@@ -74,6 +75,10 @@ export interface AppDescription {
     body?: JSONSchema;
     /** "multipart/form-data" when the body has t.file() fields; otherwise the body is JSON (or a URL-encoded form). */
     bodyType?: "multipart/form-data";
+    /** For a GraphQL endpoint (graphqlRoute): its query and mutation fields, each with the route it runs ("GET /notes"). */
+    graphql?: GraphQLFieldsDescription;
+    /** The GraphQL fields that run this route ("Query.notes", "Mutation.createNote"). */
+    graphqlFields?: string[];
   }[];
   ai: { configured: boolean; aliases: Record<string, string[]> };
   jobs: { name: string; module?: string; summary?: string; retries: number; input: JSONSchema }[];
@@ -112,6 +117,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
 
 export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string; modules: ModuleInfo; versions: AppDescription["versions"]; permissions: AppDescription["permissions"] }): AppDescription {
   const info = options.modules;
+  const graphql = graphqlInfo(app.routes);
   return {
     inferlo: INFERLO_VERSION,
     name: app.name,
@@ -168,6 +174,10 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       if (o.query) out.query = o.query.toJSONSchema();
       if (o.body) out.body = o.body.toJSONSchema();
       if (o.body && containsFile(o.body)) out.bodyType = "multipart/form-data";
+      const endpoint = graphql.endpoint(r);
+      if (endpoint) out.graphql = endpoint;
+      const fields = graphql.fields(r);
+      if (fields) out.graphqlFields = fields;
       return out;
     }),
     ai: { configured: app.ai.configured, aliases: app.ai.aliases },

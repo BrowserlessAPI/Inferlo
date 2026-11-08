@@ -1,0 +1,5 @@
+{
+  "title": "Add update and delete mutations to the GraphQL API",
+  "prompt": "The app has a GraphQL endpoint in src/routes/graphql.ts. Add the mutation fields `updateNote` (the updateNote route) and `deleteNote` (the deleteNote route), keeping the existing fields and options, so that `inferlo describe` lists both mutations with the routes they run.",
+  "packages": ["graphql"]
+}

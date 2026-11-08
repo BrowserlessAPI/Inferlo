@@ -47,6 +47,7 @@ import {
 } from "graphql";
 import { routeToolsOf } from "./ai/index.ts";
 import { InferloError } from "./errors.ts";
+import { graphqlEndpoints } from "./graphql-info.ts";
 import { toolDefinition } from "./mcp.ts";
 import { route, type Auth, type RouteDef } from "./route.ts";
 import type { RateLimit } from "./rate-limit.ts";
@@ -357,7 +358,7 @@ export function graphqlRoute(options: GraphQLRouteOptions): RouteDef {
     variables: t.json<Record<string, unknown>>().optional().describe("Values of the operation's variables"),
     operationName: t.string().max(1000).optional().describe("Which operation of the document to run"),
   });
-  return route.post(path, { auth: options.auth ?? "user", body, ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}), summary: "GraphQL endpoint", tags: ["graphql"] }).handle(async ({ body, ai, signal }) => {
+  const endpoint = route.post(path, { auth: options.auth ?? "user", body, ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}), summary: "GraphQL endpoint", tags: ["graphql"] }).handle(async ({ body, ai, signal }) => {
     let document: DocumentNode;
     try {
       document = parse(body.query, { maxTokens: 10_000 });
@@ -381,4 +382,7 @@ export function graphqlRoute(options: GraphQLRouteOptions): RouteDef {
     };
     return format(await execute({ schema, document, variableValues: variables, operationName: body.operationName, contextValue: context }));
   });
+  // describe() and OpenAPI list the endpoint's fields and the routes behind them.
+  graphqlEndpoints.set(endpoint.handler, { query: { ...options.query }, mutation: { ...(options.mutation ?? {}) } });
+  return endpoint;
 }

@@ -150,3 +150,44 @@ describe("graphqlRoute()", () => {
     assert.doesNotMatch(readFileSync(new URL("../src/index.ts", import.meta.url), "utf8"), /graphql/, "the core never loads graphql");
   });
 });
+
+describe("GraphQL fields in describe() and OpenAPI", () => {
+  test("describe() lists the endpoint's fields with their routes, and the fields each route serves", () => {
+    const d = makeApp().describe();
+    const endpoint = d.routes.find((r) => r.path === "/graphql")!;
+    assert.deepEqual(endpoint.graphql, {
+      query: { notes: "GET /notes", note: "GET /notes/:id", hello: "GET /hello", elsewhere: "GET /elsewhere" },
+      mutation: { createNote: "POST /notes", deleteNote: "DELETE /notes/:id" },
+    });
+    assert.equal(endpoint.graphqlFields, undefined);
+    assert.deepEqual(d.routes.find((r) => r.method === "GET" && r.path === "/notes")!.graphqlFields, ["Query.notes"]);
+    assert.deepEqual(d.routes.find((r) => r.method === "POST" && r.path === "/notes")!.graphqlFields, ["Mutation.createNote"]);
+    assert.deepEqual(d.routes.find((r) => r.method === "DELETE")!.graphqlFields, ["Mutation.deleteNote"]);
+    // A route behind two names (or two endpoints) lists each field.
+    const two = createApp({ db: memory(), models: [notes], auth: bearer(() => null), routes: [{ hello, graphql: graphqlRoute({ query: { hello, greeting: hello } }), other: graphqlRoute({ path: "/admin/graphql", query: { hi: hello } }) }] }).describe();
+    assert.deepEqual(two.routes.find((r) => r.path === "/hello")!.graphqlFields, ["Query.hello", "Query.greeting", "Query.hi"]);
+    assert.deepEqual(two.routes.find((r) => r.path === "/admin/graphql")!.graphql, { query: { hi: "GET /hello" }, mutation: {} });
+    // Routes that are not fields have neither key.
+    const plain = createApp({ db: memory(), routes: [{ hello }] }).describe();
+    assert.equal("graphqlFields" in plain.routes[0]!, false);
+    assert.equal("graphql" in plain.routes[0]!, false);
+  });
+
+  test("OpenAPI marks the endpoint with x-inferlo-graphql and field routes with x-inferlo-graphql-fields", () => {
+    const doc = makeApp().openapi() as any;
+    assert.deepEqual(doc.paths["/graphql"].post["x-inferlo-graphql"].mutation, { createNote: "POST /notes", deleteNote: "DELETE /notes/:id" });
+    assert.equal(doc.paths["/graphql"].post["x-inferlo-graphql"].query.note, "GET /notes/:id");
+    assert.deepEqual(doc.paths["/notes/{id}"].get["x-inferlo-graphql-fields"], ["Query.note"]);
+    assert.deepEqual(doc.paths["/notes"].post["x-inferlo-graphql-fields"], ["Mutation.createNote"]);
+    assert.equal(doc.paths["/hello"].get["x-inferlo-graphql"], undefined);
+    assert.equal("x-inferlo-graphql-fields" in doc.paths["/graphql"].post, false);
+  });
+
+  test("a versioned endpoint lists the versioned paths of its routes", async () => {
+    const { apiVersion } = await import("../src/index.ts");
+    const app = createApp({ db: memory(), models: [notes], auth: bearer(() => null), routes: [apiVersion("v1", [{ listNotes, graphql: graphqlRoute({ query: { notes: listNotes } }) }])] });
+    const d = app.describe();
+    assert.deepEqual(d.routes.find((r) => r.path === "/v1/graphql")!.graphql, { query: { notes: "GET /v1/notes" }, mutation: {} });
+    assert.deepEqual(d.routes.find((r) => r.path === "/v1/notes")!.graphqlFields, ["Query.notes"]);
+  });
+});
