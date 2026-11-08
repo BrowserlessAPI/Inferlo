@@ -20,7 +20,10 @@ async function updateSql(orm: MikroORM): Promise<string> {
     try {
       return await orm.schema.getUpdateSchemaSQL();
     } catch (error) {
-      if (attempt === 5 || !/42P01|does not exist/.test(String((error as { code?: string }).code ?? "") + String(error))) throw error;
+      // Other example tests create and drop their tables in the same database while MikroORM reads the catalog;
+      // a table dropped between two of its queries fails the read, so it is read again after a short pause.
+      if (attempt === 20 || !/42P01|does not exist/.test(String((error as { code?: string }).code ?? "") + String(error))) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
     }
   }
 }
