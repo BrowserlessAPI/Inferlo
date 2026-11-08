@@ -107,6 +107,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | Astro (`/astro`) | 5 (newest 5.x) and newer |
 | React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
+| TanStack Start (`/tanstack-start`): server routes | `@tanstack/react-start` 1.132.0 and newer |
 | AWS Lambda (`/lambda`): function URLs, API Gateway HTTP API and REST API | Node.js runtimes `nodejs22.x` and `nodejs24.x` (tested through the Node.js 22 and 24 jobs) |
 | Vercel Functions (`export default app`) and Netlify Functions 2.0 (`export default app.fetch`) | Vercel Node.js runtimes 22.x and 24.x, Netlify Functions on Node.js 22 and newer (tested through the Node.js 22 and 24 jobs) |
 | Azure Functions (`/azure`): HTTP triggers in the Node.js programming model v4 | `@azure/functions` 4.3.0 and newer, on Node.js 22 and 24 |

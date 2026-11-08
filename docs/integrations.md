@@ -703,6 +703,61 @@ To stream text to the browser from a resource route, return `ai.stream({ model, 
 
 The [with-react-router example](../examples/with-react-router) does both, and CI tests it with React Router 7 (newest 7.x) and the latest React Router, using React Router's own data router.
 
+## TanStack Start
+
+TanStack Start 1 server routes. `@browserlessapi/inferlo/tanstack-start` has no runtime dependency on TanStack Start or React and never loads Inferlo's router, database or jobs code by itself.
+
+Serve a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one splat server route:
+
+```ts
+// src/routes/api/$.ts
+import { createFileRoute } from "@tanstack/react-router";
+import { toTanStackHandlers } from "@browserlessapi/inferlo/tanstack-start";
+import { app } from "../../inferlo/app"; // export const app = createApp({ ... })
+
+export const Route = createFileRoute("/api/$")({
+  server: { handlers: toTanStackHandlers(app, { prefix: "/api" }) },
+});
+```
+
+- `toTanStackHandlers(app, { prefix })` returns a `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD` and `OPTIONS` handler, each of which runs the app, so the answer (status, headers, body and AI streams) is the app's own `Response`.
+- `prefix` is the URL path of the splat route (`"/api"` for `createFileRoute("/api/$")`, including the router's `basepath` if you set one). It is removed before the app routes the request, so the app's `/summaries` answers at `/api/summaries`, and OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. `/api` itself reaches the app's `/`. Requests outside the prefix keep their path. Without `prefix`, requests reach the app unchanged.
+- Keep TanStack Start's own pages and server routes in other files: TanStack Router matches more specific routes before a splat. Behind a proxy, set `createApp({ trustProxy: true })` so rate limits by IP use `X-Forwarded-For`.
+- Anything that is not an app, or a `prefix` that does not start with `/`, raises IL5036.
+
+In server functions and other server routes, use the AI module without an app. Import it only from server code, so TanStack Start never bundles it, or your API keys, for the browser:
+
+```ts
+// src/lib/ai.ts
+import { createAI, anthropic, env } from "@browserlessapi/inferlo/ai";
+
+export const ai = createAI({ providers: { anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+```
+
+```ts
+// src/routes/classify.ts
+import { createFileRoute } from "@tanstack/react-router";
+import { t } from "@browserlessapi/inferlo/ai";
+import { ai } from "../lib/ai";
+
+export const Route = createFileRoute("/classify")({
+  server: {
+    handlers: {
+      POST: async ({ request }) => {
+        const text = String((await request.formData()).get("text") ?? "");
+        if (!text) return Response.json({ error: "Enter a message." }, { status: 400 });
+        const { object } = await ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature", "question"]) }) });
+        return Response.json(object);
+      },
+    },
+  },
+});
+```
+
+The same call works inside `createServerFn().handler(...)`. To stream text to the browser from a server route, return `ai.stream({ model, prompt }).toResponse()` (server-sent events).
+
+The [with-tanstack-start example](../examples/with-tanstack-start) does both, and CI tests it with TanStack Start 1.132.0 (the first release of the TanStack Start 1 API, with server routes as `server.handlers`) and the latest TanStack Start, through TanStack Start's own request handler (`createStartHandler`).
+
 ## AWS Lambda
 
 `@browserlessapi/inferlo/lambda` turns a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) into a Lambda handler. It has no dependency on the AWS SDK or any Lambda package.

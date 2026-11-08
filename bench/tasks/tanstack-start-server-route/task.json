@@ -1,0 +1,5 @@
+{
+  "title": "Serve the app from a TanStack Start server route",
+  "prompt": "We are adding Inferlo to a TanStack Start project. Create the splat server route src/routes/api/$.ts (the file route \"/api/$\", already listed in src/routeTree.gen.ts) so that every request under /api is handled by the Inferlo app exported from src/app.ts with /api removed from the path: GET /api/health reaches the app's health endpoint, /api/openapi.json serves its OpenAPI document and POST /api/notes reaches POST /notes. It must export the Route that TanStack Start loads, with the server route handlers. Use Inferlo's TanStack Start integration.",
+  "packages": ["@tanstack/react-router", "@tanstack/react-start"]
+}

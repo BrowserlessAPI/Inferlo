@@ -1421,6 +1421,32 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/react-router.test.ts "examples/with-react-router/test/*.test.ts"
 
+  tanstack-start:
+    name: TanStack Start ${{ matrix.tanstack_start }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.132.0 = oldest supported (the first release of the TanStack Start 1 API, with server routes as
+        # server.handlers; TanStack Start has no long-term support releases), latest = newest release. The tests run
+        # TanStack Start's own request handler (createStartHandler).
+        tanstack_start: ["1.132.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @tanstack/react-start@${{ matrix.tanstack_start }}
+      - run: node -p "'TanStack Start ' + require('./node_modules/@tanstack/react-start/package.json').version + ', TanStack Router ' + require('./node_modules/@tanstack/react-router/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/tanstack-start.test.ts "examples/with-tanstack-start/test/*.test.ts"
+
   opentelemetry:
     name: OpenTelemetry API ${{ matrix.otel }}
     runs-on: ubuntu-latest

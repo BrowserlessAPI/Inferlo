@@ -270,6 +270,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5035
 **Invalid AI SDK model or tools arguments.** `toAISdkModel(ai, { model, for })` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits in the `generateText()` call); `toAISdkTools([...], { ai })` takes an array of Inferlo function tools and routes. Calls through `toAISdkModel` cannot use provider tools (such as OpenAI's web search), which only that provider's own models run, and messages can carry images (PNG, JPEG, GIF and WebP) but no other files; an image given as base64 or bytes needs its media type. See [Inferlo models in AI SDK Core](ai.md#inferlo-models-in-ai-sdk-core-generatetext-streamtext-agents).
 
+### IL5036
+**Invalid toTanStackHandlers() arguments.** `toTanStackHandlers(app, { prefix })` from `@browserlessapi/inferlo/tanstack-start` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `createFileRoute("/api/$")`: `export const Route = createFileRoute("/api/$")({ server: { handlers: toTanStackHandlers(app, { prefix: "/api" }) } })`. The handlers it returns must be a server route's `handlers`, so TanStack Start calls them with `{ request }`. See [TanStack Start](integrations.md#tanstack-start).
+
 ## App configuration (6xxx)
 
 ### IL6001

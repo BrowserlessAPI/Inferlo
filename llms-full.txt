@@ -53,7 +53,7 @@ That one model definition gives you the database table, insert and update valida
 - **Embeddings** for search and recommendations.
 - **Usage, cost and budgets.** Every call is tracked per user, so you can bill customers and stop calls when their credits run out.
 - **MCP server.** Mark a route `tool: true` and AI agents can call your API, with the same permissions as any other client.
-- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `server.register({ plugin: inferloPlugin, options: { ai } })` from `@browserlessapi/inferlo/hapi` gives hapi `request.ai` (and `options: { app }` with `routes: { prefix }` serves a whole Inferlo app), `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, `export const { GET, POST } = toNextHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/nextjs` serves a whole Inferlo app from a Next.js App Router route, `export default toH3Handler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/h3` serves it from a Nuxt or Nitro server route (with `event.context.ai` from a Nitro plugin), `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/sveltekit` serves it from a SvelteKit rest route (with `event.locals.ai` from a handle hook), `export const ALL = toAstroHandler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/astro` serves it from an Astro endpoint (with `locals.ai` from a middleware), `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/react-router` serves it from a React Router (Remix) resource route, `export const handler = toLambdaHandler(app)` from `@browserlessapi/inferlo/lambda` runs it on AWS Lambda (function URLs and API Gateway, with response streaming), `handler: toAzureHandler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/azure` runs it in an Azure Functions HTTP trigger (with streaming), `functions.http("inferlo", toNodeHandler(app))` runs it as a Google Cloud Run function, `export default app` runs it as a Cloudflare Worker or a Vercel Function and `export default app.fetch` as a Netlify Function, and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` An app that already uses Drizzle ORM or Prisma adds Inferlo on the same Postgres pool, with Drizzle and Inferlo writes in one transaction through `tx.$pgClient()` (see [Use with other frameworks](docs/integrations.md)).
+- **Use it in any framework.** `import { createAI } from "@browserlessapi/inferlo/ai"` gives you the same AI module without `createApp`, for Express, Hono, Fastify, NestJS or a plain script, and `toNodeHandler(app, { prefix: "/ai" })` mounts a whole Inferlo app (routes, OpenAPI, MCP) inside Express, Fastify, NestJS or `node:http`, `hono.use(inferloAI(ai))` from `@browserlessapi/inferlo/hono` gives Hono handlers `c.var.ai`, `server.use(inferloAI(ai))` from `@browserlessapi/inferlo/express` gives Express handlers `req.ai`, and `fastify.register(inferloPlugin, { ai })` from `@browserlessapi/inferlo/fastify` gives Fastify `request.ai`, `server.register({ plugin: inferloPlugin, options: { ai } })` from `@browserlessapi/inferlo/hapi` gives hapi `request.ai` (and `options: { app }` with `routes: { prefix }` serves a whole Inferlo app), `new Elysia().use(inferloAI(ai))` from `@browserlessapi/inferlo/elysia` gives Elysia handlers `ai`, `InferloModule.forRoot({ ai })` from `@browserlessapi/inferlo/nestjs` makes the AI client injectable in NestJS, the provider from `@browserlessapi/inferlo/adonisjs` gives AdonisJS routes `ctx.ai`, `@Configuration({ imports: [inferloAI(ai)] })` from `@browserlessapi/inferlo/tsed` makes the AI client injectable in Ts.ED as `InferloAI`, `trpc.procedure.use(inferloAI(ai))` from `@browserlessapi/inferlo/trpc` gives tRPC procedures `ctx.ai` while `trpcTools(router, { caller, procedures })` lets a model call tRPC procedures as tools, `koa.use(inferloAI(ai))` and `koa.use(toKoaMiddleware(app, { prefix: "/api" }))` from `@browserlessapi/inferlo/koa` give Koa `ctx.ai` and a whole Inferlo app, `export const { GET, POST } = toNextHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/nextjs` serves a whole Inferlo app from a Next.js App Router route, `export default toH3Handler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/h3` serves it from a Nuxt or Nitro server route (with `event.context.ai` from a Nitro plugin), `export const { GET, POST, fallback } = toSvelteKitHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/sveltekit` serves it from a SvelteKit rest route (with `event.locals.ai` from a handle hook), `export const ALL = toAstroHandler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/astro` serves it from an Astro endpoint (with `locals.ai` from a middleware), `export const { loader, action } = toReactRouterHandlers(app, { prefix: "/api" })` from `@browserlessapi/inferlo/react-router` serves it from a React Router (Remix) resource route, `createFileRoute("/api/$")({ server: { handlers: toTanStackHandlers(app, { prefix: "/api" }) } })` from `@browserlessapi/inferlo/tanstack-start` serves it from a TanStack Start server route, `export const handler = toLambdaHandler(app)` from `@browserlessapi/inferlo/lambda` runs it on AWS Lambda (function URLs and API Gateway, with response streaming), `handler: toAzureHandler(app, { prefix: "/api" })` from `@browserlessapi/inferlo/azure` runs it in an Azure Functions HTTP trigger (with streaming), `functions.http("inferlo", toNodeHandler(app))` runs it as a Google Cloud Run function, `export default app` runs it as a Cloudflare Worker or a Vercel Function and `export default app.fetch` as a Netlify Function, and an Encore.ts raw endpoint serves a whole Inferlo app with `api.raw({ expose: true, method: "*", path: "/inferlo/*rest" }, toNodeHandler(app, { prefix: "/inferlo" }))` An app that already uses Drizzle ORM or Prisma adds Inferlo on the same Postgres pool, with Drizzle and Inferlo writes in one transaction through `tx.$pgClient()` (see [Use with other frameworks](docs/integrations.md)).
 - **Background jobs for slow AI work.** Queue a typed job from a route with `ctx.jobs.enqueue(...)` and it runs after the response, with retries, from a Postgres queue shared by every instance (`inferlo worker` runs them in their own process), and schedule jobs with `cron("0 3 * * *", job)`.
 
 ## Why Inferlo
@@ -3493,6 +3493,61 @@ To stream text to the browser from a resource route, return `ai.stream({ model, 
 
 The [with-react-router example](../examples/with-react-router) does both, and CI tests it with React Router 7 (newest 7.x) and the latest React Router, using React Router's own data router.
 
+## TanStack Start
+
+TanStack Start 1 server routes. `@browserlessapi/inferlo/tanstack-start` has no runtime dependency on TanStack Start or React and never loads Inferlo's router, database or jobs code by itself.
+
+Serve a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) from one splat server route:
+
+```ts
+// src/routes/api/$.ts
+import { createFileRoute } from "@tanstack/react-router";
+import { toTanStackHandlers } from "@browserlessapi/inferlo/tanstack-start";
+import { app } from "../../inferlo/app"; // export const app = createApp({ ... })
+
+export const Route = createFileRoute("/api/$")({
+  server: { handlers: toTanStackHandlers(app, { prefix: "/api" }) },
+});
+```
+
+- `toTanStackHandlers(app, { prefix })` returns a `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD` and `OPTIONS` handler, each of which runs the app, so the answer (status, headers, body and AI streams) is the app's own `Response`.
+- `prefix` is the URL path of the splat route (`"/api"` for `createFileRoute("/api/$")`, including the router's `basepath` if you set one). It is removed before the app routes the request, so the app's `/summaries` answers at `/api/summaries`, and OpenAPI and MCP at `/api/openapi.json` and `/api/mcp`. `/api` itself reaches the app's `/`. Requests outside the prefix keep their path. Without `prefix`, requests reach the app unchanged.
+- Keep TanStack Start's own pages and server routes in other files: TanStack Router matches more specific routes before a splat. Behind a proxy, set `createApp({ trustProxy: true })` so rate limits by IP use `X-Forwarded-For`.
+- Anything that is not an app, or a `prefix` that does not start with `/`, raises IL5036.
+
+In server functions and other server routes, use the AI module without an app. Import it only from server code, so TanStack Start never bundles it, or your API keys, for the browser:
+
+```ts
+// src/lib/ai.ts
+import { createAI, anthropic, env } from "@browserlessapi/inferlo/ai";
+
+export const ai = createAI({ providers: { anthropic: anthropic({ apiKey: env("ANTHROPIC_API_KEY") }) }, models: { fast: "anthropic:claude-haiku-4-5" } });
+```
+
+```ts
+// src/routes/classify.ts
+import { createFileRoute } from "@tanstack/react-router";
+import { t } from "@browserlessapi/inferlo/ai";
+import { ai } from "../lib/ai";
+
+export const Route = createFileRoute("/classify")({
+  server: {
+    handlers: {
+      POST: async ({ request }) => {
+        const text = String((await request.formData()).get("text") ?? "");
+        if (!text) return Response.json({ error: "Enter a message." }, { status: 400 });
+        const { object } = await ai.generate({ model: "fast", prompt: text, output: t.object({ label: t.enum(["bug", "feature", "question"]) }) });
+        return Response.json(object);
+      },
+    },
+  },
+});
+```
+
+The same call works inside `createServerFn().handler(...)`. To stream text to the browser from a server route, return `ai.stream({ model, prompt }).toResponse()` (server-sent events).
+
+The [with-tanstack-start example](../examples/with-tanstack-start) does both, and CI tests it with TanStack Start 1.132.0 (the first release of the TanStack Start 1 API, with server routes as `server.handlers`) and the latest TanStack Start, through TanStack Start's own request handler (`createStartHandler`).
+
 ## AWS Lambda
 
 `@browserlessapi/inferlo/lambda` turns a whole Inferlo app (routes, auth, validation, rate limits, OpenAPI and MCP) into a Lambda handler. It has no dependency on the AWS SDK or any Lambda package.
@@ -6154,6 +6209,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | SvelteKit (`/sveltekit`) | 2 (newest 2.x) and 3 |
 | Astro (`/astro`) | 5 (newest 5.x) and newer |
 | React Router, framework mode, formerly Remix (`/react-router`) | 7 (newest 7.x) and 8 |
+| TanStack Start (`/tanstack-start`): server routes | `@tanstack/react-start` 1.132.0 and newer |
 | AWS Lambda (`/lambda`): function URLs, API Gateway HTTP API and REST API | Node.js runtimes `nodejs22.x` and `nodejs24.x` (tested through the Node.js 22 and 24 jobs) |
 | Vercel Functions (`export default app`) and Netlify Functions 2.0 (`export default app.fetch`) | Vercel Node.js runtimes 22.x and 24.x, Netlify Functions on Node.js 22 and newer (tested through the Node.js 22 and 24 jobs) |
 | Azure Functions (`/azure`): HTTP triggers in the Node.js programming model v4 | `@azure/functions` 4.3.0 and newer, on Node.js 22 and 24 |
@@ -6439,6 +6495,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5035
 **Invalid AI SDK model or tools arguments.** `toAISdkModel(ai, { model, for })` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits in the `generateText()` call); `toAISdkTools([...], { ai })` takes an array of Inferlo function tools and routes. Calls through `toAISdkModel` cannot use provider tools (such as OpenAI's web search), which only that provider's own models run, and messages can carry images (PNG, JPEG, GIF and WebP) but no other files; an image given as base64 or bytes needs its media type. See [Inferlo models in AI SDK Core](ai.md#inferlo-models-in-ai-sdk-core-generatetext-streamtext-agents).
+
+### IL5036
+**Invalid toTanStackHandlers() arguments.** `toTanStackHandlers(app, { prefix })` from `@browserlessapi/inferlo/tanstack-start` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `createFileRoute("/api/$")`: `export const Route = createFileRoute("/api/$")({ server: { handlers: toTanStackHandlers(app, { prefix: "/api" }) } })`. The handlers it returns must be a server route's `handlers`, so TanStack Start calls them with `{ request }`. See [TanStack Start](integrations.md#tanstack-start).
 
 ## App configuration (6xxx)
 
