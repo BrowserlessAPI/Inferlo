@@ -33,6 +33,45 @@ curl -X POST localhost:3000/graphql -H "authorization: Bearer $TOKEN" -H "conten
 
 GraphQL's `Int` is a 32-bit number; use `t.number()` (or a string) in the response for larger whole numbers.
 
+## Relations
+
+`relations` links model rows to other rows, so a client asks for a note's owner (or a user's notes) in the same query. Each relation field runs a route the app already has, as the caller, and the lookups of one list are batched: a list of 100 notes runs the owner route once with every `ownerId`, never once per note.
+
+```ts
+const ids = t.array(t.uuid()).max(100);
+
+// GET /users?ids=...: the users with these ids.
+export const usersByIds = route
+  .get("/users", { query: t.object({ ids }), response: t.array(User.row) })
+  .handle(({ db, query }) => db.users.findMany({ where: { id: { in: query.ids } } }));
+
+// GET /notes/by-owner?ownerIds=...: the notes of these users.
+export const notesByOwners = route
+  .get("/notes/by-owner", { query: t.object({ ownerIds: ids }), response: t.array(Note.row) })
+  .handle(({ db, query, user }) => db.notes.findMany({ where: { ownerId: { in: query.ownerIds } } }));
+
+export const graphql = graphqlRoute({
+  query: { notes: listNotes, users: listUsers },
+  relations: [
+    { model: Note, field: "owner", route: usersByIds, from: "ownerId" },
+    { model: User, field: "notes", route: notesByOwners, from: "id", to: "ownerId", arg: "ownerIds", many: true },
+  ],
+});
+```
+
+```graphql
+{ notes { title owner { name } } users { name notes { title } } }
+```
+
+- **Options.** `model` is the model whose rows get the field and `field` the new field's name. `route` answers the related rows for many values at once, as `t.array(Model.row)` (or another list of objects). `from` is the field of the model's rows whose values are looked up, `arg` (default `"ids"`) the route's array argument (a query or body field) that receives them, and `to` (default `"id"`) the field of the route's rows that matches them. Without `many`, the field is the one matching row or `null` (a belongs-to relation, such as `owner`); with `many: true` it is the list of every matching row, `[]` when none match (a has-many relation, such as a user's `notes`).
+- **Where the field appears.** On the object type of the model's full rows: fields of routes with `response: Note.row` or `t.array(Note.row)`, including rows answered by other relations, so relations nest (`users { notes { owner { name } } }`). A relation on rows that no field answers raises IL6059 when the app starts.
+- **Same rules as REST.** The relation's route runs as the caller with its auth, permissions, validation, rate limits and tenant scope, so a user only sees the related rows the route lets them see. When it answers an error, every relation field of that batch is `null` with the route's `code` and `status` in its error, and the rest of the answer stays.
+- **Batching.** The route runs once per relation and list level: `{ notes { owner { name } reviewer { name } } }` runs the users route twice (owner and reviewer), whatever the number of notes. Values are sent once each, and rows with a `null` value in `from` are `null` (or `[]`) without a lookup.
+- **Write the route for batches.** It must answer every row for the values it gets: give it no default `limit`, and give its array argument a `.max()` at least as large as your largest list (the route refuses longer lists with 422, like any validation error).
+- **Limits.** Each relation field in a document counts against `maxFields`, separately from the top-level fields, since each runs a route; more answer IL2021.
+- `describe()` lists the relations of an endpoint as `graphql.relations: { "notes.owner": "GET /users" }`, and the routes behind them have `graphqlFields: ["notes.owner"]`; OpenAPI has the same lists in `x-inferlo-graphql` and `x-inferlo-graphql-fields`.
+- Relations work the same with `graphqlSchema({ query, mutation, relations })` in GraphQL Yoga and Apollo Server.
+
 ## Auth and errors
 
 - The endpoint is private by default, like every route: callers send the same `Authorization` header, API key or session cookie as for REST. With `graphqlRoute({ auth: "public", ... })` anonymous callers reach the endpoint, and each field's route still checks its own auth (fields of private routes answer IL3001 to them).
@@ -41,7 +80,7 @@ GraphQL's `Int` is a 32-bit number; use `t.number()` (or a string) in the respon
 
 ## Limits
 
-- `maxFields` (default 20): the most top-level fields one request may ask for, aliases and fragments included. Each top-level field runs a route, so this bounds the work of one request. More answer the error IL2020.
+- `maxFields` (default 20): the most top-level fields one request may ask for, aliases and fragments included, and separately the most [relation fields](#relations) one document may ask for. Each of them runs a route, so this bounds the work of one request. More answer the errors IL2020 (top-level fields) and IL2021 (relation fields).
 - Documents are at most 100,000 characters and 10,000 tokens. Field selections cannot nest deeper than the response schemas, which have no cycles.
 - `rateLimit: { max, per, by }` limits requests to the endpoint, on top of each route's own `rateLimit`.
 - `introspection: false` refuses `__schema` and `__type` queries, for production APIs that should not publish their schema.

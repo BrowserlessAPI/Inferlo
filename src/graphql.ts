@@ -51,6 +51,7 @@ import type { App } from "./app.ts";
 import { clientIps } from "./client-ip.ts";
 import { graphqlEndpoints } from "./graphql-info.ts";
 import { toolDefinition } from "./mcp.ts";
+import type { AnyModel } from "./model.ts";
 import { requestRunner } from "./request-runner.ts";
 import { route, type Auth, type RouteDef } from "./route.ts";
 import type { RateLimit } from "./rate-limit.ts";
@@ -72,8 +73,40 @@ export interface GraphQLRouteOptions {
   rateLimit?: RateLimit;
   /** Answer introspection queries (__schema, __type). Default true; set false to hide the schema in production. */
   introspection?: boolean;
-  /** Most top-level fields (aliases count) one request may ask for, since each runs a route. Default 20. */
+  /**
+   * Most top-level fields (aliases count) one request may ask for, since each runs a route. Default 20. Relation
+   * fields count separately against the same limit (IL2021).
+   */
   maxFields?: number;
+  /**
+   * Fields that link model rows to other rows through a route, batched per request: a list of 100 notes runs the
+   * owner route once with every ownerId, never once per note.
+   *
+   *   relations: [{ model: Note, field: "owner", route: usersByIds, from: "ownerId" }]
+   */
+  relations?: GraphQLRelation[];
+}
+
+/**
+ * A relation field on the GraphQL type of a model's rows (rows answered with response: Model.row or
+ * t.array(Model.row)). The field runs route once per request and level with every distinct value of from, and
+ * matches the rows it answers by to.
+ */
+export interface GraphQLRelation {
+  /** The model whose rows get the field. */
+  model: AnyModel;
+  /** Name of the new field ("owner"). */
+  field: string;
+  /** The route that answers the related rows for many values at once, as an array (GET /users with query ids). */
+  route: RouteDef;
+  /** Field of the model's rows whose values are looked up ("ownerId"; "id" for has-many relations). */
+  from: string;
+  /** Field of the route's rows that matches from. Default "id". */
+  to?: string;
+  /** Argument of the route (a query or body field) that receives the list of values. Default "ids". */
+  arg?: string;
+  /** true: the field lists every matching row (a user's notes). Default false: the one matching row, or null. */
+  many?: boolean;
 }
 
 type JSONSchema = Record<string, any>;
@@ -125,6 +158,9 @@ class TypeBuilder {
   readonly outputs = new Map<string, GraphQLObjectType>();
   readonly inputs = new Map<string, GraphQLInputObjectType>();
   readonly enums = new Map<string, GraphQLEnumType>();
+  /** Relation fields to add to the object type of a JSON Schema (keyed like outputs), and the keys that got them. */
+  readonly extras = new Map<string, Record<string, () => GraphQLFieldConfig<unknown, unknown>>>();
+  readonly extended = new Set<string>();
 
   unique(name: string): string {
     let candidate = name;
@@ -167,11 +203,13 @@ class TypeBuilder {
       if (known) return known;
       const typeName = this.unique(name);
       const required = new Set<string>(schema.required ?? []);
+      const extra = this.extras.get(key);
+      if (extra) this.extended.add(key);
       const type: GraphQLObjectType = new GraphQLObjectType({
         name: typeName,
         ...(schema.description ? { description: String(schema.description) } : {}),
-        fields: () =>
-          Object.fromEntries(
+        fields: () => ({
+          ...Object.fromEntries(
             Object.entries(schema.properties as Record<string, JSONSchema>).map(([prop, child]) => {
               let t = this.output(child, typeName + pascal(prop));
               // A field that may be left out of the answer is nullable in GraphQL.
@@ -179,6 +217,8 @@ class TypeBuilder {
               return [prop, { type: t, ...(child.description ? { description: String(child.description) } : {}) }];
             }),
           ),
+          ...(extra ? Object.fromEntries(Object.entries(extra).map(([name, config]) => [name, config()])) : {}),
+        }),
       });
       this.outputs.set(key, type);
       return type;
@@ -251,49 +291,164 @@ function fieldConfig(name: string, r: RouteDef, types: TypeBuilder, kind: "query
     description: o.description ?? o.summary ?? `${r.method} ${r.path}`,
     ...(o.deprecated ? { deprecationReason: typeof o.deprecated === "object" && o.deprecated.sunset ? `Stops working on ${String(o.deprecated.sunset)}.` : "Deprecated." } : {}),
     args,
-    resolve: async (_source, values, context) => {
-      const runner = (context as Partial<GraphQLContext> | null | undefined)?.inferlo;
-      if (!runner || typeof runner.run !== "function") {
-        throw new GraphQLError("Inferlo GraphQL fields run only through graphqlRoute(), or with graphqlContext(app, request) as the context.", { extensions: { code: "IL6059" } });
-      }
-      let result: Awaited<ReturnType<FieldContext["run"]>>;
-      try {
-        result = await runner.run(r, plain(values));
-      } catch (error) {
-        if (error instanceof GraphQLError) throw error;
-        // Client errors keep their message; server errors (such as IL5011 for a route that is not registered with the
-        // app) only name their code, like other 5xx answers.
-        if (error instanceof InferloError && error.status < 500) throw new GraphQLError(error.message, { extensions: { code: error.code, status: error.status } });
-        throw new GraphQLError("Internal error.", { extensions: { code: error instanceof InferloError ? error.code : "INTERNAL_SERVER_ERROR", status: 500 } });
-      }
-      if (result.status >= 400) {
-        const out = (result.output && typeof result.output === "object" ? result.output : {}) as { error?: { code?: unknown; message?: unknown; fix?: unknown; details?: unknown } };
-        const error = out.error && typeof out.error === "object" ? out.error : {};
-        const message = typeof error.message === "string" ? error.message : result.text || `The route answered ${result.status}.`;
-        throw new GraphQLError(message, {
-          extensions: {
-            code: typeof error.code === "string" ? error.code : `HTTP_${result.status}`,
-            status: result.status,
-            ...(typeof error.fix === "string" ? { fix: error.fix } : {}),
-            ...(error.details !== undefined ? { details: error.details } : {}),
-          },
-        });
-      }
-      return result.status === 204 ? null : result.output;
-    },
+    resolve: (_source, values, context) => runRoute(runnerOf(context), r, plain(values)),
   };
+}
+
+/** The route runner of the context of graphqlRoute() or graphqlContext(). */
+function runnerOf(context: unknown): FieldContext {
+  const runner = (context as Partial<GraphQLContext> | null | undefined)?.inferlo;
+  if (!runner || typeof runner.run !== "function") {
+    throw new GraphQLError("Inferlo GraphQL fields run only through graphqlRoute(), or with graphqlContext(app, request) as the context.", { extensions: { code: "IL6059" } });
+  }
+  return runner;
+}
+
+/** Runs a route for a field: its answer, or a GraphQL error with the route's code and status. */
+async function runRoute(runner: FieldContext, r: RouteDef, input: unknown): Promise<unknown> {
+  let result: Awaited<ReturnType<FieldContext["run"]>>;
+  try {
+    result = await runner.run(r, input);
+  } catch (error) {
+    if (error instanceof GraphQLError) throw error;
+    // Client errors keep their message; server errors (such as IL5011 for a route that is not registered with the
+    // app) only name their code, like other 5xx answers.
+    if (error instanceof InferloError && error.status < 500) throw new GraphQLError(error.message, { extensions: { code: error.code, status: error.status } });
+    throw new GraphQLError("Internal error.", { extensions: { code: error instanceof InferloError ? error.code : "INTERNAL_SERVER_ERROR", status: 500 } });
+  }
+  if (result.status >= 400) {
+    const out = (result.output && typeof result.output === "object" ? result.output : {}) as { error?: { code?: unknown; message?: unknown; fix?: unknown; details?: unknown } };
+    const error = out.error && typeof out.error === "object" ? out.error : {};
+    const message = typeof error.message === "string" ? error.message : result.text || `The route answered ${result.status}.`;
+    throw new GraphQLError(message, {
+      extensions: {
+        code: typeof error.code === "string" ? error.code : `HTTP_${result.status}`,
+        status: result.status,
+        ...(typeof error.fix === "string" ? { fix: error.fix } : {}),
+        ...(error.details !== undefined ? { details: error.details } : {}),
+      },
+    });
+  }
+  return result.status === 204 ? null : result.output;
+}
+
+/** Pending lookups of one relation in one request, sent to its route together. */
+interface Batch {
+  values: Map<string, { value: unknown; waiting: { resolve(rows: unknown[]): void; reject(error: unknown): void }[] }>;
+}
+const batches = new WeakMap<FieldContext, Map<GraphQLRelation, Batch>>();
+
+/** Collects the values asked for in this tick and runs the relation's route once for all of them. */
+function lookup(runner: FieldContext, relation: Required<GraphQLRelation>, value: unknown): Promise<unknown[]> {
+  let byRelation = batches.get(runner);
+  if (!byRelation) batches.set(runner, (byRelation = new Map()));
+  let batch = byRelation.get(relation);
+  if (!batch) {
+    const created: Batch = { values: new Map() };
+    byRelation.set(relation, created);
+    batch = created;
+    // graphql-js resolves the fields of every item of a list in one synchronous pass, so one microtask later the batch
+    // holds every value of that list.
+    queueMicrotask(() => {
+      byRelation.delete(relation);
+      void dispatch(runner, relation, created);
+    });
+  }
+  const key = String(value);
+  let entry = batch.values.get(key);
+  if (!entry) batch.values.set(key, (entry = { value, waiting: [] }));
+  const waiting = entry.waiting;
+  return new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+}
+
+async function dispatch(runner: FieldContext, relation: Required<GraphQLRelation>, batch: Batch): Promise<void> {
+  const entries = [...batch.values.values()];
+  try {
+    const output = await runRoute(runner, relation.route, { [relation.arg]: entries.map((e) => e.value) });
+    if (!Array.isArray(output)) throw new GraphQLError(`The route of the relation "${relation.field}" did not answer a list.`, { extensions: { code: "IL6059", status: 500 } });
+    const rows = new Map<string, unknown[]>();
+    for (const row of output) {
+      const match = row && typeof row === "object" ? (row as Record<string, unknown>)[relation.to] : undefined;
+      if (match === undefined || match === null) continue;
+      const list = rows.get(String(match)) ?? [];
+      list.push(row);
+      rows.set(String(match), list);
+    }
+    for (const [key, entry] of batch.values) for (const w of entry.waiting) w.resolve(rows.get(key) ?? []);
+  } catch (error) {
+    for (const entry of entries) for (const w of entry.waiting) w.reject(error);
+  }
+}
+
+const relationKeys = ["model", "field", "route", "from", "to", "arg", "many"];
+
+/** Checks graphqlRoute({ relations }) and adds each relation field to the type builder; returns the relations with defaults. */
+function addRelations(relations: unknown, types: TypeBuilder): Required<GraphQLRelation>[] {
+  const fix = 'Use relations: [{ model: Note, field: "owner", route: usersByIds, from: "ownerId" }], with a route that answers t.array(User.row) for query ids.';
+  if (!Array.isArray(relations)) throw invalid("graphqlRoute({ relations }) must be an array.", fix);
+  const out: Required<GraphQLRelation>[] = [];
+  const seen = new Set<string>();
+  for (const raw of relations as GraphQLRelation[]) {
+    if (!raw || typeof raw !== "object") throw invalid("Each relation must be an object.", fix);
+    for (const key of Object.keys(raw)) if (!relationKeys.includes(key)) throw invalid(`Unknown relation option "${key}".`, `Options: ${relationKeys.join(", ")}.`);
+    const m = raw.model as Partial<AnyModel> | undefined;
+    if (!m || typeof m !== "object" || typeof m.name !== "string" || !m.row || typeof m.row.toJSONSchema !== "function") throw invalid("A relation's model must be a model made with model().", fix);
+    const where = `The relation "${m.name}.${String(raw.field)}"`;
+    if (typeof raw.field !== "string" || !NAME.test(raw.field) || raw.field.startsWith("__")) throw invalid(`${where} needs a field name of letters, digits and underscores.`, fix);
+    const row = m.row.toJSONSchema() as JSONSchema;
+    const props = (row.properties ?? {}) as Record<string, JSONSchema>;
+    if (raw.field in props) throw invalid(`${where} has the name of a field the model already has.`, "Choose another name, such as owner for ownerId.");
+    if (seen.has(`${m.name}.${raw.field}`)) throw invalid(`${where} is defined twice.`, "Define each relation once.");
+    seen.add(`${m.name}.${raw.field}`);
+    if (typeof raw.from !== "string" || !(raw.from in props)) throw invalid(`${where} needs from: a field of the model ${m.name}, got ${JSON.stringify(raw.from)}.`, `Use one of: ${Object.keys(props).join(", ")}.`);
+    const r = raw.route as RouteDef;
+    if (!r || typeof r !== "object" || r.kind !== "inferlo.route" || typeof r.path !== "string" || r.method === ("WS" as never)) throw invalid(`${where} needs route: an HTTP route made with route.get(...).handle(fn).`, fix);
+    const arg = raw.arg ?? "ids";
+    const input = toolDefinition(r).inputSchema as JSONSchema;
+    const argSchema = nullability(((input.properties ?? {}) as Record<string, JSONSchema>)[arg] ?? {}).schema;
+    if (typeof arg !== "string" || argSchema.type !== "array") throw invalid(`${where}: the route ${r.method} ${r.path} has no array argument "${String(arg)}" for the values to look up.`, `Give the route query: t.object({ ${String(arg)}: t.array(t.uuid()).max(100) }), or set arg to its array field.`);
+    const response = r.options.response ? nullability(r.options.response.toJSONSchema() as JSONSchema).schema : undefined;
+    const items = response?.type === "array" && response.items && typeof response.items === "object" ? nullability(response.items as JSONSchema).schema : undefined;
+    if (!items || items.type !== "object" || !items.properties) throw invalid(`${where}: the route ${r.method} ${r.path} must answer a list of rows.`, "Give the route response: t.array(User.row).");
+    const to = raw.to ?? "id";
+    if (typeof to !== "string" || !(to in items.properties)) throw invalid(`${where}: the rows of ${r.method} ${r.path} have no field ${JSON.stringify(to)} to match ${raw.from}.`, `Set to to one of: ${Object.keys(items.properties).join(", ")}.`);
+    if (raw.many !== undefined && typeof raw.many !== "boolean") throw invalid(`${where}: many must be true or false.`, "Use many: true for a list of rows.");
+    const relation: Required<GraphQLRelation> = { model: m as AnyModel, field: raw.field, route: r, from: raw.from, to, arg, many: raw.many ?? false };
+    out.push(relation);
+    const key = JSON.stringify(nullability(row).schema);
+    const extra = types.extras.get(key) ?? {};
+    const resolve: GraphQLFieldConfig<unknown, unknown>["resolve"] = async (source, _args, context) => {
+      const value = source && typeof source === "object" ? (source as Record<string, unknown>)[relation.from] : undefined;
+      if (value === undefined || value === null) return relation.many ? [] : null;
+      const rows = await lookup(runnerOf(context), relation, value);
+      return relation.many ? rows : (rows[0] ?? null);
+    };
+    relationResolvers.add(resolve!);
+    // Built when the type's fields are, so the related rows' type gets its own relations too.
+    extra[raw.field] = () => {
+      const item = types.output(items, pascal(raw.field));
+      return {
+        type: relation.many ? new GraphQLNonNull(new GraphQLList(item)) : item instanceof GraphQLNonNull ? item.ofType : item,
+        description: r.options.description ?? r.options.summary ?? `${relation.many ? "Rows" : "The row"} of ${r.method} ${r.path} whose ${to} is ${raw.from}.`,
+        resolve,
+      };
+    };
+    types.extras.set(key, extra);
+  }
+  return out;
 }
 
 /**
  * The GraphQL schema of graphqlRoute({ query, mutation }), for printing SDL (printSchema from graphql) and client
  * code generation. Its fields run routes only when executed through graphqlRoute().
  */
-export function graphqlSchema(options: Pick<GraphQLRouteOptions, "query" | "mutation">): GraphQLSchema {
+export function graphqlSchema(options: Pick<GraphQLRouteOptions, "query" | "mutation" | "relations">): GraphQLSchema {
   if (!options || typeof options !== "object") throw invalid("graphqlRoute() needs options.", "Use graphqlRoute({ query: { notes: listNotes }, mutation: { createNote } }).");
   checkFields("query", options.query);
   if (!Object.keys(options.query).length) throw invalid("graphqlRoute({ query }) needs at least one query field.", "Map a GET route: graphqlRoute({ query: { notes: listNotes } }).");
   if (options.mutation !== undefined) checkFields("mutation", options.mutation);
   const types = new TypeBuilder();
+  const relations = options.relations === undefined ? [] : addRelations(options.relations, types);
   const build = (kind: "query" | "mutation", fields: Record<string, RouteDef>) => Object.fromEntries(Object.entries(fields).map(([name, r]) => [name, fieldConfig(name, r, types, kind)]));
   const query = new GraphQLObjectType({ name: "Query", fields: build("query", options.query) });
   const mutation = options.mutation && Object.keys(options.mutation).length ? new GraphQLObjectType({ name: "Mutation", fields: build("mutation", options.mutation) }) : undefined;
@@ -301,8 +456,19 @@ export function graphqlSchema(options: Pick<GraphQLRouteOptions, "query" | "muta
   // Build every type now, so a problem shows when the app starts instead of on the first request.
   schema.getTypeMap();
   for (const type of Object.values(schema.getTypeMap())) if (type instanceof GraphQLObjectType || type instanceof GraphQLInputObjectType) type.getFields();
+  for (const relation of relations) {
+    if (!types.extended.has(JSON.stringify(nullability(relation.model.row.toJSONSchema() as JSONSchema).schema))) {
+      throw invalid(
+        `The relation "${relation.model.name}.${relation.field}" is on rows that no field answers.`,
+        `Map a route with response: ${pascal(relation.model.name)}.row or t.array(${pascal(relation.model.name)}.row) (the model's full rows), or a relation that answers them.`,
+      );
+    }
+  }
   return schema;
 }
+
+/** The resolvers of relation fields, so maxFields counts them. */
+const relationResolvers = new WeakSet<object>();
 
 /** Top-level fields of an operation, with fragments followed. */
 function countRootFields(selectionSet: SelectionSetNode, fragments: Map<string, FragmentDefinitionNode>, seen = new Set<string>()): number {
@@ -324,10 +490,18 @@ function maxFieldsRule(max: number): ValidationRule {
     const document: DocumentNode = context.getDocument();
     const fragments = new Map<string, FragmentDefinitionNode>();
     for (const d of document.definitions) if (d.kind === Kind.FRAGMENT_DEFINITION) fragments.set(d.name.value, d);
+    // Each relation field in the document runs its route once per list it appears in.
+    let relations = 0;
     return {
       OperationDefinition(node) {
         const count = countRootFields(node.selectionSet, fragments);
         if (count > max) context.reportError(new GraphQLError(`The operation asks for ${count} top-level fields; the most is ${max}.`, { nodes: [node], extensions: { code: "IL2020" } }));
+      },
+      Field(node) {
+        const resolve = context.getFieldDef()?.resolve;
+        if (resolve && relationResolvers.has(resolve) && ++relations === max + 1) {
+          context.reportError(new GraphQLError(`The document asks for more than ${max} relation fields; the most is ${max}.`, { nodes: [node], extensions: { code: "IL2021" } }));
+        }
       },
     };
   };
@@ -355,7 +529,7 @@ function format(result: { data?: unknown; errors?: readonly GraphQLError[] }): {
  */
 export function graphqlRoute(options: GraphQLRouteOptions): RouteDef {
   if (!options || typeof options !== "object" || Array.isArray(options)) throw invalid("graphqlRoute() needs options.", "Use graphqlRoute({ query: { notes: listNotes }, mutation: { createNote } }).");
-  const known = ["query", "mutation", "path", "auth", "rateLimit", "introspection", "maxFields"];
+  const known = ["query", "mutation", "path", "auth", "rateLimit", "introspection", "maxFields", "relations"];
   for (const key of Object.keys(options)) {
     if (!known.includes(key)) throw invalid(`Unknown graphqlRoute() option "${key}".`, `Options: ${known.join(", ")}.`);
   }
@@ -398,7 +572,11 @@ export function graphqlRoute(options: GraphQLRouteOptions): RouteDef {
     return format(await execute({ schema, document, variableValues: variables, operationName: body.operationName, contextValue: context }));
   });
   // describe() and OpenAPI list the endpoint's fields and the routes behind them.
-  graphqlEndpoints.set(endpoint.handler, { query: { ...options.query }, mutation: { ...(options.mutation ?? {}) } });
+  graphqlEndpoints.set(endpoint.handler, {
+    query: { ...options.query },
+    mutation: { ...(options.mutation ?? {}) },
+    ...(options.relations?.length ? { relations: Object.fromEntries(options.relations.map((r) => [`${r.model.name}.${r.field}`, r.route])) } : {}),
+  });
   return endpoint;
 }
 

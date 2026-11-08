@@ -90,6 +90,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL2020
 **Too many top-level GraphQL fields.** The GraphQL operation asks for more top-level fields (aliases and fragments included) than the endpoint's `maxFields` (default 20). Each top-level field runs a route, so split the work over several requests, or raise `graphqlRoute({ maxFields })`. Answered as a GraphQL error. See [GraphQL](graphql.md#limits).
 
+### IL2021
+**Too many GraphQL relation fields.** The GraphQL document asks for more [relation fields](graphql.md#relations) (aliases and fragments included) than the endpoint's `maxFields` (default 20). Each relation field runs its route once per list, so ask for fewer relations in one request, or raise `graphqlRoute({ maxFields })`. Answered as a GraphQL error. See [Relations](graphql.md#relations).
+
 ## Auth (3xxx)
 
 ### IL3001
@@ -450,7 +453,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid `idempotency` route option.** `idempotency` takes `true` or `{ ttlMs, required }` (`ttlMs` a whole number of milliseconds from 1000 to 30 days, `required` true or false), on POST, PUT, PATCH and DELETE routes only. See [Idempotency keys](routes.md#idempotency-keys).
 
 ### IL6059
-**Invalid `graphqlRoute()` options.** `graphqlRoute({ query, mutation, path, auth, rateLimit, introspection, maxFields })` from `@browserlessapi/inferlo/graphql` needs `query` with at least one field; `query` and `mutation` map GraphQL field names (letters, digits and underscores, not starting with `__`) to HTTP routes made with `route.get(...)` and the other methods, whose params, query and body field names are valid GraphQL names too. `path` is a fixed path starting with `/`, `maxFields` a whole number above 0 and `introspection` true or false. Also the code of a GraphQL error when a schema from `graphqlSchema()` is executed outside `graphqlRoute()` without `graphqlContext(app, request)` as the context. See [GraphQL](graphql.md).
+**Invalid `graphqlRoute()` options.** `graphqlRoute({ query, mutation, path, auth, rateLimit, introspection, maxFields })` from `@browserlessapi/inferlo/graphql` needs `query` with at least one field; `query` and `mutation` map GraphQL field names (letters, digits and underscores, not starting with `__`) to HTTP routes made with `route.get(...)` and the other methods, whose params, query and body field names are valid GraphQL names too. `path` is a fixed path starting with `/`, `maxFields` a whole number above 0 and `introspection` true or false. Also the code of a GraphQL error when a schema from `graphqlSchema()` is executed outside `graphqlRoute()` without `graphqlContext(app, request)` as the context. In `relations`, each relation needs `model` (a model), `field` (a new field name), `route` (an HTTP route answering a list of rows, with an array argument named by `arg`, default `ids`), `from` (a field of the model) and optionally `to` (a field of the route's rows, default `id`) and `many` (true or false), and the model's rows must be answered by some field. See [GraphQL](graphql.md).
 
 ### IL6060
 **Invalid `graphqlContext()` arguments.** `graphqlContext(app, request)` from `@browserlessapi/inferlo/graphql` needs the app from `createApp()` and the request your GraphQL server passes to its context function: a Web `Request` (GraphQL Yoga's `request`) or a Node.js request (Apollo Server's `req`). Use `createYoga({ schema: graphqlSchema({ ... }), context: ({ request }) => graphqlContext(app, request) })` or, with Apollo Server, `context: async ({ req }) => graphqlContext(app, req)`. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).

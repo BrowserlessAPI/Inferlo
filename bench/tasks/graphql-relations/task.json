@@ -1,0 +1,5 @@
+{
+  "title": "Resolve the owner of notes in GraphQL without a lookup per note",
+  "prompt": "GraphQL clients want each note's owner. Add a route GET /users in src/routes/users.ts exporting `usersByIds`, which takes the query argument `ids` (a list of at most 100 UUIDs) and answers the user rows with those ids, and register the module in src/app.ts. Then give notes in the GraphQL API of src/routes/graphql.ts an `owner` field (the user whose id is the note's ownerId) that runs usersByIds. Do not write resolvers: use Inferlo's GraphQL integration, so a list of notes looks up all of its owners with one call of the route.",
+  "packages": ["graphql"]
+}
