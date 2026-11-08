@@ -268,7 +268,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 
 ### IL6007
-**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"`, `"tenant"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"`, `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
+**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"`, `"tenant"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"`, `"database"`, `"redis"` (which needs `createApp({ redis })`, IL6031) or a BullMQ queue with `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq`.
 
 ### IL6008
 **Rate limit store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
@@ -280,7 +280,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Job is not registered.** The job passed to `jobs.enqueue` (or a queued job's name) is not in `createApp({ jobs: [...] })`. Pass a value made with `job(...).handle(...)` and register it, or its module.
 
 ### IL6011
-**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default), `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
+**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default), `"database"`, `"redis"` (which needs `createApp({ redis })`, IL6031) or a BullMQ queue with `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq`.
 
 ### IL6012
 **Job queue store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
@@ -415,6 +415,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6056
 **Invalid `sentryOnError()` argument.** `sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry` needs a Sentry SDK with `captureException` (`import * as Sentry from "@sentry/node"`, initialised with `Sentry.init({ dsn })`). See [Error tracking](observability.md#error-tracking-sentry).
+
+### IL6057
+**Invalid `bullmqJobStore()` arguments.** `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq` needs a BullMQ `Queue` and a `Worker` of the same queue created without a processor and with `autorun: false` (`new Worker("inferlo", null, { connection, autorun: false })`), so only Inferlo takes the queue's jobs. See [BullMQ](jobs.md#bullmq).
 
 ## Environment (7xxx)
 

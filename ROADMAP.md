@@ -119,7 +119,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Zod, Valibot and ArkType in the AI module: any Standard Schema with Standard JSON Schema as `ai.generate({ output })` and `tool()` input, so apps reuse their existing schemas, tested on the first releases with Standard JSON Schema and the latest
 - [x] Pino: `createApp({ logger: pinoLogger(pino()) })` from `@browserlessapi/inferlo/pino` writes Inferlo's request, job and error logs through an app's pino logger (Fastify's and NestJS's default), keeping request ids, trace ids and redaction, tested on the oldest supported and latest pino
 - [x] Sentry: errors from routes, jobs and AI calls reported to `@sentry/node` (or any Sentry SDK) with the request id, user id and route, secrets redacted, through `createApp({ onError })` and `sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry`, tested on `@sentry/node` 9.0.0 and latest
-- [ ] BullMQ: `jobQueue: { store: bullmq(queue) }` runs Inferlo jobs (retries, cron, events, tracing, tenants) on an app's existing BullMQ queues, as a separate entry point, tested on the oldest supported and latest BullMQ and Redis
+- [x] BullMQ: `jobQueue: { store: bullmqJobStore(queue, worker) }` runs Inferlo jobs (retries, cron, events, tracing, tenants) on an app's existing BullMQ queues, as a separate entry point, tested on the oldest supported and latest BullMQ and Redis
 - [ ] OpenAI Agents SDK and Mastra: Inferlo AI aliases as their model provider and Inferlo tools (routes and `tool()`) as their tools, so agents built with them get Inferlo's fallback, budgets and usage tracking, tested on the oldest supported and latest versions
 
 ### Core

@@ -1953,6 +1953,30 @@ export const app = createApp({
 - Cron ticks are queued once across instances, as with the database queue.
 - `{ store: "redis" }` without `createApp({ redis })` raises IL6031. Keys and other details are in [Redis](redis.md#job-queue).
 
+### BullMQ
+
+Apps that already run [BullMQ](https://docs.bullmq.io) (5.0.0 or later) can keep Inferlo's jobs in a BullMQ queue, so they show up in the same dashboards (Bull Board, Taskforce.sh) and use the same Redis. Pass a `Queue` and a `Worker` of that queue without a processor to `bullmqJobStore` from `@browserlessapi/inferlo/bullmq`:
+
+```ts
+import { Queue, Worker } from "bullmq";
+import { bullmqJobStore } from "@browserlessapi/inferlo/bullmq";
+
+const connection = new IORedis(settings.REDIS_URL, { maxRetriesPerRequest: null });   // from the ioredis package
+const queue = new Queue("inferlo", { connection });
+const worker = new Worker("inferlo", null, { connection, autorun: false });
+
+export const app = createApp({
+  jobs: [jobs],
+  jobQueue: { store: bullmqJobStore(queue, worker) },
+});
+```
+
+- Every Inferlo job is a BullMQ job: its name is the job's name, its id is Inferlo's job id, and `runAt` is BullMQ's delay. Jobs queued with the same id (cron ticks, the jobs of an event delivered twice) are queued once, as with the other stores.
+- Inferlo takes jobs with BullMQ's manual processing API in `app.jobs.start()`, `inferlo worker` and `app.jobs.runDue()`, and runs them with its own handlers, so input validation, retries with Inferlo's backoff (`moveToDelayed`), tracing, tenants, metrics and `onError` work as with the other stores. A finished job is `completed` or `failed` in BullMQ, kept for 7 days.
+- While a job runs, its lock is extended every `lockDuration / 2` (the worker's option, default 30 seconds). A job whose process stopped is moved back by BullMQ's stalled-job check and runs again as its next attempt, with `lastError` saying the worker stopped, or is failed when it has no attempts left. BullMQ fails a job that stalled more than the worker's `maxStalledCount` times (default 1); raise it for long deploys. Handlers must be safe to run twice.
+- Give Inferlo its own queue: a job in it that Inferlo did not queue is failed with a message, and BullMQ hands out jobs in order whatever their name, so a job that an older instance has not registered fails with IL6010 and is retried (deploy every instance with the same jobs). BullMQ decides when a job is due with its own clock, so `runDue({ now })` cannot run jobs early.
+- The worker must belong to the same queue and be created with `autorun: false` and no processor, so only Inferlo takes its jobs; other arguments raise IL6057. Close the worker and the queue after `app.close()`.
+
 ## Testing
 
 `app.jobs.runDue()` runs every due job now, one after another, including follow-ups they enqueue, and returns `{ done, retried, failed }`:
@@ -4065,6 +4089,20 @@ const app = createApp({ routes, onError: sentryOnError(Sentry) });
 
 See [Error tracking](observability.md#error-tracking-sentry); tested with `@sentry/node` 9.0.0 and the latest.
 
+## BullMQ
+
+Apps that run their background work on BullMQ keep Inferlo's jobs (retries, crons, events, tracing, tenants) in a BullMQ queue of their own, on the same Redis and in the same dashboards, with `bullmqJobStore` from `@browserlessapi/inferlo/bullmq`:
+
+```ts
+import { Queue, Worker } from "bullmq";
+import { bullmqJobStore } from "@browserlessapi/inferlo/bullmq";
+const queue = new Queue("inferlo", { connection });
+const worker = new Worker("inferlo", null, { connection, autorun: false });   // no processor: Inferlo runs the jobs
+const app = createApp({ jobs: [jobs], jobQueue: { store: bullmqJobStore(queue, worker) } });
+```
+
+See [Background jobs, "BullMQ"](jobs.md#bullmq); tested with BullMQ 5.0.0 and the latest, on Redis 6.2 and the latest Redis.
+
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 
 `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.
@@ -5912,6 +5950,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Zod, ArkType and Valibot schemas in the AI module (`ai.generate({ output })`, `tool()` input) | zod 4.2 and later, arktype 2.1.28 and later, `@valibot/to-json-schema` 1.5 and later |
 | NATS JetStream events (`/nats`: `natsEventTransport`) | nats-server 2.11 and newer with JetStream, `@nats-io/jetstream` 3.0.0 and newer |
 | RabbitMQ events (`/rabbitmq`: `rabbitmqEventTransport`) | RabbitMQ 4.3 and newer, `amqplib` 0.10.9 and newer |
+| BullMQ job queue (`/bullmq`: `bullmqJobStore`) | `bullmq` 5.0.0 and newer, on Redis 6.2 and newer |
 | Vercel AI SDK providers (`aiSdk(provider)`) | `@ai-sdk/*` provider packages for `ai` 5 and newer (language model specifications v2, v3 and v4); tested with `@ai-sdk/openai-compatible` 1.0.0, 2 and the latest |
 | Drizzle ORM (next to Inferlo on one Postgres database, `db.$pgClient()`) | `drizzle-orm` 0.44.0 and newer |
 | Kysely (next to Inferlo on one Postgres database, `db.$pgClient()`) | `kysely` 0.28.0 and newer |
@@ -6215,7 +6254,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 
 ### IL6007
-**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"`, `"tenant"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"`, `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
+**Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"`, `"tenant"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"`, `"database"`, `"redis"` (which needs `createApp({ redis })`, IL6031) or a BullMQ queue with `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq`.
 
 ### IL6008
 **Rate limit store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
@@ -6227,7 +6266,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Job is not registered.** The job passed to `jobs.enqueue` (or a queued job's name) is not in `createApp({ jobs: [...] })`. Pass a value made with `job(...).handle(...)` and register it, or its module.
 
 ### IL6011
-**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default), `"database"` or `"redis"` (which needs `createApp({ redis })`, IL6031).
+**Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default), `"database"`, `"redis"` (which needs `createApp({ redis })`, IL6031) or a BullMQ queue with `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq`.
 
 ### IL6012
 **Job queue store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
@@ -6362,6 +6401,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6056
 **Invalid `sentryOnError()` argument.** `sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry` needs a Sentry SDK with `captureException` (`import * as Sentry from "@sentry/node"`, initialised with `Sentry.init({ dsn })`). See [Error tracking](observability.md#error-tracking-sentry).
+
+### IL6057
+**Invalid `bullmqJobStore()` arguments.** `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq` needs a BullMQ `Queue` and a `Worker` of the same queue created without a processor and with `autorun: false` (`new Worker("inferlo", null, { connection, autorun: false })`), so only Inferlo takes the queue's jobs. See [BullMQ](jobs.md#bullmq).
 
 ## Environment (7xxx)
 

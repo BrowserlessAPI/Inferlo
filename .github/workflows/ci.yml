@@ -134,6 +134,47 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/redis.test.ts test/rate-limit.test.ts test/cache.test.ts test/health.test.ts test/jobs-queue.test.ts test/events-transport.test.ts test/websocket-redis.test.ts
 
+  bullmq:
+    name: BullMQ ${{ matrix.versions.bullmq }} on Redis ${{ matrix.versions.redis }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        versions:
+          # BullMQ 5.0.0 = first release of BullMQ 5, the oldest major still getting releases (release-v5.x), on
+          # Redis 6.2 (oldest version still supported upstream, and BullMQ's recommended minimum); latest = newest
+          # BullMQ on the oldest supported and the latest Redis.
+          - { bullmq: "5.0.0", redis: "6.2" }
+          - { bullmq: "latest", redis: "6.2" }
+          - { bullmq: "latest", redis: "latest" }
+    services:
+      redis:
+        image: redis:${{ matrix.versions.redis }}
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      INFERLO_TEST_REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save bullmq@${{ matrix.versions.bullmq }}
+      - run: node -p "'bullmq ' + require('./node_modules/bullmq/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/bullmq.test.ts
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun test test/bullmq.test.ts
+
   performance:
     # Fails when Inferlo's throughput relative to Fastify's (same runner, same run) drops below the floors in
     # bench/perf/limits.json, so a slower change is caught whatever the speed of the runner.

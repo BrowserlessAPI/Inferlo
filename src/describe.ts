@@ -5,6 +5,7 @@
 import { describeDeprecation, resolveDeprecation } from "./deprecation.ts";
 import type { App } from "./app.ts";
 import type { ModuleInfo } from "./module.ts";
+import type { JobQueueName } from "./jobs.ts";
 import { toolName } from "./mcp.ts";
 import { columnName } from "./model.ts";
 import { containsFile, type AnySchema, type JSONSchema } from "./schema.ts";
@@ -83,7 +84,7 @@ export interface AppDescription {
   /** How events reach other services (createApp({ events: { transport } })), when the app has a transport: "redis". */
   eventTransport?: string;
   /** Where queued jobs are kept. */
-  jobQueue: "memory" | "database" | "redis";
+  jobQueue: JobQueueName;
   /** Where ctx.cache and app.cache keep entries. */
   cache: "memory" | "database" | "redis";
   /** Where ctx.storage and app.storage keep files ("memory", "disk" or a custom store's name), or null without createApp({ storage }). */

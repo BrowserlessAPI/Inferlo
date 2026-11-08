@@ -239,6 +239,30 @@ export const app = createApp({
 - Cron ticks are queued once across instances, as with the database queue.
 - `{ store: "redis" }` without `createApp({ redis })` raises IL6031. Keys and other details are in [Redis](redis.md#job-queue).
 
+### BullMQ
+
+Apps that already run [BullMQ](https://docs.bullmq.io) (5.0.0 or later) can keep Inferlo's jobs in a BullMQ queue, so they show up in the same dashboards (Bull Board, Taskforce.sh) and use the same Redis. Pass a `Queue` and a `Worker` of that queue without a processor to `bullmqJobStore` from `@browserlessapi/inferlo/bullmq`:
+
+```ts
+import { Queue, Worker } from "bullmq";
+import { bullmqJobStore } from "@browserlessapi/inferlo/bullmq";
+
+const connection = new IORedis(settings.REDIS_URL, { maxRetriesPerRequest: null });   // from the ioredis package
+const queue = new Queue("inferlo", { connection });
+const worker = new Worker("inferlo", null, { connection, autorun: false });
+
+export const app = createApp({
+  jobs: [jobs],
+  jobQueue: { store: bullmqJobStore(queue, worker) },
+});
+```
+
+- Every Inferlo job is a BullMQ job: its name is the job's name, its id is Inferlo's job id, and `runAt` is BullMQ's delay. Jobs queued with the same id (cron ticks, the jobs of an event delivered twice) are queued once, as with the other stores.
+- Inferlo takes jobs with BullMQ's manual processing API in `app.jobs.start()`, `inferlo worker` and `app.jobs.runDue()`, and runs them with its own handlers, so input validation, retries with Inferlo's backoff (`moveToDelayed`), tracing, tenants, metrics and `onError` work as with the other stores. A finished job is `completed` or `failed` in BullMQ, kept for 7 days.
+- While a job runs, its lock is extended every `lockDuration / 2` (the worker's option, default 30 seconds). A job whose process stopped is moved back by BullMQ's stalled-job check and runs again as its next attempt, with `lastError` saying the worker stopped, or is failed when it has no attempts left. BullMQ fails a job that stalled more than the worker's `maxStalledCount` times (default 1); raise it for long deploys. Handlers must be safe to run twice.
+- Give Inferlo its own queue: a job in it that Inferlo did not queue is failed with a message, and BullMQ hands out jobs in order whatever their name, so a job that an older instance has not registered fails with IL6010 and is retried (deploy every instance with the same jobs). BullMQ decides when a job is due with its own clock, so `runDue({ now })` cannot run jobs early.
+- The worker must belong to the same queue and be created with `autorun: false` and no processor, so only Inferlo takes its jobs; other arguments raise IL6057. Close the worker and the queue after `app.close()`.
+
 ## Testing
 
 `app.jobs.runDue()` runs every due job now, one after another, including follow-ups they enqueue, and returns `{ done, retried, failed }`:

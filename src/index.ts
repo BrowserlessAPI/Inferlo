@@ -76,7 +76,7 @@ export { event, isEvent, on } from "./events.ts";
 export type { AppEvents, EventDef, EventMessage, EventOptions, EventPayload, Events, EventsConfig, EventTransport, OnDef, PublishedEvent, PublishOptions } from "./events.ts";
 export type { CronDef } from "./cron.ts";
 export type { JobTraceContext } from "./tracing.ts";
-export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, JobQueueConfig, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";
+export type { JobDef, JobOptions, JobContext, JobInput, JobRecord, JobStatus, JobSource, JobQueueConfig, JobQueueName, JobStore, Jobs, AppJobs, EnqueueOptions, RunResult, Worker } from "./jobs.ts";
 export { AuditLog, auditChanges } from "./audit.ts";
 export type { Audit, AuditEntry, AuditChange } from "./audit.ts";
 export type { Cache, CacheConfig, CacheSetOptions, RouteCache } from "./cache.ts";

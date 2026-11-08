@@ -121,9 +121,13 @@ export interface JobQueueConfig {
    * Where queued jobs are kept. "memory" (default): in this process, for development and tests.
    * "database": in the inferlo_jobs table of the app's Postgres database, shared by every instance.
    * "redis": in the Redis of createApp({ redis }), shared by every instance.
+   * bullmqJobStore(queue, worker) from "@browserlessapi/inferlo/bullmq": in an app's BullMQ queue.
    */
-  store?: "memory" | "database" | "redis";
+  store?: "memory" | "database" | "redis" | JobStore;
 }
+
+/** Where queued jobs are kept, as app.jobs.queue and inferlo describe show it. */
+export type JobQueueName = "memory" | "database" | "redis" | "bullmq" | "custom";
 
 /** Where queued jobs are kept. */
 export interface JobStore {
@@ -135,6 +139,8 @@ export interface JobStore {
   get(id: string): Promise<JobRecord | null>;
   /** Record that a running job is still alive (database and Redis stores), so it is not picked up again as stuck. */
   touch?(id: string): Promise<void>;
+  /** The store's name for app.jobs.queue, for stores passed as createApp({ jobQueue: { store } }). Default "custom". */
+  readonly queue?: JobQueueName;
 }
 
 export interface RunResult {
@@ -158,7 +164,7 @@ export interface AppJobs extends Jobs {
   /** The registered crons: cron(schedule, job) values in createApp({ jobs }). */
   readonly crons: readonly CronDef[];
   /** Where queued jobs are kept (createApp({ jobQueue: { store } })). */
-  readonly queue: "memory" | "database" | "redis";
+  readonly queue: JobQueueName;
   /** A queued job by id, or null. */
   get(id: string): Promise<JobRecord | null>;
   /** Run every job that is due now (or at options.now), one after another, including follow-ups they enqueue, then return. For tests and scripts. */
@@ -430,10 +436,23 @@ const noStorage = createStorage(undefined);
 
 export function jobStoreFor(config: JobQueueConfig | undefined, adapter: Adapter, redis?: () => JobStore): JobStore {
   const store = config?.store ?? "memory";
+  if (isJobStore(store)) return store;
   if (store === "memory") return memoryJobStore();
   if (store === "database") return databaseJobStore(adapter);
   if (store === "redis" && redis) return redis();
-  throw new InferloError("IL6011", `Invalid jobQueue store "${String(store)}".`, { fix: 'Use createApp({ jobQueue: { store: "memory" } }) (the default), { store: "database" } or { store: "redis" } with createApp({ redis }).' });
+  throw new InferloError("IL6011", `Invalid jobQueue store "${String(store)}".`, { fix: 'Use createApp({ jobQueue: { store: "memory" } }) (the default), { store: "database" }, { store: "redis" } with createApp({ redis }), or { store: bullmqJobStore(queue, worker) } from "@browserlessapi/inferlo/bullmq".' });
+}
+
+/** A store object (bullmqJobStore()) rather than a store name. */
+export function isJobStore(value: unknown): value is JobStore {
+  const s = value as Partial<Record<keyof JobStore, unknown>> | null;
+  return !!s && typeof s === "object" && typeof s.add === "function" && typeof s.claim === "function" && typeof s.update === "function" && typeof s.get === "function";
+}
+
+/** app.jobs.queue for createApp({ jobQueue }). */
+export function jobQueueName(config: JobQueueConfig | undefined): JobQueueName {
+  const store = config?.store ?? "memory";
+  return isJobStore(store) ? (store.queue ?? "custom") : store;
 }
 
 export interface JobRuntime {
@@ -448,7 +467,7 @@ export interface JobRuntime {
   audit(job: { name: string; id: string; tenantId: string | null }): Audit;
   store: JobStore;
   /** Name of the store, shown as app.jobs.queue. Default "memory". */
-  queue?: "memory" | "database" | "redis";
+  queue?: JobQueueName;
   /** How often a running job is reported alive to stores that support it. Default HEARTBEAT_MS. */
   heartbeatMs?: number;
   logger: { info(message: string, data?: unknown): void; error(message: string, data?: unknown): void };

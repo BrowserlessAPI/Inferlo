@@ -1419,6 +1419,20 @@ const app = createApp({ routes, onError: sentryOnError(Sentry) });
 
 See [Error tracking](observability.md#error-tracking-sentry); tested with `@sentry/node` 9.0.0 and the latest.
 
+## BullMQ
+
+Apps that run their background work on BullMQ keep Inferlo's jobs (retries, crons, events, tracing, tenants) in a BullMQ queue of their own, on the same Redis and in the same dashboards, with `bullmqJobStore` from `@browserlessapi/inferlo/bullmq`:
+
+```ts
+import { Queue, Worker } from "bullmq";
+import { bullmqJobStore } from "@browserlessapi/inferlo/bullmq";
+const queue = new Queue("inferlo", { connection });
+const worker = new Worker("inferlo", null, { connection, autorun: false });   // no processor: Inferlo runs the jobs
+const app = createApp({ jobs: [jobs], jobQueue: { store: bullmqJobStore(queue, worker) } });
+```
+
+See [Background jobs, "BullMQ"](jobs.md#bullmq); tested with BullMQ 5.0.0 and the latest, on Redis 6.2 and the latest Redis.
+
 Bun, Deno and Workers take `inferlo.fetch` directly: `Bun.serve({ routes, fetch: app.fetch })` serves Bun's own routes and the Inferlo app from one server; see [Deployment](deploy.md#bun). On Deno, `Deno.serve(app.fetch)`, or `export default app` for `deno serve` and Deno Deploy; see [Deployment](deploy.md#deno).
 
 `toNodeHandler` and `fromNodeRequest` are tested with `node:http` on Node.js and Bun.

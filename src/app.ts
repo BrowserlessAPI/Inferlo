@@ -25,7 +25,7 @@ import { clientIp, clientIps, clientSignals, keepEventStreamOpen, platformWaitUn
 import { redisJobStore } from "./redis-jobs.ts";
 import { knownBodies } from "./response-body.ts";
 import { checkFileContents, checkFileFields, fileBudget, isMultipart, readMultipart } from "./files.ts";
-import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobStoreFor, stopWorkers, withTenant, type AppJobs, type Jobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
+import { collectCrons, collectJobs, collectSubscriptions, createJobs, jobQueueName, jobStoreFor, stopWorkers, withTenant, type AppJobs, type Jobs, type JobQueueConfig, type JobSource } from "./jobs.ts";
 import { checkEventsConfig, invalidTransport, type AppEvents, type Events, type EventsConfig, type EventTransport } from "./events.ts";
 import { redisEventTransport } from "./redis-events.ts";
 import type { Server } from "./serve.ts";
@@ -606,7 +606,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         if (!redis) throw redisMissing("jobQueue");
         return redisJobStore(redis, redisPrefix(config.name));
       }),
-      queue: config.jobQueue?.store ?? "memory",
+      queue: jobQueueName(config.jobQueue),
       logger,
       onError: config.onError ? reportError : undefined,
       onRun: metrics ? (name, outcome, ms) => metrics.job(name, outcome, ms / 1000) : undefined,

@@ -1,0 +1,5 @@
+{
+  "title": "Inferlo jobs on an existing BullMQ queue",
+  "prompt": "This company runs all its background work on BullMQ and wants Inferlo's jobs in the same Redis and dashboards. Create src/job-queue.ts with `export function jobQueue(queue: BullMQQueue, worker: BullMQWorker)` (both types from @browserlessapi/inferlo/bullmq; the queue and worker come from bullmq) that returns the `jobQueue` option for createApp, keeping Inferlo's jobs in that BullMQ queue with Inferlo's built-in BullMQ support. Do not write your own store.",
+  "packages": ["bullmq"]
+}
