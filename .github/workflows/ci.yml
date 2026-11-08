@@ -581,6 +581,31 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/langchain.test.ts
 
+  llamaindex:
+    name: LlamaIndex.TS (@llamaindex/core ${{ matrix.llamaindex }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0.6.0 = oldest supported (LlamaIndex.TS has no long-term support releases; 0.6.0 starts the 0.6 line
+        # every current LlamaIndex.TS package uses), latest = newest release. The tests run LlamaIndex's LLMAgent.
+        llamaindex: ["0.6.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @llamaindex/core@${{ matrix.llamaindex }}
+      - run: node -p "'@llamaindex/core ' + require('./node_modules/@llamaindex/core/package.json').version"
+      - run: npm run typecheck
+      - run: node --test --test-reporter=spec test/llamaindex.test.ts
+
   openai-agents:
     name: OpenAI Agents SDK (@openai/agents-core ${{ matrix.agents }})
     runs-on: ubuntu-latest

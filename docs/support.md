@@ -81,6 +81,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Vercel AI SDK UI (`toResponse({ format: "ai-sdk" })` for `useChat`) | `ai` package 5.0.0 and newer (UI message stream protocol v1) |
 | Vercel AI SDK Core (`toAISdkModel`, `toAISdkTools` for `generateText`, `streamText` and agents) | `ai` package 5.0.0 and newer (language model specification v2) |
 | LangChain.js (`/langchain`: `toLangChainModel`, `toLangChainTools`) | `@langchain/core` 0.3 (newest 0.3.x) and 1.x |
+| LlamaIndex.TS (`/llamaindex`: `toLlamaIndexLLM`, `toLlamaIndexEmbedding`, `toLlamaIndexTools`) | `@llamaindex/core` 0.6.0 and newer |
 | OpenAI Agents SDK (`/openai-agents`: `toOpenAIAgentsModel`, `toOpenAIAgentsTools`) | `@openai/agents-core` 0.20.0 and newer |
 | GraphQL (`/graphql`: `graphqlRoute`, `graphqlSchema`) | `graphql` 16 (newest 16.x) and 17 |
 | Mastra (`/mastra`: `toMastraModel`, `toMastraTools`) | `@mastra/core` 1.0.0 and newer |

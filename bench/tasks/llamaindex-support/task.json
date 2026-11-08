@@ -1,0 +1,5 @@
+{
+  "title": "LlamaIndex.TS agent on Inferlo's AI with an Inferlo tool",
+  "prompt": "Part of the team builds agents with LlamaIndex.TS (@llamaindex/core). Create src/routes/support.ts exporting `support`: POST /support with body { question } (a string of at most 4000 characters) that answers { answer } (a string). Also export a function tool `orderStatus` named \"orderStatus\" (description \"Status of an order\") whose input is { orderId } (a string) and which returns { orderId, status: \"shipped\" }. Inside the handler, create a LlamaIndex LLMAgent (from @llamaindex/core/agent) with the system prompt \"You answer support questions.\", whose llm is the request's Inferlo AI client through Inferlo's LlamaIndex integration, using the \"fast\" alias and tracking usage for the signed-in user, and whose tools are the orderStatus tool through the same integration. Answer with the text of the agent's chat() response to the question. Register the route module in src/app.ts.",
+  "packages": ["@llamaindex/core"]
+}

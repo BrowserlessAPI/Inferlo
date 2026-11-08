@@ -1021,6 +1021,42 @@ export const assistant = route
 - `bindTools` also takes LangChain tools and OpenAI-style tool definitions.
 - `@langchain/core` is an optional peer dependency: install it (and `langchain` or `@langchain/langgraph` for agents) in your app. The core package never loads it. Tested with `@langchain/core` 0.3 (newest 0.3.x, maintained until December 2026) and the latest release (1.x). Invalid arguments raise IL5030.
 
+## LlamaIndex.TS
+
+`@browserlessapi/inferlo/llamaindex` lets LlamaIndex.TS agents, indexes, query engines and chat engines use Inferlo's AI and embeddings, and Inferlo tools:
+
+```ts
+import { LLMAgent } from "@llamaindex/core/agent";
+import { toLlamaIndexLLM, toLlamaIndexTools } from "@browserlessapi/inferlo/llamaindex";
+
+export const assistant = route
+  .post("/assistant", { body: t.object({ message: t.string().max(4000) }), rateLimit: { max: 20, per: "minute" } })
+  .handle(async ({ body, ai, user }) => {
+    const agent = new LLMAgent({
+      llm: toLlamaIndexLLM(ai, { model: "fast", for: user.id }),
+      tools: toLlamaIndexTools([getWeather, createTicket], { ai }),
+    });
+    const response = await agent.chat({ message: body.message });
+    return { answer: String(response.message.content) };
+  });
+```
+
+For indexes and retrieval, set the models once where the app starts:
+
+```ts
+import { Settings } from "llamaindex";
+import { toLlamaIndexEmbedding, toLlamaIndexLLM } from "@browserlessapi/inferlo/llamaindex";
+
+Settings.llm = toLlamaIndexLLM(app.ai, { model: "fast" });
+Settings.embedModel = toLlamaIndexEmbedding(app.ai, { model: "embed" });
+```
+
+- **`toLlamaIndexLLM(ai, { model, for, temperature, maxTokens, contextWindow })`** is a LlamaIndex LLM with tool calling (`ToolCallLLM`) that calls Inferlo's AI: the alias and its fallback models, budgets (`allow`), usage tracking (`onUsage`, with `for`), tracing and every configured provider. `chat` and `complete` work, streamed (`stream: true`: text chunks, then one chunk with the usage in `raw`) or not. With tools, the model's tool calls come back in `message.options.toolCall` and LlamaIndex runs them (tool results go back as `options.toolResult`); a streamed answer with tools arrives as one chunk. Answers carry the usage, the model that answered and the cost in `raw.usage`. Images in user messages (`image_url` parts, and `image` parts with base64 data) reach vision models. `contextWindow` (default 128000) is what LlamaIndex plans its memory and prompts for.
+- **`toLlamaIndexEmbedding(ai, { model, for, batchSize })`** is a LlamaIndex embedding model (`BaseEmbedding`) that calls `ai.embed`, one call per batch of `batchSize` texts (default 10).
+- **`toLlamaIndexTools(tools, { ai })`** turns Inferlo function tools (`tool(name, ...).handle(fn)`) into LlamaIndex tools, with the tool's schema and validation. Routes work too when you pass a request's `ctx.ai`: each call runs as the signed-in user, with the route's auth, permissions, validation and rate limits, as with `ai.generate({ tools })`. Without `ai`, a route raises IL5009.
+- `responseFormat` (LlamaIndex's structured output) is not supported: for structured data, call `ai.generate({ output: schema })` directly. Audio, video and file content raise IL5037, like invalid arguments.
+- `@llamaindex/core` is an optional peer dependency: install it (and `llamaindex` for indexes and readers) in your app. The core package never loads it. Tested with `@llamaindex/core` 0.6.0 and the latest release, with LlamaIndex's own `LLMAgent`.
+
 ## OpenAI Agents SDK
 
 `@browserlessapi/inferlo/openai-agents` lets agents built with the [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/) (`@openai/agents`) run on Inferlo's AI, with any provider Inferlo supports, and use Inferlo tools:

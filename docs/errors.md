@@ -273,6 +273,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5036
 **Invalid toTanStackHandlers() arguments.** `toTanStackHandlers(app, { prefix })` from `@browserlessapi/inferlo/tanstack-start` needs the app returned by `createApp` and, if given, a `prefix` that starts with `/`, such as `"/api"` for `createFileRoute("/api/$")`: `export const Route = createFileRoute("/api/$")({ server: { handlers: toTanStackHandlers(app, { prefix: "/api" }) } })`. The handlers it returns must be a server route's `handlers`, so TanStack Start calls them with `{ request }`. See [TanStack Start](integrations.md#tanstack-start).
 
+### IL5037
+**Invalid LlamaIndex model or tools arguments.** `toLlamaIndexLLM(ai, { model, for, temperature, maxTokens, contextWindow })` and `toLlamaIndexEmbedding(ai, { model, for, batchSize })` from `@browserlessapi/inferlo/llamaindex` need Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and take only those options (`batchSize` is a whole number above 0); `toLlamaIndexTools([...], { ai })` takes an array of Inferlo function tools and routes. The LLM takes text and images (PNG, JPEG, GIF and WebP) in system, user and assistant messages, and no `responseFormat`: for structured output, call `ai.generate({ model, prompt, output: schema })`. See [LlamaIndex.TS](integrations.md#llamaindexts).
+
 ## App configuration (6xxx)
 
 ### IL6001
