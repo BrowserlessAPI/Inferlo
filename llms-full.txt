@@ -2700,7 +2700,7 @@ Its fields run routes only when executed through `graphqlRoute()`, or by another
 
 ## GraphQL Yoga and other GraphQL servers
 
-Apps that already serve GraphQL with [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) can serve the same schema there, with plugins, subscriptions and the GraphiQL page Yoga adds. `graphqlContext(app, request)` is the context that lets each field run its route as the caller of the request:
+Apps that already serve GraphQL with [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) or [Apollo Server](#apollo-server) can serve the same schema there, with the server's plugins, subscriptions and schema explorer. `graphqlContext(app, request)` is the context that lets each field run its route as the caller of the request:
 
 ```ts
 import { createYoga } from "graphql-yoga";
@@ -2721,6 +2721,40 @@ export const yoga = createYoga({
 - Without `graphqlContext`, fields answer IL6059. Arguments that are not an app from `createApp()` and a request raise IL6060.
 
 Tested with GraphQL Yoga 5 (newest 5.x, with `graphql` 16) and the latest release (6), on Node.js, Bun and Deno.
+
+### Apollo Server
+
+Apollo Server 5 passes the Node.js request to its context function as `req`, both in its standalone server and in its Express middleware:
+
+```ts
+import { ApolloServer } from "@apollo/server";
+import { startStandaloneServer } from "@apollo/server/standalone";
+import { graphqlContext, graphqlSchema, type GraphQLContext } from "@browserlessapi/inferlo/graphql";
+import { app } from "./app.ts";
+import { createNote, getNote, listNotes } from "./routes/notes.ts";
+
+const server = new ApolloServer<GraphQLContext>({
+  schema: graphqlSchema({ query: { notes: listNotes, note: getNote }, mutation: { createNote } }),
+});
+
+const { url } = await startStandaloneServer(server, {
+  listen: { port: 4000 },
+  context: async ({ req }) => graphqlContext(app, req),
+});
+```
+
+In an Express app, with `expressMiddleware` from `@as-integrations/express5` (Express 5) or `@as-integrations/express4` (Express 4):
+
+```ts
+await server.start();
+web.use("/graphql", express.json(), expressMiddleware(server, { context: async ({ req }) => graphqlContext(app, req) }));
+```
+
+- Fields behave as with Yoga: each runs its route as the caller of `req` (its `Authorization` header, API key or session cookie), with the route's auth, permissions, validation, rate limits, tenant scope and audit; per-IP rate limits use the socket address of `req`. Errors keep the route's `code` and `status` in `extensions`.
+- `server.executeOperation(request, { contextValue: graphqlContext(app, webRequest) })` runs an operation in tests as the caller of a Web `Request`.
+- Apollo Server 5 needs `graphql` 16 (`npm install @apollo/server graphql@16`); Inferlo's GraphQL module works with both 16 and 17.
+
+Tested with Apollo Server 5.0.0 and the latest release, both with `graphql` 16, standalone and with `@as-integrations/express5`, on Node.js and Bun.
 
 Each field is one in-process call of its route; nested data comes from the route's answer, so a field never runs extra queries per item. Tested with `graphql` 16 (newest 16.x) and the latest release (17), on Node.js, Bun and Deno.
 
@@ -3159,9 +3193,11 @@ const { text } = await ai.generate({ model: "fast", prompt: "File a ticket: the 
 
 A whole Inferlo app runs next to tRPC on the same server: mount `inferlo.fetch` (Web servers) or `toNodeHandler(inferlo)` (Node servers) under its own path. The [with-trpc example](../examples/with-trpc) uses both helpers with tRPC's fetch adapter, and CI tests it with tRPC 11.0.0 (the oldest supported major; tRPC 10 is no longer maintained) and the latest tRPC.
 
-## GraphQL Yoga
+## GraphQL Yoga and Apollo Server
 
 An app that serves GraphQL with GraphQL Yoga 5 or 6 serves the app's routes as GraphQL fields there, without writing resolvers: `createYoga({ schema: graphqlSchema({ query: { notes: listNotes }, mutation: { createNote } }), context: ({ request }) => graphqlContext(app, request) })`, with both from `@browserlessapi/inferlo/graphql`. Each field runs its route as the caller of the request, with the route's auth, permissions, validation and rate limits. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).
+
+With Apollo Server 5, the same schema runs with `new ApolloServer({ schema: graphqlSchema({ query, mutation }) })` and `context: async ({ req }) => graphqlContext(app, req)` in `startStandaloneServer` or in `expressMiddleware` from `@as-integrations/express5`. See [Apollo Server](graphql.md#apollo-server).
 
 ## AdonisJS
 
@@ -6260,6 +6296,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | OpenAI Agents SDK (`/openai-agents`: `toOpenAIAgentsModel`, `toOpenAIAgentsTools`) | `@openai/agents-core` 0.20.0 and newer |
 | GraphQL (`/graphql`: `graphqlRoute`, `graphqlSchema`) | `graphql` 16 (newest 16.x) and 17 |
 | GraphQL Yoga (`/graphql`: `graphqlSchema` with `graphqlContext`) | `graphql-yoga` 5 (newest 5.x, with `graphql` 16) and 6 |
+| Apollo Server (`/graphql`: `graphqlSchema` with `graphqlContext`) | `@apollo/server` 5.0.0 and newer, with `graphql` 16 |
 | Mastra (`/mastra`: `toMastraModel`, `toMastraTools`) | `@mastra/core` 1.0.0 and newer |
 | Zod, ArkType and Valibot schemas in the AI module (`ai.generate({ output })`, `tool()` input) | zod 4.2 and later, arktype 2.1.28 and later, `@valibot/to-json-schema` 1.5 and later |
 | NATS JetStream events (`/nats`: `natsEventTransport`) | nats-server 2.11 and newer with JetStream, `@nats-io/jetstream` 3.0.0 and newer |
@@ -6754,7 +6791,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid `graphqlRoute()` options.** `graphqlRoute({ query, mutation, path, auth, rateLimit, introspection, maxFields })` from `@browserlessapi/inferlo/graphql` needs `query` with at least one field; `query` and `mutation` map GraphQL field names (letters, digits and underscores, not starting with `__`) to HTTP routes made with `route.get(...)` and the other methods, whose params, query and body field names are valid GraphQL names too. `path` is a fixed path starting with `/`, `maxFields` a whole number above 0 and `introspection` true or false. Also the code of a GraphQL error when a schema from `graphqlSchema()` is executed outside `graphqlRoute()` without `graphqlContext(app, request)` as the context. See [GraphQL](graphql.md).
 
 ### IL6060
-**Invalid `graphqlContext()` arguments.** `graphqlContext(app, request)` from `@browserlessapi/inferlo/graphql` needs the app from `createApp()` and the request your GraphQL server passes to its context function: a Web `Request` (GraphQL Yoga's `request`) or a Node.js request. Use `createYoga({ schema: graphqlSchema({ ... }), context: ({ request }) => graphqlContext(app, request) })`. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).
+**Invalid `graphqlContext()` arguments.** `graphqlContext(app, request)` from `@browserlessapi/inferlo/graphql` needs the app from `createApp()` and the request your GraphQL server passes to its context function: a Web `Request` (GraphQL Yoga's `request`) or a Node.js request (Apollo Server's `req`). Use `createYoga({ schema: graphqlSchema({ ... }), context: ({ request }) => graphqlContext(app, request) })` or, with Apollo Server, `context: async ({ req }) => graphqlContext(app, req)`. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).
 
 ## Environment (7xxx)
 

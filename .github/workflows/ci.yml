@@ -694,6 +694,35 @@ jobs:
           bun-version: latest
       - run: bun test test/graphql-yoga.test.ts
 
+  apollo-server:
+    name: Apollo Server (@apollo/server ${{ matrix.apollo }}, graphql 16)
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 5.0.0 = oldest supported (the first release of Apollo Server 5; Apollo Server 4 reached end of life on
+        # 2026-01-26), latest = newest release. Apollo Server 5 needs graphql 16, so both run with the newest 16.x.
+        apollo: ["5.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @apollo/server@${{ matrix.apollo }} graphql@16
+      - run: node -p "'@apollo/server ' + require('./node_modules/@apollo/server/package.json').version + ', graphql ' + require('./node_modules/graphql/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/graphql-apollo.test.ts
+      - uses: ./.github/actions/setup-bun
+        with:
+          bun-version: latest
+      - run: bun test test/graphql-apollo.test.ts
+
   mastra:
     name: Mastra (@mastra/core ${{ matrix.mastra }})
     runs-on: ubuntu-latest

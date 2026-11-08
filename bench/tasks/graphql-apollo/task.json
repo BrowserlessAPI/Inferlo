@@ -1,0 +1,5 @@
+{
+  "title": "Serve the notes routes from Apollo Server",
+  "prompt": "The team serves GraphQL with Apollo Server 5. Create src/graphql.ts exporting `server`, an ApolloServer from @apollo/server whose schema has the query fields `notes` (the listNotes route) and `note` (the getNote route) and the mutation field `createNote` (the createNote route) from src/routes/notes.ts, and `context`, the async function `({ req })` that Apollo's standalone server and Express middleware call for each request. Do not write resolvers: use Inferlo's GraphQL integration so each field runs its route as the caller of the request (the Authorization header), with the app exported from src/app.ts.",
+  "packages": ["graphql", "@apollo/server"]
+}

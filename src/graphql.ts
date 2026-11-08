@@ -411,7 +411,7 @@ interface NodeRequestLike {
 
 const contextError = (message: string) =>
   new InferloError("IL6060", message, {
-    fix: "Pass the app from createApp() and the request your GraphQL server gives its context function: createYoga({ schema, context: ({ request }) => graphqlContext(app, request) }).",
+    fix: "Pass the app from createApp() and the request your GraphQL server gives its context function: createYoga({ schema, context: ({ request }) => graphqlContext(app, request) }), or with Apollo Server context: async ({ req }) => graphqlContext(app, req).",
   });
 
 /** A Web Request with the method, URL and headers of a Node.js request, and its client address for per-IP rate limits. */

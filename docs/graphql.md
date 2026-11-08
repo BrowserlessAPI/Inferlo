@@ -72,7 +72,7 @@ Its fields run routes only when executed through `graphqlRoute()`, or by another
 
 ## GraphQL Yoga and other GraphQL servers
 
-Apps that already serve GraphQL with [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) can serve the same schema there, with plugins, subscriptions and the GraphiQL page Yoga adds. `graphqlContext(app, request)` is the context that lets each field run its route as the caller of the request:
+Apps that already serve GraphQL with [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) or [Apollo Server](#apollo-server) can serve the same schema there, with the server's plugins, subscriptions and schema explorer. `graphqlContext(app, request)` is the context that lets each field run its route as the caller of the request:
 
 ```ts
 import { createYoga } from "graphql-yoga";
@@ -93,5 +93,39 @@ export const yoga = createYoga({
 - Without `graphqlContext`, fields answer IL6059. Arguments that are not an app from `createApp()` and a request raise IL6060.
 
 Tested with GraphQL Yoga 5 (newest 5.x, with `graphql` 16) and the latest release (6), on Node.js, Bun and Deno.
+
+### Apollo Server
+
+Apollo Server 5 passes the Node.js request to its context function as `req`, both in its standalone server and in its Express middleware:
+
+```ts
+import { ApolloServer } from "@apollo/server";
+import { startStandaloneServer } from "@apollo/server/standalone";
+import { graphqlContext, graphqlSchema, type GraphQLContext } from "@browserlessapi/inferlo/graphql";
+import { app } from "./app.ts";
+import { createNote, getNote, listNotes } from "./routes/notes.ts";
+
+const server = new ApolloServer<GraphQLContext>({
+  schema: graphqlSchema({ query: { notes: listNotes, note: getNote }, mutation: { createNote } }),
+});
+
+const { url } = await startStandaloneServer(server, {
+  listen: { port: 4000 },
+  context: async ({ req }) => graphqlContext(app, req),
+});
+```
+
+In an Express app, with `expressMiddleware` from `@as-integrations/express5` (Express 5) or `@as-integrations/express4` (Express 4):
+
+```ts
+await server.start();
+web.use("/graphql", express.json(), expressMiddleware(server, { context: async ({ req }) => graphqlContext(app, req) }));
+```
+
+- Fields behave as with Yoga: each runs its route as the caller of `req` (its `Authorization` header, API key or session cookie), with the route's auth, permissions, validation, rate limits, tenant scope and audit; per-IP rate limits use the socket address of `req`. Errors keep the route's `code` and `status` in `extensions`.
+- `server.executeOperation(request, { contextValue: graphqlContext(app, webRequest) })` runs an operation in tests as the caller of a Web `Request`.
+- Apollo Server 5 needs `graphql` 16 (`npm install @apollo/server graphql@16`); Inferlo's GraphQL module works with both 16 and 17.
+
+Tested with Apollo Server 5.0.0 and the latest release, both with `graphql` 16, standalone and with `@as-integrations/express5`, on Node.js and Bun.
 
 Each field is one in-process call of its route; nested data comes from the route's answer, so a field never runs extra queries per item. Tested with `graphql` 16 (newest 16.x) and the latest release (17), on Node.js, Bun and Deno.

@@ -336,9 +336,11 @@ const { text } = await ai.generate({ model: "fast", prompt: "File a ticket: the 
 
 A whole Inferlo app runs next to tRPC on the same server: mount `inferlo.fetch` (Web servers) or `toNodeHandler(inferlo)` (Node servers) under its own path. The [with-trpc example](../examples/with-trpc) uses both helpers with tRPC's fetch adapter, and CI tests it with tRPC 11.0.0 (the oldest supported major; tRPC 10 is no longer maintained) and the latest tRPC.
 
-## GraphQL Yoga
+## GraphQL Yoga and Apollo Server
 
 An app that serves GraphQL with GraphQL Yoga 5 or 6 serves the app's routes as GraphQL fields there, without writing resolvers: `createYoga({ schema: graphqlSchema({ query: { notes: listNotes }, mutation: { createNote } }), context: ({ request }) => graphqlContext(app, request) })`, with both from `@browserlessapi/inferlo/graphql`. Each field runs its route as the caller of the request, with the route's auth, permissions, validation and rate limits. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).
+
+With Apollo Server 5, the same schema runs with `new ApolloServer({ schema: graphqlSchema({ query, mutation }) })` and `context: async ({ req }) => graphqlContext(app, req)` in `startStandaloneServer` or in `expressMiddleware` from `@as-integrations/express5`. See [Apollo Server](graphql.md#apollo-server).
 
 ## AdonisJS
 

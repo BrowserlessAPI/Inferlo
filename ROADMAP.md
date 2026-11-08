@@ -129,7 +129,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] LlamaIndex.TS: Inferlo AI aliases as a LlamaIndex LLM and embedding model, and Inferlo tools as LlamaIndex tools, as a separate entry point, tested on the oldest supported and latest `@llamaindex/core`
 - [x] TanStack Start: `toTanStackHandlers(app)` for server routes (`createFileRoute` server handlers), tested on the oldest supported and latest TanStack Start, with an example
 - [x] GraphQL Yoga and Apollo Server part 1: `graphqlContext(app, request)` makes `graphqlSchema()` fields run the app's routes as the caller of a request in GraphQL Yoga (Web or Node.js request), tested in CI on `graphql-yoga` 5 and latest
-- [ ] GraphQL Yoga and Apollo Server part 2: Apollo Server 5 with `context: async ({ req }) => graphqlContext(app, req)` (standalone and Express middleware), tested in CI on `@apollo/server` 5.0.0 and latest; Apollo Server 5 needs `graphql` 16, so the job installs it next to Apollo
+- [x] GraphQL Yoga and Apollo Server part 2: Apollo Server 5 with `context: async ({ req }) => graphqlContext(app, req)` (standalone and Express middleware), tested in CI on `@apollo/server` 5.0.0 and latest; Apollo Server 5 needs `graphql` 16, so the job installs it next to Apollo
 - [x] OpenAI Agents SDK and Mastra part 2: Mastra, `toMastraModel(ai, { model, for })` as an agent's model and `toMastraTools([...], { ai })` for Inferlo tools (routes and `tool()`), tested on `@mastra/core` 1.0.0 and latest
 
 ### Core

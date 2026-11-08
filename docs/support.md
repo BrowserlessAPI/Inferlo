@@ -85,6 +85,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | OpenAI Agents SDK (`/openai-agents`: `toOpenAIAgentsModel`, `toOpenAIAgentsTools`) | `@openai/agents-core` 0.20.0 and newer |
 | GraphQL (`/graphql`: `graphqlRoute`, `graphqlSchema`) | `graphql` 16 (newest 16.x) and 17 |
 | GraphQL Yoga (`/graphql`: `graphqlSchema` with `graphqlContext`) | `graphql-yoga` 5 (newest 5.x, with `graphql` 16) and 6 |
+| Apollo Server (`/graphql`: `graphqlSchema` with `graphqlContext`) | `@apollo/server` 5.0.0 and newer, with `graphql` 16 |
 | Mastra (`/mastra`: `toMastraModel`, `toMastraTools`) | `@mastra/core` 1.0.0 and newer |
 | Zod, ArkType and Valibot schemas in the AI module (`ai.generate({ output })`, `tool()` input) | zod 4.2 and later, arktype 2.1.28 and later, `@valibot/to-json-schema` 1.5 and later |
 | NATS JetStream events (`/nats`: `natsEventTransport`) | nats-server 2.11 and newer with JetStream, `@nats-io/jetstream` 3.0.0 and newer |
