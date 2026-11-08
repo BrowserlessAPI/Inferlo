@@ -79,6 +79,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
 | Vercel AI SDK UI (`toResponse({ format: "ai-sdk" })` for `useChat`) | `ai` package 5.0.0 and newer (UI message stream protocol v1) |
+| Vercel AI SDK Core (`toAISdkModel`, `toAISdkTools` for `generateText`, `streamText` and agents) | `ai` package 5.0.0 and newer (language model specification v2) |
 | LangChain.js (`/langchain`: `toLangChainModel`, `toLangChainTools`) | `@langchain/core` 0.3 (newest 0.3.x) and 1.x |
 | OpenAI Agents SDK (`/openai-agents`: `toOpenAIAgentsModel`, `toOpenAIAgentsTools`) | `@openai/agents-core` 0.20.0 and newer |
 | GraphQL (`/graphql`: `graphqlRoute`, `graphqlSchema`) | `graphql` 16 (newest 16.x) and 17 |

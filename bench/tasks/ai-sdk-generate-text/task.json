@@ -1,0 +1,5 @@
+{
+  "title": "AI SDK generateText on Inferlo's AI with an Inferlo tool",
+  "prompt": "Part of the team writes AI code with the Vercel AI SDK (the ai package). Create src/routes/ask.ts exporting `ask`: POST /ask with body { question } (a string of at most 4000 characters) that answers { answer } (a string). Also export a function tool `orderStatus` named \"orderStatus\" (description \"Status of an order\") whose input is { orderId } (a string) and which returns { orderId, status: \"shipped\" }. In the handler, call generateText from ai with the system prompt \"You answer support questions.\", the question as the prompt, at most 5 steps (stopWhen: stepCountIs(5)), a model that is the request's Inferlo AI client through Inferlo's AI SDK integration using the \"fast\" alias and tracking usage for the signed-in user, and the orderStatus tool through the same integration. Answer with the generated text. Register the route module in src/app.ts.",
+  "packages": ["ai"]
+}

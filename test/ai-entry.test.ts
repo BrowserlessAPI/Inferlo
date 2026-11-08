@@ -32,7 +32,7 @@ test("@browserlessapi/inferlo/ai is exported and maps to the standalone module",
 
 test("the AI entry point never loads the router, database, jobs or MCP code", () => {
   const files = [...runtimeGraph(path.join(repo, "src/ai/public.ts"))].map((f) => path.relative(path.join(repo, "src"), f)).sort();
-  assert.deepEqual(files, ["ai/ai-sdk.ts", "ai/index.ts", "ai/providers.ts", "ai/public.ts", "ai/standard-schema.ts", "ai/tool.ts", "ai/ui.ts", "env.ts", "errors.ts", "redact.ts", "schema.ts", "tracing.ts"]);
+  assert.deepEqual(files, ["ai/ai-sdk-model.ts", "ai/ai-sdk.ts", "ai/index.ts", "ai/providers.ts", "ai/public.ts", "ai/standard-schema.ts", "ai/tool.ts", "ai/ui.ts", "env.ts", "errors.ts", "redact.ts", "schema.ts", "tracing.ts"]);
 });
 
 test("createAI works without createApp: aliases, fallback, structured output and usage", async () => {

@@ -536,9 +536,10 @@ jobs:
         # ai 5.0.0 = oldest supported (the first release with the UI message stream protocol that useChat speaks;
         # ai 4 is no longer maintained), latest = newest release. aiSdk() providers: @ai-sdk/openai-compatible
         # 1.0.0 (LanguageModelV2, the oldest specification, made for ai 5), 2 (LanguageModelV3, ai 6) and
-        # latest (LanguageModelV4, ai 7).
+        # latest (LanguageModelV4, ai 7). toAISdkModel(): ai 5.0.0, 6 and latest (7).
         include:
           - { ai: "5.0.0", provider: "1.0.0" }
+          - { ai: "6", provider: "2" }
           - { ai: "latest", provider: "2" }
           - { ai: "latest", provider: "latest" }
     steps:
@@ -553,7 +554,7 @@ jobs:
       - run: npm install --no-save ai@${{ matrix.ai }} @ai-sdk/openai-compatible@${{ matrix.provider }}
       - run: node -p "'ai ' + require('./node_modules/ai/package.json').version + ', @ai-sdk/openai-compatible ' + require('./node_modules/@ai-sdk/openai-compatible/package.json').version"
       - run: npm run typecheck
-      - run: node --test --test-reporter=spec test/ai-sdk-ui.test.ts test/ai-sdk-provider.test.ts
+      - run: node --test --test-reporter=spec test/ai-sdk-ui.test.ts test/ai-sdk-provider.test.ts test/ai-sdk-model.test.ts
 
   langchain:
     name: LangChain.js (@langchain/core ${{ matrix.langchain }})

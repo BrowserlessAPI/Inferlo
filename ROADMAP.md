@@ -124,6 +124,10 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 - [x] Sentry: errors from routes, jobs and AI calls reported to `@sentry/node` (or any Sentry SDK) with the request id, user id and route, secrets redacted, through `createApp({ onError })` and `sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry`, tested on `@sentry/node` 9.0.0 and latest
 - [x] BullMQ: `jobQueue: { store: bullmqJobStore(queue, worker) }` runs Inferlo jobs (retries, cron, events, tracing, tenants) on an app's existing BullMQ queues, as a separate entry point, tested on the oldest supported and latest BullMQ and Redis
 - [x] OpenAI Agents SDK and Mastra part 1: OpenAI Agents SDK, `toOpenAIAgentsModel(ai, { model, for })` as an agent's model and `toOpenAIAgentsTools([...], { ai })` for Inferlo tools (routes and `tool()`), so agents get Inferlo's aliases, fallback, budgets and usage tracking, tested on `@openai/agents-core` 0.20.0 and latest
+- [x] Vercel AI SDK Core: `toAISdkModel(ai, { model, for })` as the model of `generateText`, `streamText` and AI SDK agents, and `toAISdkTools([...], { ai })` for Inferlo tools, tested on `ai` 5.0.0, 6 and latest
+- [ ] LlamaIndex.TS: Inferlo AI aliases as a LlamaIndex LLM and embedding model, and Inferlo tools as LlamaIndex tools, as a separate entry point, tested on the oldest supported and latest `@llamaindex/core`
+- [ ] TanStack Start: `toTanStackHandlers(app)` for server routes (`createFileRoute` server handlers), tested on the oldest supported and latest TanStack Start, with an example
+- [ ] GraphQL Yoga and Apollo Server: serve `graphqlSchema()` from an existing Yoga or Apollo server, with fields running the app's routes as the caller (needs a request-scoped runner outside `graphqlRoute`)
 - [x] OpenAI Agents SDK and Mastra part 2: Mastra, `toMastraModel(ai, { model, for })` as an agent's model and `toMastraTools([...], { ai })` for Inferlo tools (routes and `tool()`), tested on `@mastra/core` 1.0.0 and latest
 
 ### Core

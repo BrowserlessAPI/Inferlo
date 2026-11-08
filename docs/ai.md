@@ -266,6 +266,31 @@ const { messages, sendMessage, status } = useChat();
 - **Versions.** Tested with the `ai` package 5.0.0 (the first release with this protocol) and the latest release, through its `DefaultChatTransport`, the transport `useChat` uses. Nothing from the `ai` package is loaded by Inferlo.
 - An unknown `format` raises IL5027.
 
+### Inferlo models in AI SDK Core (generateText, streamText, agents)
+
+Code written with the AI SDK's own functions (`generateText`, `streamText`, `generateObject`, `ToolLoopAgent`) runs on Inferlo's AI with `toAISdkModel`, and Inferlo tools become AI SDK tools with `toAISdkTools`:
+
+```ts
+import { generateText, stepCountIs } from "ai";
+import { route, t, toAISdkModel, toAISdkTools } from "@browserlessapi/inferlo";
+
+export const ask = route
+  .post("/ask", { body: t.object({ question: t.string().max(4000) }), rateLimit: { max: 20, per: "minute" } })
+  .handle(async ({ body, ai, user }) => {
+    const { text } = await generateText({
+      model: toAISdkModel(ai, { model: "fast", for: user.id }),
+      tools: toAISdkTools([getWeather, createTicket], { ai }),
+      stopWhen: stepCountIs(5),
+      prompt: body.question,
+    });
+    return { answer: text };
+  });
+```
+
+- **`toAISdkModel(ai, { model, for })`** is a language model in the AI SDK's format (specification v2, which `ai` 5, 6 and 7 accept). Every call goes through Inferlo's AI client: the alias and its fallback models, budgets (`allow`), usage tracking (`onUsage`, with `for`), tracing and every configured provider. `system`, `temperature` and `maxOutputTokens` are used and the result's `usage` counts the tokens; other settings (`topP`, `seed`, ...) are not passed on and come back as warnings. Structured output (`generateObject`, `Output.object`) is asked for in the instructions and the JSON is taken out of the answer. `streamText` works; the answer arrives as one text chunk. Images in user messages reach vision models; other files raise IL5035, as do provider tools (such as OpenAI's web search), which only that provider's models run.
+- **`toAISdkTools(tools, { ai })`** turns Inferlo function tools (`tool(name, ...).handle(fn)`) into AI SDK tools, keyed by name, with the tool's schema and validation (invalid input goes back to the model as the problem). Routes work too when you pass a request's `ctx.ai`: each call runs as the signed-in user with the route's auth, permissions, validation and rate limits; without `ai`, a route raises IL5009. AI SDK tools made with `tool()` from `ai` work next to them: `tools: { ...toAISdkTools([getWeather]), forecast }`.
+- Both are in `@browserlessapi/inferlo` and `@browserlessapi/inferlo/ai` (for apps on other frameworks), and import nothing from the `ai` package. Tested with `ai` 5.0.0, 6 and the latest release. Inside Inferlo routes, `ctx.ai.generate` remains the simplest way to call a model; use these when code already uses the AI SDK.
+
 ## Embeddings
 
 ```ts

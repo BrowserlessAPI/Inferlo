@@ -1714,6 +1714,31 @@ const { messages, sendMessage, status } = useChat();
 - **Versions.** Tested with the `ai` package 5.0.0 (the first release with this protocol) and the latest release, through its `DefaultChatTransport`, the transport `useChat` uses. Nothing from the `ai` package is loaded by Inferlo.
 - An unknown `format` raises IL5027.
 
+### Inferlo models in AI SDK Core (generateText, streamText, agents)
+
+Code written with the AI SDK's own functions (`generateText`, `streamText`, `generateObject`, `ToolLoopAgent`) runs on Inferlo's AI with `toAISdkModel`, and Inferlo tools become AI SDK tools with `toAISdkTools`:
+
+```ts
+import { generateText, stepCountIs } from "ai";
+import { route, t, toAISdkModel, toAISdkTools } from "@browserlessapi/inferlo";
+
+export const ask = route
+  .post("/ask", { body: t.object({ question: t.string().max(4000) }), rateLimit: { max: 20, per: "minute" } })
+  .handle(async ({ body, ai, user }) => {
+    const { text } = await generateText({
+      model: toAISdkModel(ai, { model: "fast", for: user.id }),
+      tools: toAISdkTools([getWeather, createTicket], { ai }),
+      stopWhen: stepCountIs(5),
+      prompt: body.question,
+    });
+    return { answer: text };
+  });
+```
+
+- **`toAISdkModel(ai, { model, for })`** is a language model in the AI SDK's format (specification v2, which `ai` 5, 6 and 7 accept). Every call goes through Inferlo's AI client: the alias and its fallback models, budgets (`allow`), usage tracking (`onUsage`, with `for`), tracing and every configured provider. `system`, `temperature` and `maxOutputTokens` are used and the result's `usage` counts the tokens; other settings (`topP`, `seed`, ...) are not passed on and come back as warnings. Structured output (`generateObject`, `Output.object`) is asked for in the instructions and the JSON is taken out of the answer. `streamText` works; the answer arrives as one text chunk. Images in user messages reach vision models; other files raise IL5035, as do provider tools (such as OpenAI's web search), which only that provider's models run.
+- **`toAISdkTools(tools, { ai })`** turns Inferlo function tools (`tool(name, ...).handle(fn)`) into AI SDK tools, keyed by name, with the tool's schema and validation (invalid input goes back to the model as the problem). Routes work too when you pass a request's `ctx.ai`: each call runs as the signed-in user with the route's auth, permissions, validation and rate limits; without `ai`, a route raises IL5009. AI SDK tools made with `tool()` from `ai` work next to them: `tools: { ...toAISdkTools([getWeather]), forecast }`.
+- Both are in `@browserlessapi/inferlo` and `@browserlessapi/inferlo/ai` (for apps on other frameworks), and import nothing from the `ai` package. Tested with `ai` 5.0.0, 6 and the latest release. Inside Inferlo routes, `ctx.ai.generate` remains the simplest way to call a model; use these when code already uses the AI SDK.
+
 ## Embeddings
 
 ```ts
@@ -3697,6 +3722,10 @@ The [with-encore example](../examples/with-encore) does both. Its tests run the 
 ## Vercel AI SDK UI (useChat)
 
 Chat UIs built with `useChat` from `@ai-sdk/react` (and the Vue and Svelte versions) talk to an Inferlo route directly: `ai.stream(...).toResponse({ format: "ai-sdk" })` speaks the AI SDK UI message stream protocol, and `uiChatBody` with `fromUIMessages` reads what `useChat` sends. Works in any framework above, since it is a plain route. See [Chat UIs with the Vercel AI SDK](ai.md#chat-uis-with-the-vercel-ai-sdk-usechat). Tested with the `ai` package 5.0.0 and the latest release.
+
+## Vercel AI SDK Core
+
+Code that uses the AI SDK's `generateText`, `streamText`, `generateObject` or `ToolLoopAgent` runs on Inferlo's AI with `model: toAISdkModel(ai, { model: "fast", for: user.id })` and gets Inferlo tools with `tools: toAISdkTools([getWeather, createTicket], { ai })`. See [Inferlo models in AI SDK Core](ai.md#inferlo-models-in-ai-sdk-core-generatetext-streamtext-agents).
 
 ## Vercel AI SDK providers
 
@@ -6097,6 +6126,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Next.js (`/nextjs`, App Router) | 15 (newest 15.x) and 16 |
 | Nuxt, Nitro and h3 (`/h3`) | h3 1 (newest 1.x: Nitro 2, Nuxt 3 and 4) and h3 2 (Nitro 3) |
 | Vercel AI SDK UI (`toResponse({ format: "ai-sdk" })` for `useChat`) | `ai` package 5.0.0 and newer (UI message stream protocol v1) |
+| Vercel AI SDK Core (`toAISdkModel`, `toAISdkTools` for `generateText`, `streamText` and agents) | `ai` package 5.0.0 and newer (language model specification v2) |
 | LangChain.js (`/langchain`: `toLangChainModel`, `toLangChainTools`) | `@langchain/core` 0.3 (newest 0.3.x) and 1.x |
 | OpenAI Agents SDK (`/openai-agents`: `toOpenAIAgentsModel`, `toOpenAIAgentsTools`) | `@openai/agents-core` 0.20.0 and newer |
 | GraphQL (`/graphql`: `graphqlRoute`, `graphqlSchema`) | `graphql` 16 (newest 16.x) and 17 |
@@ -6406,6 +6436,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5034
 **Invalid Mastra arguments.** `toMastraModel(ai, { model, for })` from `@browserlessapi/inferlo/mastra` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits with the agent's `modelSettings`); `toMastraTools([...], { ai })` takes an array of Inferlo function tools and routes. Agents that run on `toMastraModel` cannot use provider tools (such as OpenAI's web search), which only that provider's own models run: use function tools, or give that agent the provider's model. Messages can carry images (PNG, JPEG, GIF and WebP) but no other files, and an image given as base64 or bytes needs its media type. See [Mastra](integrations.md#mastra).
+
+### IL5035
+**Invalid AI SDK model or tools arguments.** `toAISdkModel(ai, { model, for })` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits in the `generateText()` call); `toAISdkTools([...], { ai })` takes an array of Inferlo function tools and routes. Calls through `toAISdkModel` cannot use provider tools (such as OpenAI's web search), which only that provider's own models run, and messages can carry images (PNG, JPEG, GIF and WebP) but no other files; an image given as base64 or bytes needs its media type. See [Inferlo models in AI SDK Core](ai.md#inferlo-models-in-ai-sdk-core-generatetext-streamtext-agents).
 
 ## App configuration (6xxx)
 

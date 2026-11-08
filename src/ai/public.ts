@@ -11,6 +11,8 @@
 export { createAI, cosineSimilarity, extractJson } from "./index.ts";
 export { tool, isTool, ToolBuilder } from "./tool.ts";
 export { aiSdk } from "./ai-sdk.ts";
+export { toAISdkModel, toAISdkTools, InferloAISdkModel } from "./ai-sdk-model.ts";
+export type { AISdkModelOptions, AISdkTool } from "./ai-sdk-model.ts";
 export type { AISdkProvider, AISdkLanguageModel, AISdkEmbeddingModel, AISdkOptions } from "./ai-sdk.ts";
 export { uiChatBody, fromUIMessages } from "./ui.ts";
 export type { UIChatMessage } from "./ui.ts";

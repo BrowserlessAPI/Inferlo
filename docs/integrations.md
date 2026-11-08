@@ -933,6 +933,10 @@ The [with-encore example](../examples/with-encore) does both. Its tests run the 
 
 Chat UIs built with `useChat` from `@ai-sdk/react` (and the Vue and Svelte versions) talk to an Inferlo route directly: `ai.stream(...).toResponse({ format: "ai-sdk" })` speaks the AI SDK UI message stream protocol, and `uiChatBody` with `fromUIMessages` reads what `useChat` sends. Works in any framework above, since it is a plain route. See [Chat UIs with the Vercel AI SDK](ai.md#chat-uis-with-the-vercel-ai-sdk-usechat). Tested with the `ai` package 5.0.0 and the latest release.
 
+## Vercel AI SDK Core
+
+Code that uses the AI SDK's `generateText`, `streamText`, `generateObject` or `ToolLoopAgent` runs on Inferlo's AI with `model: toAISdkModel(ai, { model: "fast", for: user.id })` and gets Inferlo tools with `tools: toAISdkTools([getWeather, createTicket], { ai })`. See [Inferlo models in AI SDK Core](ai.md#inferlo-models-in-ai-sdk-core-generatetext-streamtext-agents).
+
 ## Vercel AI SDK providers
 
 Any AI SDK provider package (`@ai-sdk/mistral`, `@ai-sdk/amazon-bedrock`, `@ai-sdk/azure` and the others) works as an Inferlo provider with `aiSdk(provider)`. See [Any Vercel AI SDK provider](ai.md#any-vercel-ai-sdk-provider).

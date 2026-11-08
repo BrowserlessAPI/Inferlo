@@ -42,6 +42,8 @@ export type {
 export { createAI, cosineSimilarity, extractJson, openai, openaiCompatible, anthropic, gemini, ollama, mockProvider, ProviderError, uiChatBody, fromUIMessages } from "./ai/index.ts";
 export { tool, isTool, ToolBuilder } from "./ai/tool.ts";
 export { aiSdk } from "./ai/ai-sdk.ts";
+export { toAISdkModel, toAISdkTools, InferloAISdkModel } from "./ai/ai-sdk-model.ts";
+export type { AISdkModelOptions, AISdkTool } from "./ai/ai-sdk-model.ts";
 export type { AISdkProvider, AISdkLanguageModel, AISdkEmbeddingModel, AISdkOptions } from "./ai/ai-sdk.ts";
 export type { ToolDef, FunctionToolOptions, ToolContext } from "./ai/tool.ts";
 export type { StandardSchema } from "./ai/standard-schema.ts";

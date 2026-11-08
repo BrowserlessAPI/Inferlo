@@ -267,6 +267,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5034
 **Invalid Mastra arguments.** `toMastraModel(ai, { model, for })` from `@browserlessapi/inferlo/mastra` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits with the agent's `modelSettings`); `toMastraTools([...], { ai })` takes an array of Inferlo function tools and routes. Agents that run on `toMastraModel` cannot use provider tools (such as OpenAI's web search), which only that provider's own models run: use function tools, or give that agent the provider's model. Messages can carry images (PNG, JPEG, GIF and WebP) but no other files, and an image given as base64 or bytes needs its media type. See [Mastra](integrations.md#mastra).
 
+### IL5035
+**Invalid AI SDK model or tools arguments.** `toAISdkModel(ai, { model, for })` needs Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and takes only `model` and `for` (set temperature and token limits in the `generateText()` call); `toAISdkTools([...], { ai })` takes an array of Inferlo function tools and routes. Calls through `toAISdkModel` cannot use provider tools (such as OpenAI's web search), which only that provider's own models run, and messages can carry images (PNG, JPEG, GIF and WebP) but no other files; an image given as base64 or bytes needs its media type. See [Inferlo models in AI SDK Core](ai.md#inferlo-models-in-ai-sdk-core-generatetext-streamtext-agents).
+
 ## App configuration (6xxx)
 
 ### IL6001
