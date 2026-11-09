@@ -1928,6 +1928,27 @@ export const ask = route
 - `model` is the embedding alias (the `"embed"` alias by default, as `ai.embed`); `for` and `signal` work as in `ai.embed`, so budgets and usage tracking apply. Invalid tables and options raise IL5038.
 - Works with `memory()` in tests and with Postgres through pgvector.
 
+## Caching answers
+
+Calls that are asked again and again with the same input (an FAQ answer, a product description, a classification of the same text) can reuse the earlier answer instead of calling the model. Caching is opt in per call:
+
+```ts
+export const faq = route
+  .get("/faq", { query: t.object({ q: t.string().max(500) }) })
+  .handle(async ({ ai, query, user }) => {
+    const { text, cached } = await ai.generate({ model: "fast", prompt: query.q, cache: { ttlMs: 24 * 3_600_000, tags: ["faq"] }, for: user.id });
+    return { answer: text, cached: cached ?? false };
+  });
+
+// After the FAQ content changes:
+await cache.invalidate("faq");
+```
+
+- **Same input, same answer.** The entry's key is a hash of the model or alias (with its fallback models), every message (system, prompt, images), the output schema, `temperature` and `maxTokens`. Change any of them and the call goes to the model. Users who send exactly the same input share the answer; put per-user context in the prompt (or leave out `cache`) when answers must differ per user.
+- **Where.** Answers are kept in the app's cache (`createApp({ cache })`: memory, Postgres or Redis), so with a shared store every instance reuses them, and `cache.invalidate(tag)` removes the entries tagged with `cache: { tags }`. `createAI` without an app keeps up to 1000 answers in memory, or pass `createAI({ cache: app.cache })`.
+- **What a hit returns.** The same `text` and `object` (validated against the output schema again, so dates come back as `Date`), `cached: true` and empty `steps`. `onUsage` gets the call with `cached: true` and 0 tokens and cost, so dashboards show the savings; `allow` (budgets) is still checked first. Spans have `inferlo.ai.cached`.
+- `ttlMs` is required (1 ms to 365 days). Only successful answers are stored. Calls with `tools` cannot be cached, because a cached answer would skip the tool calls (IL5040); `ai.stream` is not cached.
+
 ## Usage and budgets
 
 Every call reports a `Usage` record (`requested`, `model` that answered, `inputTokens`, `outputTokens`, `cost`, `for`, `kind`, `durationMs`) to `onUsage`. Store it to bill customers. When `for` is set, `allow` is called first; returning false raises IL5004 (HTTP 402).
@@ -2265,6 +2286,8 @@ Prefer `getOrSet`: it is one call, and it cannot forget to store the result.
 - **Tags invalidate groups of entries.** Tag entries with what they depend on (`"tickets"`, `` `user:${user.id}` ``) and call `invalidate` with that tag after a change. This is how to keep cached data correct when the data changes before the time to live is over.
 - **Values are stored as JSON.** Plain objects, arrays, strings, numbers, booleans and `null`. Dates come back as ISO strings, also from `getOrSet` on the first call, so a hit and a miss return the same thing. `undefined`, functions and `BigInt` cannot be cached (IL6028); cache `null` for "nothing". The memory store keeps JSON too, so changing an object you stored or got never changes the cached entry.
 - **Keys** are strings of 1 to 512 characters. Build them from what the value depends on: `` `tickets:stats` ``, `` `user:${user.id}:dashboard` ``. A value that differs per user must have the user in its key, so one user never sees another user's data.
+
+AI answers can be cached the same way with one option: `ai.generate({ model, prompt, cache: { ttlMs, tags } })` keeps the answer in this cache (see [Caching answers](ai.md#caching-answers)).
 
 ## Stores
 
@@ -6959,6 +6982,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5039
 **Invalid prompt or prompt file.** A prompt file in `src/prompts/<name>.md` starts with front matter between `---` lines with `version` (required), `description` and `variables` (one indented `name: type` line each; types `string`, `text`, `number`, `int`, `boolean`), followed by the text, optionally under `## System` and `## Prompt` headings. Every `{{name}}` must be a declared variable and every variable must be used. File names are lowercase letters, digits and dashes. `prompt({ name, version, text, variables })` checks the same rules. See [Prompt files](ai.md#prompt-files).
+
+### IL5040
+**Invalid AI answer cache.** `ai.generate({ cache: { ttlMs, tags } })` takes `ttlMs`, a whole number of milliseconds from 1 to 365 days, and optional `tags` (non-empty strings, for `cache.invalidate(tag)`), nothing else. A call with `tools` cannot be cached, because a cached answer would skip the tool calls the model makes: leave out `cache` there, or cache what the tools return with `ctx.cache.getOrSet`. See [Caching answers](ai.md#caching-answers).
 ## App configuration (6xxx)
 
 ### IL6001

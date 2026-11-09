@@ -1,0 +1,4 @@
+{
+  "title": "Cache identical AI answers",
+  "prompt": "Add GET /faq?q=... in src/routes/faq.ts (register it in the app; q is 1 to 500 characters) that answers the question with the \"fast\" AI model alias as { answer }, tracking AI usage for the user. The same question is asked very often, so reuse the answer of an identical earlier call for one hour instead of calling the model again, and make the cached answers removable with the cache tag \"faq\"."
+}

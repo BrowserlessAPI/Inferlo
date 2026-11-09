@@ -16,7 +16,7 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] Vector search on Postgres pgvector: `t.vector(1536)` field and `db.x.search({ vector, limit })`
 - [x] RAG helper: chunk, embed and search documents in one call
 - [x] Prompt files: versioned prompts in `src/prompts/*.md` with typed variables
-- [ ] Response caching for identical AI calls (opt in, TTL)
+- [x] Response caching for identical AI calls (opt in, TTL)
 - [ ] Native structured output for Anthropic and Gemini when available
 - [ ] More providers: Mistral, Azure OpenAI, AWS Bedrock and Vertex AI adapters (OpenAI-compatible where possible)
 - [ ] Guardrails: optional input and output checks (max tokens, PII redaction, blocked terms) per AI call or per alias

@@ -15,6 +15,7 @@ import type { RouteDef } from "../route.ts";
 import { functionToolSpec, isTool, runFunctionTool, type ToolDef } from "./tool.ts";
 import { type InferOutput, invalidOutputSchema, schemaAdapter, type StandardSchema } from "./standard-schema.ts";
 import { createRedactor, secretsOf } from "../redact.ts";
+import type { Cache } from "../cache.ts";
 import { checkTracing, clientTracing, type OtelSpan, type TracingConfig } from "../tracing.ts";
 import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolCall, type ToolSpec } from "./providers.ts";
 
@@ -45,6 +46,8 @@ export interface Usage {
   durationMs: number;
   /** The prompt file that made the call ("summarize-ticket@2"), when the options came from prompt.render(). */
   prompt?: string;
+  /** True when the answer came from the cache (ai.generate({ cache })): no model was called, tokens and cost are 0. */
+  cached?: boolean;
 }
 
 export interface AIConfig {
@@ -56,6 +59,11 @@ export interface AIConfig {
   defaultModel?: string;
   /** Prices per model id ("anthropic:claude-haiku-4-5") for cost tracking. Inferlo ships no prices because they change. */
   pricing?: Record<string, Pricing>;
+  /**
+   * Where ai.generate({ cache }) keeps answers. createApp sets the app's cache (memory, database or Redis);
+   * createAI without it keeps up to 1000 answers in memory.
+   */
+  cache?: AICache;
   /** Called after every call. Store it, bill it, log it. */
   onUsage?: (usage: Usage) => void | Promise<void>;
   /**
@@ -103,6 +111,11 @@ export interface GenerateOptions<O extends AnySchema | StandardSchema | undefine
   maxSteps?: number;
   /** "name@version" of the prompt the text came from, recorded in usage and traces. Set by prompt.render(). */
   promptId?: string;
+  /**
+   * Reuse the answer of an identical earlier call for ttlMs (opt in): same model or alias, messages, images, output
+   * schema, temperature and maxTokens. Kept in the app's cache (createApp({ cache })), invalidated by tags. Not with tools.
+   */
+  cache?: { ttlMs: number; tags?: readonly string[] };
 }
 
 /** One tool call the model made, with what the route returned. */
@@ -130,6 +143,8 @@ export interface Step {
 export interface GenerateResult<O> {
   text: string;
   object: O;
+  /** True when the answer came from the cache (ai.generate({ cache })). */
+  cached?: boolean;
   /** Totals over every step. */
   usage: Usage;
   /** Every model call in order, with tool calls and usage per step. */
@@ -208,8 +223,8 @@ export type StreamEvent =
   | { type: "tool-call"; id: string; name: string; input: unknown }
   | ({ type: "tool-result" } & ToolCallResult);
 
-/** Options of ai.stream: those of ai.generate without structured output. */
-export type StreamOptions = Omit<GenerateOptions<undefined>, "output">;
+/** Options of ai.stream: those of ai.generate without structured output and caching. */
+export type StreamOptions = Omit<GenerateOptions<undefined>, "output" | "cache">;
 
 export interface StreamResult {
   /** Text chunks as they arrive. */
@@ -243,6 +258,52 @@ interface Target {
   providerName: string;
   model: string;
   id: string;
+}
+
+/** Where ai.generate({ cache }) keeps answers: an app's cache (app.cache), or anything with its get and set. */
+export type AICache = Pick<Cache, "get" | "set">;
+
+/** createAI's own cache for answers when no app cache is given: in memory, the least recently used removed first. */
+function memoryAICache(maxEntries: number): AICache {
+  const entries = new Map<string, { json: string; expires: number }>();
+  return {
+    async get<T>(key: string) {
+      const entry = entries.get(key);
+      if (!entry) return undefined;
+      entries.delete(key);
+      if (entry.expires <= Date.now()) return undefined;
+      entries.set(key, entry);
+      return JSON.parse(entry.json) as T;
+    },
+    async set(key, value, options) {
+      entries.delete(key);
+      entries.set(key, { json: JSON.stringify(value), expires: Date.now() + options.ttlMs });
+      while (entries.size > maxEntries) entries.delete(entries.keys().next().value!);
+    },
+  };
+}
+
+/** Checks ai.generate({ cache }). Raises IL5040. */
+function checkAICache(option: unknown, tools: boolean): { ttlMs: number; tags?: readonly string[] } {
+  const fix = "Pass cache: { ttlMs: 3_600_000 } (and tags to invalidate it with cache.invalidate(tag)) on ai.generate calls without tools.";
+  if (!option || typeof option !== "object" || Array.isArray(option)) throw new InferloError("IL5040", "ai.generate({ cache }) must be { ttlMs, tags }.", { fix });
+  const { ttlMs, tags, ...rest } = option as { ttlMs?: unknown; tags?: unknown };
+  if (Object.keys(rest).length) throw new InferloError("IL5040", `ai.generate({ cache }) has unknown option ${Object.keys(rest).map((k) => `"${k}"`).join(", ")}.`, { fix });
+  if (typeof ttlMs !== "number" || !Number.isInteger(ttlMs) || ttlMs < 1 || ttlMs > 365 * 24 * 3_600_000) {
+    throw new InferloError("IL5040", `ai.generate({ cache: { ttlMs } }) must be a whole number of milliseconds from 1 to 365 days, got ${JSON.stringify(ttlMs)}.`, { fix });
+  }
+  if (tags !== undefined && (!Array.isArray(tags) || tags.some((t) => typeof t !== "string" || !t))) throw new InferloError("IL5040", "ai.generate({ cache: { tags } }) must be a list of non-empty strings.", { fix });
+  if (tools) {
+    throw new InferloError("IL5040", "ai.generate({ cache }) cannot be used with tools: a cached answer would skip the tool calls the model makes.", {
+      fix: "Leave out cache for calls with tools, or cache the result of the tools yourself with ctx.cache.getOrSet.",
+    });
+  }
+  return { ttlMs, ...(tags ? { tags: tags as string[] } : {}) };
+}
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** { prompt: "name@version" } for usage, when the options came from prompt.render(). */
@@ -368,6 +429,7 @@ async function runToolCall(prepared: PreparedTools, call: ToolCall, signal: Abor
 
 export function createAI(config?: AIConfig): AI {
   const providers = config?.providers ?? {};
+  let cacheOf: AICache | undefined;
   // Errors logged here never show the providers' API keys or other credentials.
   const redactor = createRedactor(Object.values(providers).flatMap((p) => secretsOf(p)));
   const aliases: Record<string, string[]> = {};
@@ -495,6 +557,7 @@ export function createAI(config?: AIConfig): AI {
       const started = Date.now();
       // Once a tool has run, falling back to another model would run it again.
       let toolsRan = false;
+      const cacheOption = options.cache === undefined ? undefined : checkAICache(options.cache, Boolean(options.tools?.length));
 
       const call = () => withFallback(targets, async (target) => {
         const total = { inputTokens: 0, outputTokens: 0 };
@@ -601,13 +664,40 @@ export function createAI(config?: AIConfig): AI {
           fix: "Simplify the output schema, add .describe() hints to fields, or use a stronger model.",
         });
       });
-      if (!spans) return call();
+      const answer = async () => {
+        if (!cacheOption) return call();
+        // The key is a hash of everything that shapes the answer; the answer is stored only after it succeeded.
+        const key = `inferlo:ai:${await sha256(JSON.stringify({ v: 1, models: targets.map((t) => t.id), messages, temperature: options.temperature ?? null, maxTokens: options.maxTokens ?? null, json: Boolean(schema) }))}`;
+        const store = (cacheOf ??= config?.cache ?? memoryAICache(1000));
+        const hit = await store.get<{ text: string; object: unknown; model: string }>(key).catch(() => undefined);
+        if (hit && typeof hit.text === "string") {
+          let object: unknown = undefined;
+          if (schema) {
+            const checked = await schema.validate(hit.object);
+            if (!checked.ok) return fresh(key, store);
+            object = checked.value;
+          }
+          const usage: Usage = { requested, model: hit.model, inputTokens: 0, outputTokens: 0, cost: 0, for: options.for, kind: "generate", durationMs: Date.now() - started, ...promptOf(options), cached: true };
+          await record(usage);
+          return { text: hit.text, object: object as never, usage, steps: [], cached: true };
+        }
+        return fresh(key, store);
+      };
+      const fresh = async (key: string, store: AICache) => {
+        const result = await call();
+        await store.set(key, { text: result.text, object: result.object ?? null, model: result.usage.model }, cacheOption!).catch((error: unknown) => {
+          console.error("[inferlo] ai cache write failed:", redactor.value(error));
+        });
+        return result;
+      };
+      if (!spans) return answer();
       const { name, attributes } = spanStart("chat", requested, targets, options);
       // The span is active while the call runs, so route and function tools the model calls nest under it.
       return spans.run(name, attributes, async (span) => {
-        const result = await call();
+        const result = await answer();
         spanUsage(span, result.usage);
         span.setAttribute("inferlo.ai.steps", result.steps.length);
+        if (result.usage.cached) span.setAttribute("inferlo.ai.cached", true);
         return result;
       });
     },

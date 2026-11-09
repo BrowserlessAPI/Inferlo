@@ -582,9 +582,11 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     : undefined;
   // With metrics on, every AI call that reports usage is counted before the app's own onUsage runs.
   // With tracing, AI calls get client spans too (unless the AI config has its own tracing).
-  const aiConfig: AIConfig | undefined = config.ai && (metrics || appTracing)
+  const aiConfig: AIConfig | undefined = config.ai
     ? {
         ...config.ai,
+        // ai.generate({ cache }) keeps answers in the app's cache, so every instance shares them with a shared store.
+        cache: config.ai.cache ?? cache,
         ...(metrics ? { onUsage: (usage: Usage) => (metrics.ai(usage), config.ai!.onUsage?.(usage)) } : {}),
         ...(appTracing ? { tracing: config.ai.tracing ?? appTracing } : {}),
       }

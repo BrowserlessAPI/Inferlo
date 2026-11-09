@@ -291,6 +291,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL5039
 **Invalid prompt or prompt file.** A prompt file in `src/prompts/<name>.md` starts with front matter between `---` lines with `version` (required), `description` and `variables` (one indented `name: type` line each; types `string`, `text`, `number`, `int`, `boolean`), followed by the text, optionally under `## System` and `## Prompt` headings. Every `{{name}}` must be a declared variable and every variable must be used. File names are lowercase letters, digits and dashes. `prompt({ name, version, text, variables })` checks the same rules. See [Prompt files](ai.md#prompt-files).
+
+### IL5040
+**Invalid AI answer cache.** `ai.generate({ cache: { ttlMs, tags } })` takes `ttlMs`, a whole number of milliseconds from 1 to 365 days, and optional `tags` (non-empty strings, for `cache.invalidate(tag)`), nothing else. A call with `tools` cannot be cached, because a cached answer would skip the tool calls the model makes: leave out `cache` there, or cache what the tools return with `ctx.cache.getOrSet`. See [Caching answers](ai.md#caching-answers).
 ## App configuration (6xxx)
 
 ### IL6001

@@ -56,6 +56,7 @@ export type { StandardSchema } from "./ai/standard-schema.ts";
 export type {
   AI,
   AIConfig,
+  AICache,
   GenerateOptions,
   GenerateResult,
   StreamResult,

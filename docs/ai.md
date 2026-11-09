@@ -416,6 +416,27 @@ export const ask = route
 - `model` is the embedding alias (the `"embed"` alias by default, as `ai.embed`); `for` and `signal` work as in `ai.embed`, so budgets and usage tracking apply. Invalid tables and options raise IL5038.
 - Works with `memory()` in tests and with Postgres through pgvector.
 
+## Caching answers
+
+Calls that are asked again and again with the same input (an FAQ answer, a product description, a classification of the same text) can reuse the earlier answer instead of calling the model. Caching is opt in per call:
+
+```ts
+export const faq = route
+  .get("/faq", { query: t.object({ q: t.string().max(500) }) })
+  .handle(async ({ ai, query, user }) => {
+    const { text, cached } = await ai.generate({ model: "fast", prompt: query.q, cache: { ttlMs: 24 * 3_600_000, tags: ["faq"] }, for: user.id });
+    return { answer: text, cached: cached ?? false };
+  });
+
+// After the FAQ content changes:
+await cache.invalidate("faq");
+```
+
+- **Same input, same answer.** The entry's key is a hash of the model or alias (with its fallback models), every message (system, prompt, images), the output schema, `temperature` and `maxTokens`. Change any of them and the call goes to the model. Users who send exactly the same input share the answer; put per-user context in the prompt (or leave out `cache`) when answers must differ per user.
+- **Where.** Answers are kept in the app's cache (`createApp({ cache })`: memory, Postgres or Redis), so with a shared store every instance reuses them, and `cache.invalidate(tag)` removes the entries tagged with `cache: { tags }`. `createAI` without an app keeps up to 1000 answers in memory, or pass `createAI({ cache: app.cache })`.
+- **What a hit returns.** The same `text` and `object` (validated against the output schema again, so dates come back as `Date`), `cached: true` and empty `steps`. `onUsage` gets the call with `cached: true` and 0 tokens and cost, so dashboards show the savings; `allow` (budgets) is still checked first. Spans have `inferlo.ai.cached`.
+- `ttlMs` is required (1 ms to 365 days). Only successful answers are stored. Calls with `tools` cannot be cached, because a cached answer would skip the tool calls (IL5040); `ai.stream` is not cached.
+
 ## Usage and budgets
 
 Every call reports a `Usage` record (`requested`, `model` that answered, `inputTokens`, `outputTokens`, `cost`, `for`, `kind`, `durationMs`) to `onUsage`. Store it to bill customers. When `for` is set, `allow` is called first; returning false raises IL5004 (HTTP 402).

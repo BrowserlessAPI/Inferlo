@@ -38,6 +38,8 @@ Prefer `getOrSet`: it is one call, and it cannot forget to store the result.
 - **Values are stored as JSON.** Plain objects, arrays, strings, numbers, booleans and `null`. Dates come back as ISO strings, also from `getOrSet` on the first call, so a hit and a miss return the same thing. `undefined`, functions and `BigInt` cannot be cached (IL6028); cache `null` for "nothing". The memory store keeps JSON too, so changing an object you stored or got never changes the cached entry.
 - **Keys** are strings of 1 to 512 characters. Build them from what the value depends on: `` `tickets:stats` ``, `` `user:${user.id}:dashboard` ``. A value that differs per user must have the user in its key, so one user never sees another user's data.
 
+AI answers can be cached the same way with one option: `ai.generate({ model, prompt, cache: { ttlMs, tags } })` keeps the answer in this cache (see [Caching answers](ai.md#caching-answers)).
+
 ## Stores
 
 ```ts
