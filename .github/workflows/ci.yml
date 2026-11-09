@@ -162,6 +162,8 @@ jobs:
       # The official PostgreSQL image with pgvector built from its release tag, as pgvector's README describes.
       - name: PostgreSQL with pgvector
         run: |
+          # Docker Hub sometimes answers a layer download with 502: the pull is retried before the container starts.
+          for attempt in 1 2 3 4; do docker pull -q postgres:${{ matrix.postgres }} && break; echo "docker pull attempt $attempt failed"; [ "$attempt" = 4 ] && exit 1; sleep 10; done
           docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=inferlo_test -p 5432:5432 postgres:${{ matrix.postgres }}
           tag="${{ matrix.pgvector }}"
           if [ "$tag" = "latest" ]; then tag=$(git ls-remote --tags --refs --sort=-v:refname https://github.com/pgvector/pgvector 'v*' | head -1 | sed 's#.*/##'); fi
@@ -931,7 +933,10 @@ jobs:
           node-version: "24"
           cache: npm
       # The server needs -js (JetStream), which a services: container cannot pass.
-      - run: docker run -d --name nats -p 4222:4222 nats:${{ matrix.versions.server }} -js
+      # Docker Hub sometimes answers a layer download with 502: the pull is retried before the container starts.
+      - run: |
+          for attempt in 1 2 3 4; do docker pull -q nats:${{ matrix.versions.server }} && break; echo "docker pull attempt $attempt failed"; [ "$attempt" = 4 ] && exit 1; sleep 10; done
+          docker run -d --name nats -p 4222:4222 nats:${{ matrix.versions.server }} -js
       # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
       - name: npm ci
         run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
@@ -967,7 +972,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: docker run -d --name rabbitmq -p 5672:5672 rabbitmq:${{ matrix.versions.server }}
+      # Docker Hub sometimes answers a layer download with 502: the pull is retried before the container starts.
+      - run: |
+          for attempt in 1 2 3 4; do docker pull -q rabbitmq:${{ matrix.versions.server }} && break; echo "docker pull attempt $attempt failed"; [ "$attempt" = 4 ] && exit 1; sleep 10; done
+          docker run -d --name rabbitmq -p 5672:5672 rabbitmq:${{ matrix.versions.server }}
       # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
       - name: npm ci
         run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
