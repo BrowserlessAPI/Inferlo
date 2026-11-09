@@ -10,7 +10,7 @@ function capture(options: winston.LoggerOptions = {}) {
   const entries: Record<string, any>[] = [];
   const stream = new Writable({
     write(chunk, _encoding, done) {
-      for (const line of String(chunk).split("\n")) if (line.trim()) entries.push(JSON.parse(line));
+      for (const line of String(chunk).split("\n")) if (line.trim()) entries.push(JSON.parse(line, (_key, value) => value));
       done();
     },
   });

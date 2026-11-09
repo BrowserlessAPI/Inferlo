@@ -8,6 +8,9 @@ import { createServer } from "node:http";
 import { chooseEncoding } from "../src/compression.ts";
 
 const logger = { info() {}, error() {} };
+// Bun before 1.3.3 has no CompressionStream; there answers are sent uncompressed (tested below).
+// test.skip, because Bun 1.3.0 ignores { skip } on test.
+const compressionTest = typeof CompressionStream === "function" ? test : test.skip;
 const big = { items: Array.from({ length: 200 }, (_, i) => ({ id: i, title: `Note number ${i}` })) };
 
 const routes = [
@@ -29,7 +32,7 @@ function get(app: { fetch(req: Request): Promise<Response> }, path: string, head
 }
 
 describe("createApp({ compression })", () => {
-  test("large JSON answers are gzipped when the client accepts gzip", async () => {
+  compressionTest("large JSON answers are gzipped when the client accepts gzip", async () => {
     const app = createApp({ routes, compression: true, logger });
     const res = await get(app, "/big");
     assert.equal(res.status, 200);
@@ -43,7 +46,7 @@ describe("createApp({ compression })", () => {
     assert.deepEqual(JSON.parse(gunzipSync(bytes).toString("utf8")), big);
   });
 
-  test("deflate is used when the client accepts only deflate, and the configured order is the preference", async () => {
+  compressionTest("deflate is used when the client accepts only deflate, and the configured order is the preference", async () => {
     const app = createApp({ routes, compression: true, logger });
     const res = await get(app, "/big", { "accept-encoding": "deflate" });
     assert.equal(res.headers.get("content-encoding"), "deflate");
@@ -62,7 +65,7 @@ describe("createApp({ compression })", () => {
     }
   });
 
-  test("answers below the threshold, images, Server-Sent Events, no-transform, encoded and empty answers are left alone", async () => {
+  compressionTest("answers below the threshold, images, Server-Sent Events, no-transform, encoded and empty answers are left alone", async () => {
     const app = createApp({ routes, compression: true, logger });
     for (const path of ["/small", "/png", "/events", "/no-transform", "/encoded", "/empty"]) {
       const res = await get(app, path);
@@ -74,7 +77,7 @@ describe("createApp({ compression })", () => {
     assert.equal((await get(zero, "/small")).headers.get("content-encoding"), "gzip");
   });
 
-  test("text answers from handlers are compressed, strong ETags become weak and Vary is extended", async () => {
+  compressionTest("text answers from handlers are compressed, strong ETags become weak and Vary is extended", async () => {
     const app = createApp({ routes, compression: true, logger });
     const text = await get(app, "/text");
     assert.equal(text.headers.get("content-encoding"), "gzip");
@@ -84,13 +87,27 @@ describe("createApp({ compression })", () => {
     assert.equal(res.headers.get("vary"), "Origin, Accept-Encoding");
   });
 
+  test("without CompressionStream in the runtime, answers are sent uncompressed with Vary", async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "CompressionStream");
+    Reflect.deleteProperty(globalThis, "CompressionStream");
+    try {
+      const app = createApp({ routes, compression: true, logger });
+      const res = await get(app, "/big", { "accept-encoding": "gzip, deflate" });
+      assert.equal(res.headers.get("content-encoding"), null);
+      assert.equal(res.headers.get("vary"), "Accept-Encoding");
+      assert.deepEqual(await res.json(), big);
+    } finally {
+      if (original) Object.defineProperty(globalThis, "CompressionStream", original);
+    }
+  });
+
   test("HEAD requests are not compressed", async () => {
     const app = createApp({ routes, compression: true, logger });
     const res = await get(app, "/big", { "accept-encoding": "gzip" }, "HEAD");
     assert.equal(res.headers.get("content-encoding"), null);
   });
 
-  test("cached routes keep ETags and 304 answers", async () => {
+  compressionTest("cached routes keep ETags and 304 answers", async () => {
     const app = createApp({ routes, compression: true, logger });
     const first = await get(app, "/cached");
     assert.equal(first.headers.get("content-encoding"), "gzip");
@@ -128,7 +145,7 @@ describe("createApp({ compression })", () => {
     assert.equal(chooseEncoding(null, ["gzip"]), undefined);
   });
 
-  test("Node.js servers send the compressed bytes", async () => {
+  compressionTest("Node.js servers send the compressed bytes", async () => {
     const app = createApp({ routes, compression: true, logger });
     const server = createServer(toNodeHandler(app));
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

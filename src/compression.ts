@@ -87,7 +87,8 @@ export function compressResponse(response: Response, request: Request, config: R
   if (Number.isFinite(length) && length < config.threshold) return response;
   const headers = new Headers(response.headers);
   addVary(headers);
-  const encoding = request.method.toUpperCase() === "HEAD" ? undefined : chooseEncoding(request.headers.get("accept-encoding"), config.encodings);
+  // Runtimes without the Web CompressionStream (such as Bun before 1.3.3) send answers uncompressed.
+  const encoding = request.method.toUpperCase() === "HEAD" || typeof CompressionStream !== "function" ? undefined : chooseEncoding(request.headers.get("accept-encoding"), config.encodings);
   if (!encoding) {
     if (headers.get("vary") === response.headers.get("vary")) return response;
     try {

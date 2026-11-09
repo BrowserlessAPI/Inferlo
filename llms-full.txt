@@ -6181,7 +6181,7 @@ Nginx, load balancers and CDNs usually compress answers. When nothing in front o
 createApp({ routes, compression: true }); // or { threshold: 2048, encodings: ["gzip"] }
 ```
 
-- Answers are compressed with gzip or deflate (the Web `CompressionStream`, on Node.js, Bun, Deno and Workers), the first of `encodings` (default `["gzip", "deflate"]`) that the request's `Accept-Encoding` accepts. Without a match the answer is sent as it is.
+- Answers are compressed with gzip or deflate (the Web `CompressionStream`, on Node.js, Bun, Deno and Workers), the first of `encodings` (default `["gzip", "deflate"]`) that the request's `Accept-Encoding` accepts. Without a match the answer is sent as it is. Runtimes without `CompressionStream` (Bun before 1.3.3) send every answer uncompressed, with `Vary: Accept-Encoding`.
 - Only text, JSON, JavaScript, XML and SVG answers of at least `threshold` bytes (default 1024) are compressed; answers whose size is unknown, such as streams, count as large enough. Images, archives and other binary answers are left alone.
 - Never compressed: Server-Sent Events (so AI streams stay live), HEAD requests, 204, 206 and 304 answers, answers that already have a `Content-Encoding`, and answers with `Cache-Control: no-transform`.
 - Compressible answers get `Vary: Accept-Encoding`, so caches keep the compressed and plain versions apart, and a strong `ETag` set by a handler becomes weak (`W/"..."`) on compressed answers. Route caching (`cache: { ttlMs }`) and its 304 answers work as before.
