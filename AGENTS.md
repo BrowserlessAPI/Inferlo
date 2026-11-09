@@ -61,7 +61,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Express (`@browserlessapi/inferlo/express`, examples/with-express) | 4 (newest 4.x, maintained upstream) | `latest` (5) |
 | Fastify (`@browserlessapi/inferlo/fastify`, examples/with-fastify) | 5.0.0 (Fastify 4 reached end of life 2025-06-30) | `latest` |
 | hapi (`@browserlessapi/inferlo/hapi`, examples/with-hapi) | 21.1.0 (hapi 21 is the supported major; 21.1.0 is its first release with its own TypeScript types) | `latest` |
-| ElysiaJS (`@browserlessapi/inferlo/elysia`, examples/with-elysia), on Node.js and Bun | 1.0.0 | `latest` |
+| ElysiaJS (`@browserlessapi/inferlo/elysia`, examples/with-elysia), on Node.js and Bun | 1.0.0 | `latest` (2: npm's `latest` tag points at Elysia 2 release candidates since 2.0.0-rc.4, installed with its peer dependencies `typebox`, `exact-mirror` and `openapi-types`) |
 | NestJS (`@browserlessapi/inferlo/nestjs`, examples/with-nestjs) | 11.0.0 (oldest major with security support; 10 ended 2025-01-20) | `latest` (12) |
 | tRPC (`@browserlessapi/inferlo/trpc`, examples/with-trpc) | 11.0.0 (tRPC 10 is no longer maintained) | `latest` |
 | AdonisJS (`@browserlessapi/inferlo/adonisjs`, examples/with-adonisjs) | 6.2.0 (first stable 6.x; AdonisJS 6 is still maintained) | `latest` (7, on Node.js 24) |

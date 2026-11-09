@@ -224,7 +224,7 @@ The [with-hapi example](../examples/with-hapi) uses both, and CI tests it with h
 
 ## ElysiaJS
 
-ElysiaJS 1.0 and later, on Bun and Node.js. `@browserlessapi/inferlo/elysia` has no runtime dependency on Elysia and never loads Inferlo's router, database or jobs code.
+ElysiaJS 1.0 and later (Elysia 2 too), on Bun and Node.js. `@browserlessapi/inferlo/elysia` has no runtime dependency on Elysia and never loads Inferlo's router, database or jobs code.
 
 ```ts
 import { Elysia } from "elysia";

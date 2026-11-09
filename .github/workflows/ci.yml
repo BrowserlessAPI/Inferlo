@@ -454,7 +454,15 @@ jobs:
       # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
       - name: npm ci
         run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
-      - run: npm install --no-save elysia@${{ matrix.elysia }}
+      # Elysia 2 (npm's latest tag since 2.0.0-rc.4) has typebox, exact-mirror and openapi-types as peer dependencies,
+      # which conflict with the Elysia 1 dependencies in the lockfile, so they are installed with it explicitly.
+      - name: npm install elysia@${{ matrix.elysia }}
+        run: |
+          if [ "${{ matrix.elysia }}" = "latest" ] && [ "$(npm view elysia@latest version | cut -d. -f1)" != "1" ]; then
+            npm install --no-save --legacy-peer-deps elysia@latest exact-mirror@latest typebox@latest openapi-types@latest
+          else
+            npm install --no-save elysia@${{ matrix.elysia }}
+          fi
       - run: node -p "'Elysia ' + require('./node_modules/elysia/package.json').version"
       - run: npm run typecheck
       - if: matrix.runtime == 'node'

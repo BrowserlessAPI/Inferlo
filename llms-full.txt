@@ -3179,7 +3179,7 @@ The [with-hapi example](../examples/with-hapi) uses both, and CI tests it with h
 
 ## ElysiaJS
 
-ElysiaJS 1.0 and later, on Bun and Node.js. `@browserlessapi/inferlo/elysia` has no runtime dependency on Elysia and never loads Inferlo's router, database or jobs code.
+ElysiaJS 1.0 and later (Elysia 2 too), on Bun and Node.js. `@browserlessapi/inferlo/elysia` has no runtime dependency on Elysia and never loads Inferlo's router, database or jobs code.
 
 ```ts
 import { Elysia } from "elysia";
@@ -6423,7 +6423,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Express (`/express`, `toNodeHandler`) | 4 (newest 4.x) and 5 |
 | Fastify (`/fastify`) | 5.0.0 and newer |
 | hapi (`/hapi`) | 21.1.0 and newer |
-| ElysiaJS (`/elysia`), on Node.js and Bun | 1.0.0 and newer |
+| ElysiaJS (`/elysia`), on Node.js and Bun | 1.0.0 and newer, including Elysia 2 |
 | NestJS (`/nestjs`) | 11.0.0 and newer |
 | tRPC (`/trpc`) | 11.0.0 and newer |
 | AdonisJS (`/adonisjs`) | 6.2.0 and newer (AdonisJS 7 needs Node.js 24) |
