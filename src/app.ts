@@ -7,6 +7,8 @@ import { memory } from "./db/memory.ts";
 import { createAudit } from "./audit.ts";
 import { readEnv } from "./env.ts";
 import { checkStorageStore, createStorage, type Storage, type StorageStore } from "./storage.ts";
+import { checkMailer, createMail, type Mailer } from "./mail.ts";
+import type { AppMail } from "./route.ts";
 import { beginIdempotency, checkRouteIdempotency, IDEMPOTENCY_HEADER } from "./idempotency.ts";
 import { checkRouteWebhook, verifyWebhook } from "./webhook.ts";
 import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
@@ -155,6 +157,11 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    * your own StorageStore. Without it, ctx.storage throws IL6037.
    */
   storage?: StorageStore;
+  /**
+   * Email for ctx.mail and app.mail: mail({ smtp: settings.SMTP_URL, from: "Acme <no-reply@acme.com>", templates }),
+   * mail({ transport: memoryMail(), from }) in tests. Without it, ctx.mail.send() throws IL6069.
+   */
+  mail?: Mailer<any>;
   /** Database adapter. Default: memory(). Use postgres() from "@browserlessapi/inferlo/postgres" in production. */
   db?: Adapter;
   auth?: AuthConfig;
@@ -293,6 +300,8 @@ export interface App<Models extends readonly AnyModel[]> {
   readonly cache: Cache;
   /** Files, the same as ctx.storage: await app.storage.put(key, file), app.storage.get(key), app.storage.delete(key). */
   readonly storage: Storage;
+  /** Email, the same as ctx.mail: await app.mail.send({ to, template: "welcome", data: { name } }). */
+  readonly mail: Omit<AppMail, "transport"> & { readonly transport: string | null };
   /** WebSocket rooms: await app.sockets.broadcast(room, data, { tenantId }) sends to the sockets that joined it in this process. */
   readonly sockets: AppSockets;
   /** Standard fetch handler: export default app works on Bun, Deno and Cloudflare Workers. */
@@ -577,6 +586,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     cacheConfig.store === "redis" ? redisCacheStore(redis!, redisPrefix(config.name)) : cacheConfig.store === "database" ? databaseCacheStore(adapter) : memoryCacheStore(cacheConfig.maxEntries);
   const cache = createCache(cacheStore, cacheConfig.store);
   const storage = createStorage(checkStorageStore(config.storage));
+  const mail = createMail(checkMailer(config.mail)) as unknown as AppMail;
   const metrics: AppMetrics | undefined = metricsConfig
     ? createMetrics({ app: config.name ?? "inferlo-app", version: config.version ?? "0.0.0", inferlo: INFERLO_VERSION }, metricsConfig.buckets)
     : undefined;
@@ -615,6 +625,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       ai,
       cache,
       storage,
+      mail,
       sockets: socketHub,
       audit: (run) => createAudit(models, redactor, () => db as never, { userId: null, tenantId: run.tenantId, source: `job ${run.name}` }),
       store: jobStoreFor(config.jobQueue, adapter, () => {
@@ -945,6 +956,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           },
           cache,
           storage,
+          mail,
           get sockets() {
             return (socketRooms ??= socketHub.forTenant(tenantOf(scope)));
           },
@@ -1239,6 +1251,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
             },
             cache,
             storage,
+            mail,
             get sockets() {
               return socketHub.forTenant(tenantOf(tenantScope(user)));
             },
@@ -1446,6 +1459,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
     events,
     cache,
     storage,
+    mail,
     sockets: { broadcast: socketHub.broadcast, count: socketHub.count },
 
     get closing() {

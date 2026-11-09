@@ -122,6 +122,7 @@ npm install @browserlessapi/inferlo
 - [Service-to-service calls](docs/services.md)
 - [Caching](docs/caching.md)
 - [File storage](docs/storage.md)
+- [Email](docs/mail.md)
 - [Redis](docs/redis.md)
 - [MCP, OpenAPI and describe](docs/mcp.md)
 - [CLI](docs/cli.md)

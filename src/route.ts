@@ -19,6 +19,7 @@ import type { Cache, RouteCache } from "./cache.ts";
 import type { RouteIdempotency } from "./idempotency.ts";
 import type { RouteWebhook } from "./webhook.ts";
 import type { Storage } from "./storage.ts";
+import type { Mail } from "./mail.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
 import type { Sockets } from "./sockets.ts";
@@ -37,6 +38,8 @@ export interface Register {}
 type Registered<K extends string, Fallback> = Register extends { [P in K]: infer V } ? V : Fallback;
 export type AppModels = Registered<"models", readonly AnyModel[]> extends infer M extends readonly AnyModel[] ? M : readonly AnyModel[];
 export type AppUser = Registered<"user", { id: string; roles?: string[] }>;
+/** ctx.mail and app.mail, typed with the templates of Register { mail: typeof mailer }. */
+export type AppMail = Registered<"mail", Mail> extends infer M extends Mail<any> ? M : Mail;
 export type AppDb = Db<AppModels>;
 /**
  * The permission names a route's `permission` option accepts. With `permissions: typeof access` in Register, only the
@@ -138,6 +141,8 @@ export interface Context<Body, Query, Params, User> {
   cache: Cache;
   /** Files (createApp({ storage })): await storage.put(`avatars/${user.id}.png`, body.avatar), storage.get(key), storage.delete(key). */
   storage: Storage;
+  /** Email (createApp({ mail })): await mail.send({ to: user.email, template: "welcome", data: { name } }). */
+  mail: AppMail;
   /** Send to WebSocket rooms: await sockets.broadcast(`project:${id}`, data), to the user's tenant's room with a tenant. */
   sockets: Sockets;
   req: Request;
@@ -295,6 +300,8 @@ export interface SocketContext<Message, Query, Params, User> {
   cache: Cache;
   /** Files (createApp({ storage })), the same as ctx.storage in routes. */
   storage: Storage;
+  /** Email (createApp({ mail })), the same as ctx.mail in routes. */
+  mail: AppMail;
   /** Send to WebSocket rooms, this client's included when it joined: await sockets.broadcast(room, data). */
   sockets: Sockets;
   /** Write an audit log entry with the user and this connection's request id. */

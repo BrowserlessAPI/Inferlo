@@ -1,0 +1,4 @@
+{
+  "title": "Welcome email after sign-up",
+  "prompt": "New users sign up with POST /signup (public), which takes { email, name }, creates a member user and answers 201 with { id, email, name }. After the user is created, send them a welcome email from a background job named \"send-welcome\" whose input is { userId } (a uuid), not during the request. Use Inferlo's built-in email support with SMTP: add a required SMTP_URL setting to src/config.ts (it holds the SMTP password, so it is a secret), create the mailer in src/mail.ts with the sender \"Acme <no-reply@acme.dev>\" and a \"welcome\" template whose subject is \"Welcome to Acme, {{name}}\" and which has a plain-text and an HTML body that greet the user by name, and register the mailer and the job in src/app.ts. Put the route in src/routes/signup.ts."
+}

@@ -97,6 +97,8 @@ export { AuditLog, auditChanges } from "./audit.ts";
 export type { Audit, AuditEntry, AuditChange } from "./audit.ts";
 export type { Cache, CacheConfig, CacheSetOptions, RouteCache } from "./cache.ts";
 export type { RouteIdempotency } from "./idempotency.ts";
+export { mail, memoryMail } from "./mail.ts";
+export type { Mail, Mailer, MailMessage, MailOptions, MailTemplate, MailTransport, MailAttachment, MemoryMailTransport, OutgoingMail, SentMailInfo, SmtpOptions } from "./mail.ts";
 export { memoryStorage } from "./storage.ts";
 export type { Storage, StorageStore, StoredFile, StoragePutOptions, StorageUrlOptions } from "./storage.ts";
 export { diskStorage } from "./disk-storage.ts";

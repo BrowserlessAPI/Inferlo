@@ -100,6 +100,8 @@ export interface AppDescription {
   cache: "memory" | "database" | "redis";
   /** Where ctx.storage and app.storage keep files ("memory", "disk" or a custom store's name), or null without createApp({ storage }). */
   storage: string | null;
+  /** How ctx.mail and app.mail send ("smtp", "memory" or a custom transport's name) and the template names, or null without createApp({ mail }). */
+  mail: { transport: string; templates: string[] } | null;
 }
 
 export const INFERLO_VERSION = "0.9.0";
@@ -193,6 +195,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     jobQueue: app.jobs.queue,
     cache: app.cache.store,
     storage: app.storage.store,
+    mail: app.mail.transport ? { transport: app.mail.transport, templates: [...app.mail.templates] } : null,
     crons: app.jobs.crons.map((c) => ({ schedule: c.schedule, job: c.job.name })),
     events: app.events.list.map((e) => ({
       name: e.name,

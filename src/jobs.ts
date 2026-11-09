@@ -14,6 +14,8 @@ import type { AI } from "./ai/index.ts";
 import type { Audit } from "./audit.ts";
 import type { Cache } from "./cache.ts";
 import { createStorage, type Storage } from "./storage.ts";
+import { createMail } from "./mail.ts";
+import type { AppMail } from "./route.ts";
 import { cronTickId, isCron, type CronDef } from "./cron.ts";
 import { checkTenantId, type DbHelpers } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
@@ -47,6 +49,8 @@ export interface JobContext<Input> {
   cache: Cache;
   /** Files (createApp({ storage })), the same as ctx.storage in routes and app.storage. */
   storage: Storage;
+  /** Email (createApp({ mail })), the same as ctx.mail in routes and app.mail. */
+  mail: AppMail;
   /** Send to WebSocket rooms of this process (the job's tenant's rooms with a tenant): await sockets.broadcast(room, data). */
   sockets: Sockets;
   /** Job id. */
@@ -433,6 +437,7 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
 /** Rooms for createJobs runtimes without WebSockets: broadcasts reach no one. */
 const noSockets = createSocketHub();
 const noStorage = createStorage(undefined);
+const noMail = createMail(undefined) as unknown as AppMail;
 
 export function jobStoreFor(config: JobQueueConfig | undefined, adapter: Adapter, redis?: () => JobStore): JobStore {
   const store = config?.store ?? "memory";
@@ -461,6 +466,8 @@ export interface JobRuntime {
   cache: Cache;
   /** Files (app.storage). Default: none (ctx.storage throws IL6037). */
   storage?: Storage;
+  /** Email (app.mail). Default: none (ctx.mail.send() throws IL6069). */
+  mail?: AppMail;
   /** WebSocket rooms (app.sockets). */
   sockets?: SocketHub;
   /** Builds ctx.audit for one run. */
@@ -643,7 +650,7 @@ export function createJobs(list: readonly JobDef[], runtime: JobRuntime, crons: 
       const tenantId = record.tenantId ?? null;
       const scoped = tenantId ? withTenant({ jobs, events }, tenantId) : { jobs, events };
       const db = tenantId ? ((runtime.db as unknown as DbHelpers).$tenant(tenantId) as unknown as AppDb) : runtime.db;
-      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, storage: runtime.storage ?? noStorage, sockets: (runtime.sockets ?? noSockets).forTenant(tenantId), id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id, tenantId }) });
+      await def.handler({ input: parse(def, record.input), db, ai: runtime.ai, jobs: scoped.jobs, events: scoped.events, cache: runtime.cache, storage: runtime.storage ?? noStorage, mail: runtime.mail ?? noMail, sockets: (runtime.sockets ?? noSockets).forTenant(tenantId), id: record.id, attempt: record.attempts, tenantId, audit: runtime.audit({ name: record.name, id: record.id, tenantId }) });
       await runtime.store.update(record.id, { status: "done" });
       return "done";
     } catch (error) {

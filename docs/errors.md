@@ -506,6 +506,18 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6067
 **Invalid `githubOAuth()` options.** `githubOAuth({ clientId, clientSecret, session, userId })` needs the OAuth app's client id and secret (non-empty strings), a `sessions()` to sign in to, and a `userId(profile, { db })` function that returns the app's user id or `null`; `scopes` is a list of GitHub scope names, `basePath` a path such as `"/auth/github"`, `redirectUri` and `url` https URLs (plain http only on localhost), and `allowSignup` true or false. Unknown options are refused. Also raised when `userId` returns something other than a string or `null`. See [Sign in with GitHub](auth.md#sign-in-with-github).
 
+### IL6068
+**Invalid `mail()` options.** `mail({ smtp, from, templates })` needs exactly one of `smtp` (an `smtps://` or `smtp://` URL, or `{ host, port, secure, user, pass, requireTLS, ca, name, timeoutMs }`) and `transport` (`memoryMail()` in tests, or an object with a `name` and `send(mail)`), and a `from` address such as `"Acme <no-reply@acme.com>"`. SMTP URLs take no path or query; `user` and `pass` go together; `ca` is PEM certificate text. Each template needs a `subject` and a `text` or `html` body, and placeholders are `{{name}}` with letters, digits and underscores only. Unknown options are refused, so a misspelt option cannot switch off TLS. Also raised by `createApp({ mail })` for a value that is not a mailer from `mail()`. See [Email](mail.md).
+
+### IL6069
+**No mailer configured.** `ctx.mail.send()` (or `app.mail.send()`) was called, but `createApp` has no `mail` option, so email would be lost. Add one: `createApp({ mail: mail({ smtp: settings.SMTP_URL, from: "Acme <no-reply@acme.com>" }) })`, or `mail({ transport: memoryMail(), from })` in tests. See [Email](mail.md).
+
+### IL6070
+**Invalid email message.** Nothing was sent. A message needs at least one `to` address and either a `subject` with `text` or `html`, or a `template` with `data` for each of its `{{variables}}` (strings or numbers). Addresses are plain ASCII (`"ana@example.com"` or `"Ana Lima <ana@example.com>"`, international domains in their `xn--` form) without line breaks; extra `headers` are one ASCII line each and cannot replace the headers Inferlo writes (From, To, Cc, Subject, Date, Message-ID, MIME and content headers); attachments need a `filename` without slashes and their `content` as text, bytes or a `Blob`. The message says which field is wrong. See [Email](mail.md#messages).
+
+### IL6071
+**Email could not be sent (502).** The SMTP server could not be reached, did not offer TLS (required except for servers on this machine), presented a certificate that could not be verified, refused the login, the sender or a recipient, or did not answer within `timeoutMs`. `details.stage` says where it stopped (`connect`, `greeting`, `ehlo`, `starttls`, `auth`, `sender`, `recipient`, `data`), `details.response` has the server's reply and `details.permanent` is true for 5xx replies. When a recipient is refused, the message is sent to nobody. Check the host and port (outgoing port 25 is blocked by most clouds; use 587 or 465), the credentials (many providers want an API key or app password), that `from` is a sender the account may use, and for a private CA pass `mail({ smtp: { ca } })`. Sent from a job, the attempt is retried. Also raised on runtimes without TCP sockets: use a `transport` there. See [Email](mail.md#smtp).
+
 ## Environment (7xxx)
 
 ### IL7001
@@ -579,6 +591,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL4032
 **Invalid rename.** A `--rename old=new` given to `inferlo db migrate` (or `planMigration(models, snapshot, { renames })`) cannot be applied: it is not `table=table` or `table.column=table.column` with plain names; the old table or column is not in `migrations/snapshot.json`; the new one is not in your models, or already exists in the snapshot; the old one is still in your models; a column moves to another table; or two renames have the same target. The left side uses the old names and the right side your models' names, so after a table rename a column is `--rename notes.color=memos.colour`. Nothing is written. See [Migrations](database.md#migrations).
+
 
 ## CLI (8xxx)
 

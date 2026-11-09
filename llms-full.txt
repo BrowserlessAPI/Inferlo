@@ -128,6 +128,7 @@ npm install @browserlessapi/inferlo
 - [Service-to-service calls](docs/services.md)
 - [Caching](docs/caching.md)
 - [File storage](docs/storage.md)
+- [Email](docs/mail.md)
 - [Redis](docs/redis.md)
 - [MCP, OpenAPI and describe](docs/mcp.md)
 - [CLI](docs/cli.md)
@@ -2639,6 +2640,141 @@ form.append("avatar", new Blob([png], { type: "image/png" }), "me.png");
 await app.request("/me/avatar", { method: "POST", body: form, as: user });
 assert.equal((await app.storage.get(`avatars/${user.id}`))?.type, "image/png");
 ```
+
+---
+
+# Email
+
+`ctx.mail` sends email through the mailer chosen in `createApp({ mail })`: an SMTP server in production, an in-memory outbox in tests. It works the same in routes, WebSocket handlers and jobs, and as `app.mail` everywhere else. Templates are part of the mailer, with typed `{{variables}}`.
+
+```ts
+// src/mail.ts
+import { mail } from "@browserlessapi/inferlo";
+import { settings } from "./config.ts";
+
+export const mailer = mail({
+  smtp: settings.SMTP_URL, // "smtps://user:pass@smtp.example.com" or "smtp://user:pass@smtp.example.com:587"
+  from: "Acme <no-reply@acme.com>",
+  templates: {
+    welcome: {
+      subject: "Welcome to Acme, {{name}}",
+      text: "Hi {{name}},\n\nYour {{plan}} account is ready.",
+      html: "<p>Hi {{name}},</p><p>Your <b>{{plan}}</b> account is ready.</p>",
+    },
+  },
+});
+```
+
+```ts
+// src/app.ts
+import { mailer } from "./mail.ts";
+
+export const app = createApp({ models, routes, jobs: [jobs], mail: mailer, ... });
+```
+
+Send from a job, so a slow or unavailable mail server never slows down a request and failed sends are retried:
+
+```ts
+// src/jobs.ts
+import { job, t } from "@browserlessapi/inferlo";
+
+export const sendWelcome = job("send-welcome", { input: t.object({ userId: t.uuid() }), retries: 5 }).handle(async ({ input, db, mail }) => {
+  const user = await db.users.get(input.userId);
+  await mail.send({ to: user.email, template: "welcome", data: { name: user.name, plan: "Free" } });
+});
+
+// in a route: await jobs.enqueue(sendWelcome, { userId: user.id });
+```
+
+`await mail.send(...)` in a route also works: it sends before the response, and a failure is a 500 (IL6071).
+
+## Messages
+
+| Field | |
+|---|---|
+| `to` | One address or a list: `"ana@example.com"` or `"Ana Lima <ana@example.com>"`. Required. |
+| `cc`, `bcc` | One address or a list. `bcc` recipients get the message but are never in its headers. |
+| `subject`, `text`, `html` | A message without a template needs `subject` and `text`, `html` or both (both send `multipart/alternative`). |
+| `template`, `data` | A template name and its variables (strings or numbers), instead of `subject`, `text` and `html`. |
+| `from`, `replyTo` | Override the mailer's `from` and `replyTo` for one message. |
+| `attachments` | `[{ filename, content, type }]`: `content` is text, a `Uint8Array`, an `ArrayBuffer` or a `Blob` (a `File` from `t.file()` too); `type` defaults to the `Blob`'s type, else `application/octet-stream`. |
+| `headers` | Extra headers, for example `{ "List-Unsubscribe": "<https://acme.com/unsubscribe/42>" }`. One line of ASCII each; the headers Inferlo writes (From, To, Subject, Date, Message-ID and so on) cannot be replaced. |
+
+`send` resolves to `{ messageId, accepted }`: the `Message-ID` (without angle brackets, at the domain of `from`) and every recipient address.
+
+- Messages are UTF-8: non-ASCII subjects, names and file names are encoded (RFC 2047 and RFC 2231), bodies and attachments are base64, and every line of the message stays short, so any SMTP server accepts it.
+- Addresses are checked: plain ASCII addresses (international domains in their `xn--` form), at most one per string. An address, name or header with a line break is refused, so user input can never add a `Bcc:` header. A line break in a filled-in subject becomes a space.
+- An invalid message is IL6070 and nothing is sent.
+
+## Templates
+
+- `{{name}}` placeholders in `subject`, `text` and `html`, letters, digits and underscores only (no spaces inside the braces). Every placeholder must be in `data`, or the send fails with IL6070.
+- Values are HTML-escaped in `html` (`<` becomes `&lt;`), and inserted as they are in `subject` and `text`.
+- With the templates written inline in `mail({ templates })`, TypeScript knows the template names and each template's variables: a missing variable or an unknown template is a type error. For `ctx.mail` in routes and jobs, add the mailer to `Register` (`interface Register { mail: typeof mailer }`, next to `models` and `user`); without it `ctx.mail` accepts any template name and data, checked when sending.
+- Invalid templates (no subject, no body, a placeholder that is not a name) fail at startup with IL6068.
+
+## SMTP
+
+`smtp` is a URL or an object:
+
+| URL | Connection |
+|---|---|
+| `smtps://user:pass@smtp.example.com` | TLS from the first byte, port 465 unless given. |
+| `smtp://user:pass@smtp.example.com:587` | Plain connection upgraded with STARTTLS, port 587 unless given. |
+| `smtp://localhost:1025` | A development server on this machine (Mailpit, MailHog, smtp4dev), without TLS. |
+
+Encode special characters in the user name and password with `encodeURIComponent` (an `@` is `%40`), or use the object form: `{ host, port, secure, user, pass, requireTLS, ca, name, timeoutMs }`.
+
+- **TLS is required.** Without `secure`, Inferlo upgrades with STARTTLS whenever the server offers it, and refuses to send (IL6071, before logging in) when it does not, except for servers on this machine (`localhost`, `127.0.0.1`, `::1`). Set `requireTLS: false` only for a server you control on a private network.
+- **Certificates are always verified** against the system's CA certificates. For a server with a private CA, pass its certificate as `ca` (PEM text, or a list). There is no option to skip verification.
+- **Login** with `user` and `pass` uses AUTH PLAIN, or AUTH LOGIN when that is all the server offers. Many providers want an API key or app password here (for example SendGrid's user `apikey`, Amazon SES SMTP credentials, Postmark's server token).
+- One connection per message, closed after `QUIT`. `timeoutMs` (default 30000) limits each wait for the server.
+- When the server refuses any recipient, nothing is sent to anyone and `send` fails with IL6071.
+- Failures are IL6071 with status 502 (shown to clients as an internal error, logged in full), with `details.stage` (`connect`, `greeting`, `ehlo`, `starttls`, `auth`, `sender`, `recipient` or `data`), the server's reply in `details.response` and `details.permanent` for 5xx replies. The password never appears in errors or logs; put `SMTP_URL` in the config's `secrets` so it is redacted too.
+- SMTP needs TCP sockets: it runs on Node.js, Bun and Deno. On Cloudflare Workers, or to use a provider's HTTP API, write a [transport](#other-transports).
+
+Outgoing port 25 is blocked by most cloud providers; use 587 or 465.
+
+## Testing
+
+`memoryMail()` keeps messages instead of sending them:
+
+```ts
+import { mail, memoryMail } from "@browserlessapi/inferlo";
+
+const outbox = memoryMail();
+const app = createApp({ ...options, mail: mail({ transport: outbox, from: "Acme <no-reply@acme.com>", templates }) });
+
+await app.request("/signup", { method: "POST", json: { email: "ana@example.com", name: "Ana" } });
+await app.jobs.runDue();
+assert.equal(outbox.sent[0].message.subject, "Welcome to Acme, Ana");
+assert.deepEqual(outbox.sent[0].envelope.to, ["ana@example.com"]);
+```
+
+Each entry of `outbox.sent` has `envelope` (`{ from, to }`, bcc included), `messageId`, `raw` (the whole message as sent over SMTP) and `message` with the fields after templates are filled in: `{ from, to, cc, bcc, replyTo, subject, text, html, attachments, headers }`.
+
+To keep the templates in one place, export them from `src/mail.ts` (`export const templates = { ... } as const`) and use them in both mailers. In development, `smtp://localhost:1025` with [Mailpit](https://mailpit.axllent.org) shows every message in a browser.
+
+## Other transports
+
+`mail({ transport })` takes any object with a `name` and `send(mail)`, which receives the finished message (`envelope`, `messageId`, `raw` and `message`, as above). For an email API that accepts raw MIME:
+
+```ts
+const api = {
+  name: "ses-api",
+  async send({ raw }: OutgoingMail) {
+    const res = await fetch("https://mail-api.example.com/v1/raw", { method: "POST", headers: { authorization: `Bearer ${settings.MAIL_API_KEY}` }, body: raw });
+    if (!res.ok) throw new Error(`Mail API answered ${res.status}`);
+  },
+};
+export const mailer = mail({ transport: api, from: "Acme <no-reply@acme.com>", templates });
+```
+
+A transport throws to fail the send (and the job attempt). `smtp` and `transport` cannot be combined; `mail()` without either is IL6068.
+
+## Without a mail option
+
+`ctx.mail.send()` throws IL6069 (a 500 in routes), so email is never silently dropped. `app.mail.transport` is `"smtp"`, `"memory"` or the transport's name, or `null` without a mailer, and `inferlo describe` shows it as `mail` with the template names.
 
 ---
 
@@ -6030,6 +6166,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
 - **Retries do not repeat payments.** `idempotency: true` on a POST, PUT, PATCH or DELETE route runs a request with an `Idempotency-Key` header once and answers retries with the first answer; keys belong to one user and answers that set cookies are never replayed (see [Idempotency keys](routes.md#idempotency-keys)).
 - **Webhooks are signed.** A route with `webhook: { scheme, secret }` only runs for requests whose HMAC signature over the raw body matches (Standard Webhooks, Stripe or GitHub), with a 5-minute replay window for signed timestamps (IL3012); see [Webhooks](routes.md#webhooks).
+- **Email is encrypted and cannot be hijacked by input.** `mail({ smtp })` requires TLS (STARTTLS or TLS from the start) except for servers on this machine, always verifies the server certificate and logs in only over TLS; addresses, names and headers with line breaks are refused (IL6070), so user input cannot add recipients or headers, and template values are HTML-escaped. See [Email](mail.md).
 - **Compression is off by default.** `createApp({ compression: true })` compresses answers when nothing in front of the app does; because compressed sizes can reveal a secret that sits next to attacker-chosen text in the same answer (BREACH), keep CSRF tokens and other secrets out of answers that echo request input, or leave compression to a proxy that skips them (see [Response compression](deploy.md#response-compression)).
 - **WebSockets only accept their own origin.** A `route.ws` socket may only be opened from the app's own origin or one listed in `cors.origin` (IL3006), because browsers send cookies with WebSocket upgrades from any page; each message is validated and limited like a request (see [WebSockets](websockets.md)).
 
@@ -7358,6 +7495,18 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6067
 **Invalid `githubOAuth()` options.** `githubOAuth({ clientId, clientSecret, session, userId })` needs the OAuth app's client id and secret (non-empty strings), a `sessions()` to sign in to, and a `userId(profile, { db })` function that returns the app's user id or `null`; `scopes` is a list of GitHub scope names, `basePath` a path such as `"/auth/github"`, `redirectUri` and `url` https URLs (plain http only on localhost), and `allowSignup` true or false. Unknown options are refused. Also raised when `userId` returns something other than a string or `null`. See [Sign in with GitHub](auth.md#sign-in-with-github).
 
+### IL6068
+**Invalid `mail()` options.** `mail({ smtp, from, templates })` needs exactly one of `smtp` (an `smtps://` or `smtp://` URL, or `{ host, port, secure, user, pass, requireTLS, ca, name, timeoutMs }`) and `transport` (`memoryMail()` in tests, or an object with a `name` and `send(mail)`), and a `from` address such as `"Acme <no-reply@acme.com>"`. SMTP URLs take no path or query; `user` and `pass` go together; `ca` is PEM certificate text. Each template needs a `subject` and a `text` or `html` body, and placeholders are `{{name}}` with letters, digits and underscores only. Unknown options are refused, so a misspelt option cannot switch off TLS. Also raised by `createApp({ mail })` for a value that is not a mailer from `mail()`. See [Email](mail.md).
+
+### IL6069
+**No mailer configured.** `ctx.mail.send()` (or `app.mail.send()`) was called, but `createApp` has no `mail` option, so email would be lost. Add one: `createApp({ mail: mail({ smtp: settings.SMTP_URL, from: "Acme <no-reply@acme.com>" }) })`, or `mail({ transport: memoryMail(), from })` in tests. See [Email](mail.md).
+
+### IL6070
+**Invalid email message.** Nothing was sent. A message needs at least one `to` address and either a `subject` with `text` or `html`, or a `template` with `data` for each of its `{{variables}}` (strings or numbers). Addresses are plain ASCII (`"ana@example.com"` or `"Ana Lima <ana@example.com>"`, international domains in their `xn--` form) without line breaks; extra `headers` are one ASCII line each and cannot replace the headers Inferlo writes (From, To, Cc, Subject, Date, Message-ID, MIME and content headers); attachments need a `filename` without slashes and their `content` as text, bytes or a `Blob`. The message says which field is wrong. See [Email](mail.md#messages).
+
+### IL6071
+**Email could not be sent (502).** The SMTP server could not be reached, did not offer TLS (required except for servers on this machine), presented a certificate that could not be verified, refused the login, the sender or a recipient, or did not answer within `timeoutMs`. `details.stage` says where it stopped (`connect`, `greeting`, `ehlo`, `starttls`, `auth`, `sender`, `recipient`, `data`), `details.response` has the server's reply and `details.permanent` is true for 5xx replies. When a recipient is refused, the message is sent to nobody. Check the host and port (outgoing port 25 is blocked by most clouds; use 587 or 465), the credentials (many providers want an API key or app password), that `from` is a sender the account may use, and for a private CA pass `mail({ smtp: { ca } })`. Sent from a job, the attempt is retried. Also raised on runtimes without TCP sockets: use a `transport` there. See [Email](mail.md#smtp).
+
 ## Environment (7xxx)
 
 ### IL7001
@@ -7431,6 +7580,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL4032
 **Invalid rename.** A `--rename old=new` given to `inferlo db migrate` (or `planMigration(models, snapshot, { renames })`) cannot be applied: it is not `table=table` or `table.column=table.column` with plain names; the old table or column is not in `migrations/snapshot.json`; the new one is not in your models, or already exists in the snapshot; the old one is still in your models; a column moves to another table; or two renames have the same target. The left side uses the old names and the right side your models' names, so after a table rename a column is `--rename notes.color=memos.colour`. Nothing is written. See [Migrations](database.md#migrations).
+
 
 ## CLI (8xxx)
 
