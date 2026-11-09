@@ -136,6 +136,8 @@ object.priority; // "low" | "normal" | "urgent"
 
 Inferlo sends the JSON Schema to the model, extracts the JSON (tolerating code fences), validates it, and if it does not match, asks the model once to fix it, quoting the exact problems. If it still fails you get IL5002. Model fields can be reused directly: `priority: Ticket.fields.priority`.
 
+Providers that can constrain the model to a schema get it in their own field, so the answer matches far more often: OpenAI and Gemini (`response_format` with `json_schema`) and Anthropic (`output_config.format`; limits Anthropic does not accept, such as `min`, `max` and lengths, are moved into the field's description, and Inferlo still checks them and repairs the answer). Turn it off per provider with `nativeStructuredOutput: false` (for example behind a proxy that does not pass the field on); other OpenAI-compatible servers get `response_format: { type: "json_object" }` unless `openaiCompatible({ nativeStructuredOutput: true })`.
+
 ### Zod, Valibot and ArkType schemas
 
 Apps that already describe their data with Zod, Valibot or ArkType (often when `@browserlessapi/inferlo/ai` runs inside Express, NestJS, Fastify or Next.js) can pass those schemas as `output`, and as a [tool's](#tools-let-the-model-call-your-functions) `input`. Any [Standard Schema](https://standardschema.dev) that also implements Standard JSON Schema works:

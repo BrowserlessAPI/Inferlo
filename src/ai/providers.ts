@@ -306,7 +306,40 @@ export function ollama(options: { baseURL?: string; fetch?: FetchLike } = {}): P
   return openaiCompatible({ name: "ollama", baseURL: options.baseURL ?? "http://127.0.0.1:11434/v1", fetch: options.fetch });
 }
 
-export function anthropic(options: { apiKey: string; baseURL?: string; version?: string; fetch?: FetchLike }): Provider {
+/**
+ * A JSON Schema Anthropic's structured outputs accept: numeric and length limits (minimum, maximum, minLength,
+ * maxLength, minItems, maxItems and their exclusive forms) are moved into the description, and every object gets
+ * additionalProperties: false. Inferlo still validates the answer against the full schema.
+ */
+function anthropicOutputSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(anthropicOutputSchema);
+  if (!schema || typeof schema !== "object") return schema;
+  const LIMITS = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "multipleOf"];
+  const out: Record<string, unknown> = {};
+  const moved: string[] = [];
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (key === "$schema") continue;
+    if (LIMITS.includes(key)) {
+      moved.push(`${key}: ${JSON.stringify(value)}`);
+      continue;
+    }
+    out[key] = key === "properties" && value && typeof value === "object"
+      ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, sub]) => [name, anthropicOutputSchema(sub)]))
+      : key === "items" || key === "anyOf" || key === "oneOf" || key === "allOf" ? anthropicOutputSchema(value) : value;
+  }
+  if (moved.length) out.description = [out.description, `(${moved.join(", ")})`].filter(Boolean).join(" ");
+  if (out.type === "object" || (Array.isArray(out.type) && out.type.includes("object"))) out.additionalProperties = false;
+  return out;
+}
+
+export function anthropic(options: {
+  apiKey: string;
+  baseURL?: string;
+  version?: string;
+  /** Send output_config.format (Anthropic's structured outputs) for ai.generate({ output }) (default true). */
+  nativeStructuredOutput?: boolean;
+  fetch?: FetchLike;
+}): Provider {
   const name = "anthropic";
   const base = (options.baseURL ?? "https://api.anthropic.com").replace(/\/+$/, "");
   const fetchImpl = options.fetch ?? fetch;
@@ -323,6 +356,8 @@ export function anthropic(options: { apiKey: string; baseURL?: string; version?:
     if (system) out.system = system;
     if (r.tools?.length) out.tools = r.tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.inputSchema }));
     if (r.temperature !== undefined) out.temperature = r.temperature;
+    // Structured outputs: the answer's text is JSON that matches the schema.
+    if (r.json && r.jsonSchema && options.nativeStructuredOutput !== false) out.output_config = { format: { type: "json_schema", schema: anthropicOutputSchema(r.jsonSchema) } };
     return out;
   };
 
@@ -370,8 +405,19 @@ export function anthropic(options: { apiKey: string; baseURL?: string; version?:
 }
 
 /** Gemini through Google's OpenAI-compatible endpoint. */
-export function gemini(options: { apiKey: string; fetch?: FetchLike }): Provider {
-  return openaiCompatible({ name: "gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", apiKey: options.apiKey, fetch: options.fetch });
+export function gemini(options: {
+  apiKey: string;
+  /** Send response_format json_schema (Gemini's structured output) for ai.generate({ output }) (default true). */
+  nativeStructuredOutput?: boolean;
+  fetch?: FetchLike;
+}): Provider {
+  return openaiCompatible({
+    name: "gemini",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+    apiKey: options.apiKey,
+    nativeStructuredOutput: options.nativeStructuredOutput ?? true,
+    fetch: options.fetch,
+  });
 }
 
 /** What a mockProvider returns: text, or tool calls (with optional text). */
