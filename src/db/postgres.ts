@@ -381,7 +381,9 @@ function translate(error: unknown): unknown {
   if (e && e.code === "23505") {
     return new InferloError("IL4004", "A row with this value already exists.", { status: 409, details: { table: e.table, constraint: e.constraint }, cause: error });
   }
-  if (e && e.code === "23503") {
+  // 23503 is foreign_key_violation; PostgreSQL 18 reports an ON DELETE RESTRICT (or ON UPDATE RESTRICT)
+  // violation as 23001 restrict_violation instead, so both mean the same thing to the app.
+  if (e && (e.code === "23503" || e.code === "23001")) {
     return new InferloError("IL4011", "This references a row that does not exist (or is still referenced elsewhere).", {
       status: 409,
       details: { table: e.table, constraint: e.constraint },
