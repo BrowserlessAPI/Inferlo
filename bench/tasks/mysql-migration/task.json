@@ -1,0 +1,5 @@
+{
+  "title": "Add a field with a MySQL migration",
+  "prompt": "The app runs on MySQL and deploys with migrations (see migrations/). Add an `archived` boolean field to notes that defaults to false, and let clients set it when updating a note (PATCH /notes/:id). Add the migration file migrations/0002_add_archived.sql with exactly the SQL `inferlo db migrate add_archived` would generate for this MySQL app, and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands.",
+  "packages": ["mysql2"]
+}

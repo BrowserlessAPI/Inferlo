@@ -130,7 +130,7 @@ jobs:
       - run: npm install --no-save mysql2@${{ matrix.mysql2 }}
       - name: Server and driver versions
         run: node -e "import('mysql2/promise').then(async (m)=>{const c=await m.createConnection(process.env.INFERLO_TEST_MYSQL_URL);const [r]=await c.query('select version() as v');console.log('MySQL',r[0].v);await c.end()})" && grep '"version"' node_modules/mysql2/package.json
-      - run: node --test test/mysql.test.ts test/db.test.ts test/relations.test.ts test/paginate.test.ts test/tenant.test.ts test/audit.test.ts test/jobs-queue.test.ts test/cache.test.ts test/idempotency.test.ts test/rate-limit.test.ts
+      - run: node --test test/mysql.test.ts test/migrate-mysql.test.ts test/db.test.ts test/relations.test.ts test/paginate.test.ts test/tenant.test.ts test/audit.test.ts test/jobs-queue.test.ts test/cache.test.ts test/idempotency.test.ts test/rate-limit.test.ts
 
   pgvector:
     name: pgvector ${{ matrix.pgvector }} on PostgreSQL ${{ matrix.postgres }}

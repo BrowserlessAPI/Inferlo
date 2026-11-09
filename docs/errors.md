@@ -533,7 +533,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid config options.** `config()` needs `schema: t.object({ ... })` with one non-object field per variable, `secrets` that are fields of the schema, and `environments` whose values are objects of schema fields: `environments: { test: { PORT: "3001" } }`.
 
 ### IL4013
-**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, type, default, required, enum value and reference changes with `--allow-change` (IL4019), and renames with `--rename old=new`. Your models change an index in place (same name, other definition), or a column in a way that cannot be generated. `details.changes` lists them, and `details.columns` says what changed in each column. Undo the model change, or write the SQL yourself in a new migration file.
+**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, type, default, required, enum value and reference changes with `--allow-change` (IL4019), and renames with `--rename old=new`. Your models change an index in place (same name, other definition), or a column in a way that cannot be generated. `details.changes` lists them, and `details.columns` says what changed in each column. Undo the model change, or write the SQL yourself in a new migration file. On MySQL, only new tables, columns and indexes are generated so far, so drops, column changes and renames raise this too (see [Migrations on MySQL](database.md#migrations-on-mysql)).
 
 ### IL4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
@@ -600,10 +600,16 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **No built-in SQLite.** `sqlite()` uses the runtime's `node:sqlite` module, which this runtime does not have. Use Node.js 22.13 or later, Bun 1.3 or later or Deno 2.2 or later, or `postgres()` from `@browserlessapi/inferlo/postgres`. See [SQLite](database.md#sqlite).
 
 ### IL4035
-**Migration files need PostgreSQL.** `inferlo db migrate` and `applyMigrations()` write and run PostgreSQL SQL, and this app uses `sqlite()` or `mysql()`. With SQLite or MySQL, create tables and add columns with `inferlo db push` (or `await db.$sync()`); use `postgres()` for migration files. See [SQLite](database.md#sqlite) and [MySQL](database.md#mysql).
+**Migration files need PostgreSQL or MySQL.** `inferlo db migrate` and `applyMigrations()` write and run PostgreSQL or MySQL SQL, and this app uses `sqlite()`. With SQLite, create tables and add columns with `inferlo db push` (or `await db.$sync()`); use `postgres()` or `mysql()` for migration files. See [SQLite](database.md#sqlite).
 
 ### IL4036
 **Invalid `mysql()` options.** `mysql({ url })` takes a `mysql://user:pass@host:3306/database` URL, or `mysql({ pool })` a `mysql2/promise` pool (not both), with an optional `max` (a positive whole number) and `debug`. Unknown options are refused. Example: `mysql({ url: settings.DATABASE_URL })`. See [MySQL](database.md#mysql).
+### IL4037
+**Migrations written for another database.** `migrations/snapshot.json` records the database its SQL is written for (`"dialect": "mysql"` for MySQL, nothing for PostgreSQL), and this app uses the other one. Migration files are SQL for one database. Keep that migrations folder with the app it was written for; to start migrations for this database, move the folder away and run `inferlo db migrate`, or create the tables with `inferlo db push`. See [Migrations on MySQL](database.md#migrations-on-mysql).
+
+### IL4038
+**MySQL migration failed.** MySQL commits each schema change as it runs, so a migration file is applied statement by statement. The message and `details` name the file, the statement (`details.statement`, counting from 1, and `details.sql`) and MySQL's error. The statements before it stay applied and the file is not recorded: remove the statements that already ran from the file, fix the failing one (or the data it needs), and run `inferlo db migrate --apply` again. Also raised when the migration lock is held by another `--apply` for 60 seconds: wait for the other deploy to finish. See [Migrations on MySQL](database.md#migrations-on-mysql).
+
 ## CLI (8xxx)
 
 ### IL8000

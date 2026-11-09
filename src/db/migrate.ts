@@ -1,5 +1,5 @@
 /**
- * Versioned SQL migrations (PostgreSQL).
+ * Versioned SQL migrations (PostgreSQL; MySQL in migrate-mysql.ts).
  *
  *   inferlo db migrate add_due_dates   # writes migrations/0002_add_due_dates.sql
  *   inferlo db migrate --apply         # runs pending files, recorded in "inferlo_migrations"
@@ -19,6 +19,7 @@ import { columnName, type AnyModel } from "../model.ts";
 import type { AnySchema } from "../schema.ts";
 import { columnDefinition, columnType, createTableSql, defaultSql, modelIndexes, needsVectorExtension, sortByReferences, SYSTEM_COLUMNS, VECTOR_EXTENSION } from "./postgres.ts";
 import type { DbRecord } from "./types.ts";
+import { applyMysqlMigrations, planMysqlMigration } from "./migrate-mysql.ts";
 
 /** One column in migrations/snapshot.json. Compared field by field to find column changes. */
 export interface MigrationSnapshotColumn {
@@ -39,6 +40,8 @@ export interface MigrationSnapshotColumn {
 /** The models as of the last generated migration. Stored as migrations/snapshot.json. */
 export interface MigrationSnapshot {
   inferlo: 2;
+  /** The database the SQL is written for: "mysql", or absent for PostgreSQL. */
+  dialect?: "mysql";
   tables: Record<string, { columns: Record<string, MigrationSnapshotColumn>; indexes: Record<string, string> }>;
 }
 
@@ -82,6 +85,12 @@ export interface PlanMigrationOptions {
    * Invalid renames raise IL4032.
    */
   renames?: Readonly<Record<string, string>>;
+  /**
+   * The database to write SQL for: "postgres" (default) or "mysql". On MySQL, new tables, columns and indexes are
+   * generated so far; drops, column changes and renames raise IL4013. The snapshot records the database, and a
+   * snapshot of the other one raises IL4037.
+   */
+  dialect?: "postgres" | "mysql";
 }
 
 export interface Migration {
@@ -422,6 +431,13 @@ export function planMigration(
   previous?: MigrationSnapshot | MigrationSnapshotV1,
   options: PlanMigrationOptions = {},
 ): MigrationPlan {
+  if (options.dialect === "mysql") return planMysqlMigration(models, previous, options);
+  if ((previous as { dialect?: unknown } | undefined)?.dialect === "mysql") {
+    throw new InferloError("IL4037", "migrations/snapshot.json and the migration files were written for MySQL, and this app uses PostgreSQL.", {
+      fix: "Migration files are written for one database. Keep the MySQL migrations folder with the MySQL app; for PostgreSQL, move the old folder away and run inferlo db migrate to start a new one, or create the tables with inferlo db push.",
+      expose: true,
+    });
+  }
   const renamed = applyRenames(previous === undefined ? {} : readSnapshot(previous).tables, models, options.renames ?? {});
   const before = renamed.tables;
   const sorted = sortByReferences([...models]);
@@ -545,7 +561,7 @@ const MIGRATION_NAME = /^[A-Za-z0-9_-]{1,200}$/;
 const LOCK_KEY = 4_812_330_227;
 
 interface SqlDb {
-  /** The database adapter: migrations are Postgres SQL, so other dialects are refused (IL4035). */
+  /** The database adapter: migration files are PostgreSQL or MySQL SQL, so SQLite is refused (IL4035). */
   readonly $adapter?: { readonly dialect: string };
   $sql(text: string, params?: unknown[]): Promise<DbRecord[]>;
   $transaction<T>(fn: (tx: SqlDb) => Promise<T>): Promise<T>;
@@ -663,9 +679,9 @@ function conversionError(error: unknown, migration: string, sql: string): Inferl
  */
 export async function applyMigrations(db: SqlDb, migrations: readonly Migration[], options: ApplyMigrationsOptions = {}): Promise<string[]> {
   const dialect = db.$adapter?.dialect;
-  if (dialect === "sqlite" || dialect === "mysql") {
-    throw new InferloError("IL4035", `Migration files are PostgreSQL SQL, and this app uses ${dialect === "mysql" ? "MySQL" : "SQLite"}.`, {
-      fix: "With sqlite() or mysql(), create and extend tables with inferlo db push (or db.$sync()). Use postgres() for migration files.",
+  if (dialect === "sqlite") {
+    throw new InferloError("IL4035", "Migration files are PostgreSQL or MySQL SQL, and this app uses SQLite.", {
+      fix: "With sqlite(), create and extend tables with inferlo db push (or db.$sync()). Use postgres() or mysql() for migration files.",
       expose: true,
     });
   }
@@ -678,6 +694,11 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
       });
     }
     seen.add(m.name);
+  }
+  if (dialect === "mysql") {
+    const sorted = [...migrations].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const sums = new Map(await Promise.all(sorted.map(async (m) => [m.name, await checksum(m.sql)] as const)));
+    return applyMysqlMigrations(db, sorted, sums, options.onEdited);
   }
   // Databases migrated before the rename from Kairo keep their history: rename the old table once.
   const legacy = await db.$sql(

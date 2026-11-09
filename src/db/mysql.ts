@@ -114,28 +114,41 @@ function literal(value: unknown): string {
   return `'${String(typeof value === "object" ? JSON.stringify(value) : value).replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
 }
 
-function columnDefinition(field: string, schema: AnySchema, forAlter = false): string {
+/** The DEFAULT of a field with a fixed default, as MySQL takes it: a literal, or an expression in parentheses for JSON and TEXT columns. */
+export function defaultSql(schema: AnySchema): string | undefined {
+  const d = schema.def;
+  if (!d.hasDefault || typeof d.defaultValue === "function") return undefined;
+  const fixed = d.defaultValue;
+  const type = columnType(schema);
+  if (type === "JSON") return `(CAST(${literal(JSON.stringify(fixed))} AS JSON))`;
+  if (/TEXT$/.test(type)) return `(${literal(fixed)})`;
+  return fixed instanceof Date ? literal(fixed.toISOString().slice(0, 23).replace("T", " ")) : literal(fixed);
+}
+
+export function columnDefinition(field: string, schema: AnySchema, forAlter = false): string {
   const d = schema.def;
   const col = q(columnName(field));
   const type = columnType(schema);
   let sql = `${col} ${type}`;
   const fixed = d.hasDefault && typeof d.defaultValue !== "function" ? d.defaultValue : undefined;
-  // MySQL takes a literal default for most types, and an expression in parentheses for JSON and TEXT columns.
-  if (fixed !== undefined) sql += type === "JSON" || /TEXT$/.test(type) ? ` DEFAULT (${type === "JSON" ? `CAST(${literal(JSON.stringify(fixed))} AS JSON)` : literal(fixed)})` : ` DEFAULT ${fixed instanceof Date ? literal(fixed.toISOString().slice(0, 23).replace("T", " ")) : literal(fixed)}`;
+  const fixedDefault = defaultSql(schema);
+  if (fixedDefault !== undefined) sql += ` DEFAULT ${fixedDefault}`;
   const required = !d.optional && !d.nullable && d.kind !== "any";
   if (required && (!forAlter || fixed !== undefined)) sql += " NOT NULL";
   if (d.kind === "enum" && d.values) sql += ` CHECK (${col} IN (${d.values.map(literal).join(", ")}))`;
   return sql;
 }
 
+/** The FOREIGN KEY constraint of a t.ref field, as in CREATE TABLE and ALTER TABLE ... ADD. */
+export function foreignKeySql(table: string, field: string, schema: AnySchema): string {
+  const col = columnName(field);
+  return `CONSTRAINT ${q(constraintName(`${table}_${col}_fkey`))} FOREIGN KEY (${q(col)}) REFERENCES ${q(schema.def.refTable!)} (\`id\`) ON DELETE ${(schema.def.onDelete ?? "restrict").toUpperCase()}`;
+}
+
 function foreignKeys(model: AnyModel): string[] {
   const out: string[] = [];
   for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
-    const d = schema.def;
-    if (d.kind === "ref" && d.refTable) {
-      const col = columnName(field);
-      out.push(`CONSTRAINT ${q(constraintName(`${model.name}_${col}_fkey`))} FOREIGN KEY (${q(col)}) REFERENCES ${q(d.refTable)} (\`id\`) ON DELETE ${(d.onDelete ?? "restrict").toUpperCase()}`);
-    }
+    if (schema.def.kind === "ref" && schema.def.refTable) out.push(foreignKeySql(model.name, field, schema));
   }
   return out;
 }
@@ -148,7 +161,7 @@ function constraintName(name: string): string {
   return `${name.slice(0, 55)}_${hash.toString(16).padStart(8, "0")}`;
 }
 
-function createTableSql(model: AnyModel): string {
+export function createTableSql(model: AnyModel): string {
   const cols = ["`id` CHAR(36) NOT NULL PRIMARY KEY", "`created_at` DATETIME(3) NOT NULL", "`updated_at` DATETIME(3) NOT NULL"];
   for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) cols.push(columnDefinition(field, schema));
   cols.push(...foreignKeys(model));
@@ -156,7 +169,7 @@ function createTableSql(model: AnyModel): string {
 }
 
 /** [index name, CREATE INDEX statement]. MySQL indexes foreign key columns itself. */
-function modelIndexes(model: AnyModel): [string, string][] {
+export function modelIndexes(model: AnyModel): [string, string][] {
   const out: [string, string][] = [];
   for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
     const col = columnName(field);
@@ -172,7 +185,7 @@ function modelIndexes(model: AnyModel): [string, string][] {
   return out;
 }
 
-function sortByReferences(models: AnyModel[]): AnyModel[] {
+export function sortByReferences(models: AnyModel[]): AnyModel[] {
   const byName = new Map(models.map((m) => [m.name, m]));
   const out: AnyModel[] = [];
   const seen = new Set<string>();

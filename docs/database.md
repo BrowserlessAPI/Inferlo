@@ -213,7 +213,7 @@ createApp({ db: mysql({ pool }) });                        // a mysql2/promise p
 - Tables are created with `utf8mb4` and the binary collation `utf8mb4_bin`, so `=`, unique values and `like` are case-sensitive, as on Postgres; `ilike` compares lower-cased values. Dates are `DATETIME(3)` in UTC (millisecond precision), booleans `BOOLEAN`, JSON fields MySQL's `JSON`, ids `CHAR(36)`.
 - Strings that are `.unique()` or `.index()` need a length in MySQL: their `.max()`, else `VARCHAR(255)`. Give them a `.max()` when values can be longer. Other strings without `.max()` are `TEXT`, `t.text()` is `MEDIUMTEXT`.
 - MySQL has no `RETURNING`: inserts and updates read the rows back by id (an update locks and reads the matching ids first, in a transaction).
-- Tables are created and extended with `inferlo db push`; migration files are PostgreSQL SQL, so `inferlo db migrate` refuses MySQL with IL4035. `db.$pgClient()` is IL4028.
+- Tables are created and extended with `inferlo db push`, or with migration files: see [Migrations on MySQL](#migrations-on-mysql). `db.$pgClient()` is IL4028.
 - The `"database"` stores work on MySQL: `jobQueue: { store: "database" }` keeps jobs in `inferlo_jobs` (due jobs claimed with `FOR UPDATE SKIP LOCKED`, so each runs on one instance), `cache: { store: "database" }` entries in `inferlo_cache` (tags in a JSON array with a multi-valued index) and `rateLimit: { store: "database" }` counts in `inferlo_rate_limits`, each created on first use, with times in UTC. A `mysql({ pool })` you create needs `timezone: "Z"` for them too.
 
 ### SQLite
@@ -228,7 +228,7 @@ createApp({ db: sqlite() });   // a database in memory, gone when the process en
 ```
 
 - Options: `path` (default `":memory:"`; the file is created when missing, its directory must exist), `busyTimeoutMs` (default 5000: how long to wait when another process is writing the file) and `debug`. Unknown options are IL4033.
-- Models, queries, relations, pagination, multi-tenancy, audit logs, `$transaction`, `$sync` (`inferlo db push`) and `$sql` work as on Postgres. Tables are created with `inferlo db push` (or `await db.$sync()` at startup); migration files are PostgreSQL SQL, so `inferlo db migrate` refuses SQLite with IL4035.
+- Models, queries, relations, pagination, multi-tenancy, audit logs, `$transaction`, `$sync` (`inferlo db push`) and `$sql` work as on Postgres. Tables are created with `inferlo db push` (or `await db.$sync()` at startup); migration files are PostgreSQL or MySQL SQL, so `inferlo db migrate` refuses SQLite with IL4035.
 - Values: strings, ids, enums and dates are text (dates as ISO 8601 in UTC, so they sort in time order), `t.int()` and booleans are integers, `t.number()` is a real number, and JSON, arrays, objects and vectors are JSON text. Rows come back with the same types as on Postgres (`Date`, `boolean`, parsed JSON).
 - Foreign keys are enforced (`PRAGMA foreign_keys = ON`), files use write-ahead logging, and unique, foreign key and missing-table errors are IL4004, IL4011 and IL4012, as on Postgres.
 - `like` is case-sensitive, as on Postgres; `ilike` ignores case for ASCII letters only.
@@ -291,6 +291,14 @@ import { planMigration } from "@browserlessapi/inferlo";
 
 const plan = planMigration(models, previousSnapshot, { allowDrop: true });   // allowDrop and allowChange default to false
 ```
+
+### Migrations on MySQL
+
+With `mysql()` as the database, `inferlo db migrate` writes MySQL SQL and `--apply` runs it on MySQL. The snapshot records the database (`"dialect": "mysql"`), so a migrations folder written for PostgreSQL is refused with IL4037 instead of being run on MySQL, and the other way round.
+
+- Generated so far: new tables (with their foreign keys), new columns (a foreign key for a new `t.ref`, and a fixed `.default()` for a new required column, IL4014) and new indexes. Drops, column changes and renames are refused with IL4013 on MySQL for now: write those statements yourself in a new migration file.
+- MySQL commits every schema change (`CREATE`, `ALTER`, `DROP`) as it runs, so a migration file cannot be rolled back as a whole. `--apply` runs a file statement by statement (split at the semicolons outside strings, quoted names and comments) and records it once every statement ran. If one fails, IL4038 names the file, the statement and MySQL's message; the statements before it stay applied and the file is not recorded, so remove the ones that ran, fix the rest and apply again.
+- A named lock (`GET_LOCK`) lets one instance apply at a time, so running `--apply` on every deploy from several instances is safe. Applied files are recorded in the `inferlo_migrations` table with a SHA-256 checksum, and edited files are reported with IL4018, as on Postgres.
 
 ## Transactions and raw SQL
 

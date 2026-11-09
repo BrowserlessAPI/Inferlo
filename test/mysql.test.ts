@@ -4,7 +4,7 @@
 // db, relations, paginate, tenant and audit suites also run on it.
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import { applyMigrations, createApp, createDb, InferloError, model, t } from "../src/index.ts";
+import { createApp, createDb, InferloError, model, t } from "../src/index.ts";
 import { mysql } from "../src/db/mysql.ts";
 import { databaseRateLimitStore } from "../src/rate-limit.ts";
 import { MYSQL_URL, mysqlAdapter } from "./mysql-adapter.ts";
@@ -120,7 +120,6 @@ else describe("mysql()", () => {
   test("a missing table is IL4012; Postgres-only features say so", async () => {
     const other = createDb([model("my_missing", { x: t.string() })], adapter);
     await assert.rejects(other.my_missing.insert({ x: "a" }), isCode("IL4012"));
-    await assert.rejects(applyMigrations(db, [{ name: "0001_init", sql: "SELECT 1" }]), isCode("IL4035"));
     await assert.rejects(db.$pgClient(), isCode("IL4028"));
     assert.equal(createApp({ db: adapter, logger: quiet }).describe().database, "mysql");
   });
