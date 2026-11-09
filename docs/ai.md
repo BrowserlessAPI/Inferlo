@@ -327,6 +327,54 @@ const { embeddings } = await ai.embed({ input: ["first text", "second text"] });
 cosineSimilarity(embeddings[0], embeddings[1]);
 ```
 
+To search stored embeddings, keep them in a `t.vector()` field and use `db.<table>.search` (see [Vector search](database.md#vector-search)), or `rag()` below, which does the chunking and embedding too.
+
+## Retrieval (RAG)
+
+`rag(table, { ai })` answers questions from your own documents: `add` splits a document into chunks, embeds them in one `ai.embed` call and stores one row per chunk; `search` embeds the question and returns the closest chunks, ready for a prompt.
+
+```ts
+// src/models.ts: one row per chunk, with the text and its embedding
+export const DocChunk = model("doc_chunks", {
+  documentId: t.ref("documents", { onDelete: "cascade" }),
+  ownerId: t.ref("users"),
+  text: t.text(),
+  embedding: t.vector(1536).index(),
+});
+
+// src/routes/documents.ts
+import { rag, route, t } from "@browserlessapi/inferlo";
+
+export const addDocument = route
+  .post("/documents", { body: t.object({ title: t.string().max(200), text: t.text().max(200_000) }), rateLimit: { max: 20, per: "hour" } })
+  .handle(async ({ body, ai, db, user, status }) => {
+    const doc = await db.documents.insert({ title: body.title, ownerId: user.id });
+    await rag(db.doc_chunks, { ai, model: "embed" }).add({ text: body.text, fields: { documentId: doc.id, ownerId: user.id }, for: user.id });
+    status(201);
+    return doc;
+  });
+
+export const ask = route
+  .post("/ask", { body: t.object({ question: t.string().min(1).max(2000) }), rateLimit: { max: 30, per: "minute" } })
+  .handle(async ({ body, ai, db, user }) => {
+    const hits = await rag(db.doc_chunks, { ai, model: "embed" }).search({ query: body.question, where: { ownerId: user.id }, limit: 5, for: user.id });
+    const { text } = await ai.generate({
+      model: "fast",
+      system: `Answer only from these excerpts. Say so when they do not contain the answer.\n\n${hits.map((h) => h.text).join("\n\n---\n\n")}`,
+      prompt: body.question,
+      for: user.id,
+    });
+    return { answer: text, sources: [...new Set(hits.map((h) => h.row.documentId))] };
+  });
+```
+
+- **The table** needs a text field (`text` by default, or `textField`) and one `t.vector()` field (or `vectorField`) whose size matches the embedding model. Other fields (`documentId`, `ownerId`, a tenant) are passed in `fields` and filter searches with `where`, so users only search their own chunks; tenant-scoped tables only search the tenant's rows.
+- **Chunks** are at most `chunk.maxChars` characters (default 1000): paragraphs are kept together, then sentences, then words, and chunks are filled while they fit. Each chunk after the first starts with up to `chunk.overlap` characters (default 100) of the end of the previous one, from a word boundary. `chunkText(text, { maxChars, overlap })` returns the chunks without storing anything.
+- **add()** validates every row before storing any (IL1001), and stores at most 1000 chunks per call; it returns the rows. Delete a document's chunks with `db.doc_chunks.deleteMany({ documentId })` (or `onDelete: "cascade"` on the reference).
+- **search()** returns `{ text, distance, row }` closest first: `limit` (default 5, at most 100), `where`, and `maxDistance` (cosine distance from 0 to 2) to leave out unrelated chunks.
+- `model` is the embedding alias (the `"embed"` alias by default, as `ai.embed`); `for` and `signal` work as in `ai.embed`, so budgets and usage tracking apply. Invalid tables and options raise IL5038.
+- Works with `memory()` in tests and with Postgres through pgvector.
+
 ## Usage and budgets
 
 Every call reports a `Usage` record (`requested`, `model` that answered, `inputTokens`, `outputTokens`, `cost`, `for`, `kind`, `durationMs`) to `onUsage`. Store it to bill customers. When `for` is set, `allow` is called first; returning false raises IL5004 (HTTP 402).

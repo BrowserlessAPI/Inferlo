@@ -282,6 +282,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5037
 **Invalid LlamaIndex model or tools arguments.** `toLlamaIndexLLM(ai, { model, for, temperature, maxTokens, contextWindow })` and `toLlamaIndexEmbedding(ai, { model, for, batchSize })` from `@browserlessapi/inferlo/llamaindex` need Inferlo's AI client (`ctx.ai`, `app.ai` or `createAI()`) and take only those options (`batchSize` is a whole number above 0); `toLlamaIndexTools([...], { ai })` takes an array of Inferlo function tools and routes. The LLM takes text and images (PNG, JPEG, GIF and WebP) in system, user and assistant messages, and no `responseFormat`: for structured output, call `ai.generate({ model, prompt, output: schema })`. See [LlamaIndex.TS](integrations.md#llamaindexts).
 
+### IL5038
+**Invalid rag() table or options.** `rag(table, { ai, model, textField, vectorField, chunk })` takes a table client (`db.doc_chunks`) whose model has a text field (`text`, or the one named by `textField`) and a `t.vector()` field (the only one, or `vectorField`), and an AI client (`ctx.ai`, `app.ai` or `createAI()`). `chunk.maxChars` is a whole number from 50 to 100000 and `chunk.overlap` at most half of it. `add({ text, fields })` takes the text as a string, `fields` without the text and vector fields (rag fills them in), and makes at most 1000 chunks per call. `search({ query, where, limit, maxDistance })` takes a non-empty query, a `limit` from 1 to 100 and a `maxDistance` from 0 to 2. See [Retrieval (RAG)](ai.md#retrieval-rag).
+
 ## App configuration (6xxx)
 
 ### IL6001

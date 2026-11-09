@@ -1,0 +1,4 @@
+{
+  "title": "Answer questions from the user's documents (RAG)",
+  "prompt": "Add question answering over the signed-in user's own documents in src/routes/documents.ts (register it in the app). POST /documents with body { text } (1 to 200000 characters) splits the text into chunks, embeds them with the \"embed\" AI model alias (vectors of 8 numbers) and stores them, answering 201 with { documentId, chunks } (a new UUID and the number of chunks stored). POST /ask with body { question } (1 to 2000 characters) finds the user's 5 chunks closest to the question and asks the \"fast\" alias to answer from them (the chunks' text goes in the system message), answering { answer, sources } where sources lists the distinct documentIds of the chunks used. Track AI usage for the user, and never use other users' documents."
+}

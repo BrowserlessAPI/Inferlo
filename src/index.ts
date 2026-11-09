@@ -27,6 +27,8 @@ export type { Row, CreateInput, UpdateInput, AnyModel, ModelOptions } from "./mo
 
 export { memory } from "./db/memory.ts";
 export { createDb, Table } from "./db/table.ts";
+export { chunkText, rag } from "./rag.ts";
+export type { ChunkOptions, Rag, RagOptions, RagAddOptions, RagSearchOptions, RagHit } from "./rag.ts";
 export type { Db, PgClient, Where, OrderBy, FindManyOptions, FindOptions, PaginateOptions, Page, SearchOptions, SearchResult, VectorField, Include, Relations, ReverseRelations, WithInclude } from "./db/table.ts";
 export type { Adapter, Condition, Query, DbRecord } from "./db/types.ts";
 export { planMigration, applyMigrations } from "./db/migrate.ts";
