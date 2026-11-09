@@ -545,6 +545,8 @@ const MIGRATION_NAME = /^[A-Za-z0-9_-]{1,200}$/;
 const LOCK_KEY = 4_812_330_227;
 
 interface SqlDb {
+  /** The database adapter: migrations are Postgres SQL, so other dialects are refused (IL4035). */
+  readonly $adapter?: { readonly dialect: string };
   $sql(text: string, params?: unknown[]): Promise<DbRecord[]>;
   $transaction<T>(fn: (tx: SqlDb) => Promise<T>): Promise<T>;
 }
@@ -660,6 +662,13 @@ function conversionError(error: unknown, migration: string, sql: string): Inferl
  * changed since are reported to options.onEdited (IL4018) and are not run again.
  */
 export async function applyMigrations(db: SqlDb, migrations: readonly Migration[], options: ApplyMigrationsOptions = {}): Promise<string[]> {
+  const dialect = db.$adapter?.dialect;
+  if (dialect === "sqlite") {
+    throw new InferloError("IL4035", "Migration files are PostgreSQL SQL, and this app uses SQLite.", {
+      fix: "With sqlite(), create and extend tables with inferlo db push (or db.$sync()). Use postgres() for migration files.",
+      expose: true,
+    });
+  }
   const seen = new Set<string>();
   for (const m of migrations) {
     if (!MIGRATION_NAME.test(m.name) || seen.has(m.name)) {

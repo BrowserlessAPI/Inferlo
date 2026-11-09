@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { createDb, InferloError, memory, type Adapter } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
+import { sqlite } from "../src/db/sqlite.ts";
 import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 import { models } from "./helpers.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 
-const adapters: [string, () => Adapter][] = [["memory", () => memory()]];
+const adapters: [string, () => Adapter][] = [["memory", () => memory()], ["sqlite", () => sqlite()]];
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
 if (PG_URL) adapters.push(["postgres.js", () => postgresJsAdapter(PG_URL)]);
 
@@ -17,7 +18,7 @@ for (const [name, make] of adapters) {
     const db = createDb(models, adapter);
 
     before(async () => {
-      if (name !== "memory") {
+      if (name !== "memory" && name !== "sqlite") {
         await db.$sql('DROP TABLE IF EXISTS "posts", "authors" CASCADE');
       }
       await db.$sync();
@@ -116,7 +117,7 @@ for (const [name, make] of adapters) {
         const { model, t } = await import("../src/index.ts");
         const Extended = model("authors", { name: t.string().max(80), email: t.email().unique(), bio: t.text().optional() });
         const statements = await createDb([Extended], adapter).$sync();
-        assert.ok(statements.some((s) => s.includes('ADD COLUMN "bio" text')));
+        assert.ok(statements.some((s) => /ADD COLUMN "bio" text/i.test(s)));
       });
 
       test("transactions roll back on error", async () => {

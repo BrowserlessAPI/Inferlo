@@ -593,6 +593,14 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid rename.** A `--rename old=new` given to `inferlo db migrate` (or `planMigration(models, snapshot, { renames })`) cannot be applied: it is not `table=table` or `table.column=table.column` with plain names; the old table or column is not in `migrations/snapshot.json`; the new one is not in your models, or already exists in the snapshot; the old one is still in your models; a column moves to another table; or two renames have the same target. The left side uses the old names and the right side your models' names, so after a table rename a column is `--rename notes.color=memos.colour`. Nothing is written. See [Migrations](database.md#migrations).
 
 
+### IL4033
+**Invalid `sqlite()` options.** `sqlite({ path, busyTimeoutMs, debug })` takes a file path (or `":memory:"`, the default) and a whole number of milliseconds to wait for another process's write lock. Unknown options are refused. Example: `sqlite({ path: env("SQLITE_PATH", { default: "./data/app.db" }) })`. See [SQLite](database.md#sqlite).
+
+### IL4034
+**No built-in SQLite.** `sqlite()` uses the runtime's `node:sqlite` module, which this runtime does not have. Use Node.js 22.13 or later, Bun 1.3 or later or Deno 2.2 or later, or `postgres()` from `@browserlessapi/inferlo/postgres`. See [SQLite](database.md#sqlite).
+
+### IL4035
+**Migration files need PostgreSQL.** `inferlo db migrate` and `applyMigrations()` write and run PostgreSQL SQL, and this app uses `sqlite()`. With SQLite, create tables and add columns with `inferlo db push` (or `await db.$sync()`); use `postgres()` for migration files. See [SQLite](database.md#sqlite).
 ## CLI (8xxx)
 
 ### IL8000

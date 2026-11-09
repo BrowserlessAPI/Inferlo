@@ -346,7 +346,7 @@ function fromRow(row: Record<string, unknown>): JobRecord {
  * stopped reporting (see STALE_AFTER_MS) is claimed again, or marked failed if it has no attempts left.
  */
 export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: number } = {}): JobStore {
-  const sql = adapter.sql?.bind(adapter);
+  const sql = adapter.dialect === "postgres" ? adapter.sql?.bind(adapter) : undefined;
   if (!sql) {
     throw new InferloError("IL6012", `jobQueue store "database" needs a Postgres database, but the app uses the ${adapter.dialect} adapter.`, {
       fix: 'Use postgres() from "@browserlessapi/inferlo/postgres" for createApp({ db }), or jobQueue: { store: "memory" }.',

@@ -193,7 +193,29 @@ import { postgres } from "@browserlessapi/inferlo/postgres";
 
 createApp({ db: memory() });                                  // tests and prototypes
 createApp({ db: postgres({ url: env("DATABASE_URL") }) });    // production (npm install pg)
+createApp({ db: sqlite({ path: "./data/app.db" }) });         // one server, local tools (import from "@browserlessapi/inferlo/sqlite")
 ```
+
+### SQLite
+
+`sqlite({ path })` from `@browserlessapi/inferlo/sqlite` keeps the data in one file, using the SQLite built into the runtime (`node:sqlite` on Node.js 22.13 and later, Bun and Deno), so there is nothing to install. It suits small apps on one server, desktop and command-line tools, and tests that need real SQL; use Postgres when several instances share the database.
+
+```ts
+import { sqlite } from "@browserlessapi/inferlo/sqlite";
+
+createApp({ db: sqlite({ path: env("SQLITE_PATH", { default: "./data/app.db" }) }) });
+createApp({ db: sqlite() });   // a database in memory, gone when the process ends: tests
+```
+
+- Options: `path` (default `":memory:"`; the file is created when missing, its directory must exist), `busyTimeoutMs` (default 5000: how long to wait when another process is writing the file) and `debug`. Unknown options are IL4033.
+- Models, queries, relations, pagination, multi-tenancy, audit logs, `$transaction`, `$sync` (`inferlo db push`) and `$sql` work as on Postgres. Tables are created with `inferlo db push` (or `await db.$sync()` at startup); migration files are PostgreSQL SQL, so `inferlo db migrate` refuses SQLite with IL4035.
+- Values: strings, ids, enums and dates are text (dates as ISO 8601 in UTC, so they sort in time order), `t.int()` and booleans are integers, `t.number()` is a real number, and JSON, arrays, objects and vectors are JSON text. Rows come back with the same types as on Postgres (`Date`, `boolean`, parsed JSON).
+- Foreign keys are enforced (`PRAGMA foreign_keys = ON`), files use write-ahead logging, and unique, foreign key and missing-table errors are IL4004, IL4011 and IL4012, as on Postgres.
+- `like` is case-sensitive, as on Postgres; `ilike` ignores case for ASCII letters only.
+- `db.<table>.search()` compares vectors in JavaScript (SQLite has no vector index), which is fine for thousands of rows, not millions.
+- SQLite has one connection. A `$transaction` holds it until it ends, and queries from outside the transaction wait for it: inside `$transaction`, always use `tx`, never the outer `db`, or the query waits for the transaction that waits for it.
+- Postgres-only features say so at startup: `jobQueue`, `cache` and `rateLimit` stores `"database"` (use `"memory"` or Redis), `db.$pgClient()` (IL4028) and migration files (IL4035).
+- `$sql` uses `?` placeholders: `await db.$sql("select count(*) as n from tickets where owner_id = ?", [user.id])`.
 
 ## Schema changes
 
@@ -250,7 +272,7 @@ import { planMigration } from "@browserlessapi/inferlo";
 const plan = planMigration(models, previousSnapshot, { allowDrop: true });   // allowDrop and allowChange default to false
 ```
 
-## Transactions and raw SQL (Postgres)
+## Transactions and raw SQL
 
 ```ts
 await db.$transaction(async (tx) => {

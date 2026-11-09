@@ -206,7 +206,7 @@ export function memoryCacheStore(maxEntries = 10_000, now: () => number = Date.n
 
 /** Entries in the inferlo_cache table (created on first use), shared by every instance of the app. */
 export function databaseCacheStore(adapter: Adapter): CacheStore {
-  const sql = adapter.sql?.bind(adapter);
+  const sql = adapter.dialect === "postgres" ? adapter.sql?.bind(adapter) : undefined;
   if (!sql) {
     throw bad(`cache store "database" needs a Postgres database, but the app uses the ${adapter.dialect} adapter.`, 'Use postgres() from "@browserlessapi/inferlo/postgres" for createApp({ db }), or cache: { store: "memory" }.');
   }

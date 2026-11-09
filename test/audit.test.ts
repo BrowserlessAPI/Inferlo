@@ -4,9 +4,10 @@ import { postgres } from "../src/db/postgres.ts";
 import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 import { AuditLog, InferloError, auditChanges, bearer, createApp, job, memory, model, route, t, type Adapter } from "../src/index.ts";
 import { readJson } from "../src/testing.ts";
+import { sqlite } from "../src/db/sqlite.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
-const adapters: [string, () => Adapter][] = [["memory", () => memory()]];
+const adapters: [string, () => Adapter][] = [["memory", () => memory()], ["sqlite", () => sqlite()]];
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
 if (PG_URL) adapters.push(["postgres.js", () => postgresJsAdapter(PG_URL)]);
 
@@ -63,7 +64,7 @@ for (const [name, make] of adapters) {
     const app = makeApp(make());
     const db = app.db as any;
     before(async () => {
-      if (name !== "memory") await db.$sql('DROP TABLE IF EXISTS "audit_log", "audit_accounts" CASCADE');
+      if (name !== "memory" && name !== "sqlite") await db.$sql('DROP TABLE IF EXISTS "audit_log", "audit_accounts" CASCADE');
       await db.$sync();
     });
     after(() => db.$close());

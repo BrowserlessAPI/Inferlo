@@ -192,6 +192,12 @@ async function cmdMigrate(args: Args) {
   const dir = path.join(cwd, MIGRATIONS_DIR);
   const app = await loadApp(args);
   try {
+    if (app.db.$adapter.dialect === "sqlite") {
+      throw new InferloError("IL4035", "Migration files are PostgreSQL SQL, and this app uses SQLite.", {
+        fix: "With sqlite(), create and extend tables with inferlo db push. Use postgres() for migration files.",
+        expose: true,
+      });
+    }
     if (args.flags.apply) {
       const files = await migrationFiles(dir);
       const migrations = await Promise.all(files.map(async (f) => ({ name: f.slice(0, -4), sql: await readFile(path.join(dir, f), "utf8") })));

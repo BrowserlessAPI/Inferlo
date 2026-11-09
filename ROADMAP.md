@@ -27,7 +27,8 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] Email: `mail({ smtp })` helper with templates, used by jobs
 - [x] OAuth login helpers: GitHub and Google, built on cookie sessions
 - [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)
-- [ ] SQLite adapter for small apps and tests (tested on the oldest supported and latest versions)
+- [x] SQLite adapter part 1: `sqlite({ path })` from `@browserlessapi/inferlo/sqlite` on the runtime's built-in SQLite (`node:sqlite`, `bun:sqlite`), with `db push`, transactions, raw SQL and vector search, tested on Node.js 22.18 to current, Bun 1.3.0 to latest and Deno
+- [ ] SQLite adapter part 2: migration files for SQLite (`inferlo db migrate` writing SQLite SQL, with table rebuilds for the changes SQLite cannot `ALTER`), and `inferlo new --db sqlite`
 
 - [ ] Drizzle and Prisma part 2b: Prisma Migrate next to `inferlo db migrate` in development (`prisma migrate dev` drift checks and Inferlo's tables, `tables.external` in prisma.config.ts), tested in CI with the Prisma schema engine on the oldest supported and latest Prisma
 - [ ] Microservices part 4c: Kafka event transport as a separate entry point (`kafkajs` or `@confluentinc/kafka-javascript` peer dependency, a consumer group per service), tested on the oldest supported and latest Kafka

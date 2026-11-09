@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import { createDb, InferloError, memory, model, t, type Adapter, type Row } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
 import { postgresJsAdapter } from "./postgres-js-adapter.ts";
+import { sqlite } from "../src/db/sqlite.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 
@@ -20,7 +21,7 @@ const models = [Owner, Item] as const;
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 const assertType = <T extends true>() => void 0 as unknown as T;
 
-const adapters: [string, () => Adapter][] = [["memory", () => memory()]];
+const adapters: [string, () => Adapter][] = [["memory", () => memory()], ["sqlite", () => sqlite()]];
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
 if (PG_URL) adapters.push(["postgres.js", () => postgresJsAdapter(PG_URL)]);
 
@@ -31,7 +32,7 @@ for (const [name, make] of adapters) {
     const all: Row<typeof Item>[] = [];
 
     before(async () => {
-      if (name !== "memory") await db.$sql('DROP TABLE IF EXISTS "pg_items", "pg_owners" CASCADE');
+      if (name !== "memory" && name !== "sqlite") await db.$sql('DROP TABLE IF EXISTS "pg_items", "pg_owners" CASCADE');
       await db.$sync();
       owner = await db.pg_owners.insert({ name: "Ann" });
       // Scores repeat, so pages must break ties by id without skipping or repeating rows.

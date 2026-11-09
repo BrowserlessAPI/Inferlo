@@ -632,7 +632,29 @@ import { postgres } from "@browserlessapi/inferlo/postgres";
 
 createApp({ db: memory() });                                  // tests and prototypes
 createApp({ db: postgres({ url: env("DATABASE_URL") }) });    // production (npm install pg)
+createApp({ db: sqlite({ path: "./data/app.db" }) });         // one server, local tools (import from "@browserlessapi/inferlo/sqlite")
 ```
+
+### SQLite
+
+`sqlite({ path })` from `@browserlessapi/inferlo/sqlite` keeps the data in one file, using the SQLite built into the runtime (`node:sqlite` on Node.js 22.13 and later, Bun and Deno), so there is nothing to install. It suits small apps on one server, desktop and command-line tools, and tests that need real SQL; use Postgres when several instances share the database.
+
+```ts
+import { sqlite } from "@browserlessapi/inferlo/sqlite";
+
+createApp({ db: sqlite({ path: env("SQLITE_PATH", { default: "./data/app.db" }) }) });
+createApp({ db: sqlite() });   // a database in memory, gone when the process ends: tests
+```
+
+- Options: `path` (default `":memory:"`; the file is created when missing, its directory must exist), `busyTimeoutMs` (default 5000: how long to wait when another process is writing the file) and `debug`. Unknown options are IL4033.
+- Models, queries, relations, pagination, multi-tenancy, audit logs, `$transaction`, `$sync` (`inferlo db push`) and `$sql` work as on Postgres. Tables are created with `inferlo db push` (or `await db.$sync()` at startup); migration files are PostgreSQL SQL, so `inferlo db migrate` refuses SQLite with IL4035.
+- Values: strings, ids, enums and dates are text (dates as ISO 8601 in UTC, so they sort in time order), `t.int()` and booleans are integers, `t.number()` is a real number, and JSON, arrays, objects and vectors are JSON text. Rows come back with the same types as on Postgres (`Date`, `boolean`, parsed JSON).
+- Foreign keys are enforced (`PRAGMA foreign_keys = ON`), files use write-ahead logging, and unique, foreign key and missing-table errors are IL4004, IL4011 and IL4012, as on Postgres.
+- `like` is case-sensitive, as on Postgres; `ilike` ignores case for ASCII letters only.
+- `db.<table>.search()` compares vectors in JavaScript (SQLite has no vector index), which is fine for thousands of rows, not millions.
+- SQLite has one connection. A `$transaction` holds it until it ends, and queries from outside the transaction wait for it: inside `$transaction`, always use `tx`, never the outer `db`, or the query waits for the transaction that waits for it.
+- Postgres-only features say so at startup: `jobQueue`, `cache` and `rateLimit` stores `"database"` (use `"memory"` or Redis), `db.$pgClient()` (IL4028) and migration files (IL4035).
+- `$sql` uses `?` placeholders: `await db.$sql("select count(*) as n from tickets where owner_id = ?", [user.id])`.
 
 ## Schema changes
 
@@ -689,7 +711,7 @@ import { planMigration } from "@browserlessapi/inferlo";
 const plan = planMigration(models, previousSnapshot, { allowDrop: true });   // allowDrop and allowChange default to false
 ```
 
-## Transactions and raw SQL (Postgres)
+## Transactions and raw SQL
 
 ```ts
 await db.$transaction(async (tx) => {
@@ -6922,6 +6944,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Deno | 2.9.0 and newer (Deno supports only its newest minor line) |
 | Other runtimes with Web APIs | Work through `app.fetch`; not tested in CI |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
+| SQLite (`sqlite()` from `/sqlite`) | The SQLite built into the runtime: `node:sqlite` on Node.js 22.18 and newer, Bun 1.3.0 and newer and Deno 2.9.0 and newer |
 | pgvector (`t.vector(n)` fields and vector search) | 0.5.0 and newer |
 | Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |
 | TypeScript | 5.9 and newer |
@@ -7582,6 +7605,14 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid rename.** A `--rename old=new` given to `inferlo db migrate` (or `planMigration(models, snapshot, { renames })`) cannot be applied: it is not `table=table` or `table.column=table.column` with plain names; the old table or column is not in `migrations/snapshot.json`; the new one is not in your models, or already exists in the snapshot; the old one is still in your models; a column moves to another table; or two renames have the same target. The left side uses the old names and the right side your models' names, so after a table rename a column is `--rename notes.color=memos.colour`. Nothing is written. See [Migrations](database.md#migrations).
 
 
+### IL4033
+**Invalid `sqlite()` options.** `sqlite({ path, busyTimeoutMs, debug })` takes a file path (or `":memory:"`, the default) and a whole number of milliseconds to wait for another process's write lock. Unknown options are refused. Example: `sqlite({ path: env("SQLITE_PATH", { default: "./data/app.db" }) })`. See [SQLite](database.md#sqlite).
+
+### IL4034
+**No built-in SQLite.** `sqlite()` uses the runtime's `node:sqlite` module, which this runtime does not have. Use Node.js 22.13 or later, Bun 1.3 or later or Deno 2.2 or later, or `postgres()` from `@browserlessapi/inferlo/postgres`. See [SQLite](database.md#sqlite).
+
+### IL4035
+**Migration files need PostgreSQL.** `inferlo db migrate` and `applyMigrations()` write and run PostgreSQL SQL, and this app uses `sqlite()`. With SQLite, create tables and add columns with `inferlo db push` (or `await db.$sync()`); use `postgres()` for migration files. See [SQLite](database.md#sqlite).
 ## CLI (8xxx)
 
 ### IL8000

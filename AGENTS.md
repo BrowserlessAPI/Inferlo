@@ -14,7 +14,7 @@ Inferlo is the enterprise-ready TypeScript backend framework, with AI models bui
 4. **Secure by default.** Routes private unless `auth: "public"`. Every database value parameterised. Every insert and update validated.
 5. **Errors explain the fix.** Every new error uses `InferloError` with a new stable code (`ILxxxx`), a plain message, a `fix`, and an entry in `docs/errors.md`. Never reuse or change the meaning of an existing code.
 6. **Zero runtime dependencies.** `pg` stays an optional peer dependency. Do not add runtime dependencies.
-7. **Runs everywhere.** Use Web APIs (fetch, Request, Response, Web Crypto, streams). Node-only APIs only in `src/serve.ts`, `src/disk-storage.ts` and `src/smtp.ts` (both loaded with a dynamic `import()` on first use) and `src/cli/`.
+7. **Runs everywhere.** Use Web APIs (fetch, Request, Response, Web Crypto, streams). Node-only APIs only in `src/serve.ts`, `src/disk-storage.ts`, `src/smtp.ts` and `src/db/sqlite.ts` (`node:` modules loaded with a dynamic `import()` on first use) and `src/cli/`.
 8. **Stable API.** Do not rename or remove public exports. Deprecate first, with a migration note in CHANGELOG.md.
 9. **Erasable TypeScript only.** No enums, namespaces or parameter properties (`erasableSyntaxOnly`), so Node can run the source directly. Relative imports end in `.ts`.
 10. **No emojis** in code, docs, CLI output or commit messages.
@@ -28,7 +28,7 @@ src/
   route.ts         route builder, Context type, Register interface
   schema.ts        t.* schemas, validation, JSON Schema
   model.ts         model(), Row types
-  db/              table client, memory and postgres adapters
+  db/              table client, memory, postgres and sqlite adapters
   ai/              createAI, providers (anthropic, openai, openaiCompatible, gemini, ollama, mock)
   mcp.ts           MCP server (Streamable HTTP)
   graphql.ts       GraphQL endpoint over routes (@browserlessapi/inferlo/graphql, graphql peer dependency)
@@ -55,6 +55,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Bun | 1.3.0 | `latest` |
 | Deno (`npm run test:deno`: the whole suite with the examples; Ts.ED with `--unsafe-proto`, which Ts.ED needs on Deno) | 2.9.0 (Deno supports only its newest minor line; its LTS releases ended 2026-04-30) | `latest` |
 | PostgreSQL | oldest major still supported upstream (14 until 2026-11-12, then 15) and every major after it | `latest` |
+| SQLite (`@browserlessapi/inferlo/sqlite`: `sqlite({ path })` on the runtime's `node:sqlite`; test/sqlite.test.ts and the db, relations, paginate, tenant and audit suites) | The SQLite built into Node.js 22.18 (the oldest Node.js `engines` allows), Bun 1.3.0 and Deno 2.9.0, covered by those jobs; SQLite fixes only its newest release, and each runtime bundles its own | The SQLite in Node.js `current`, Bun `latest` and Deno `latest` |
 | pgvector (`t.vector(n)` fields and `db.<table>.search()`; test/vector.test.ts with `INFERLO_TEST_PGVECTOR=1`) | 0.5.0 (the first release with HNSW indexes, which `.index()` creates; pgvector has no long-term support releases), on PostgreSQL 14 | `latest` (its newest release tag), on the latest PostgreSQL |
 | TypeScript | 5.9 | `latest` |
 | Redis (`createApp({ redis })`: rate limits, cache, job queue, events transport and WebSocket broadcasts) | Redis 6.2 (oldest version still supported upstream, until 2027-04-01; 7.2 is tested too), `redis` package 5.0.0 (node-redis 4 gets no more releases) | `latest` (server and package) |

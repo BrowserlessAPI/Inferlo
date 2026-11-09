@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import { bearer, createApp, createDb, InferloError, memory, model, route, sessions, t, type Adapter, type Row } from "../src/index.ts";
 import { modelIndexes, postgres } from "../src/db/postgres.ts";
 import { readJson } from "../src/testing.ts";
+import { sqlite } from "../src/db/sqlite.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 
@@ -32,7 +33,7 @@ function routes() {
   };
 }
 
-const adapters: [string, () => Adapter][] = [["memory", () => memory()]];
+const adapters: [string, () => Adapter][] = [["memory", () => memory()], ["sqlite", () => sqlite()]];
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
 
 for (const [name, make] of adapters) {

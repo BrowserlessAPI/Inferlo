@@ -74,7 +74,7 @@ export function memoryRateLimitStore(now: () => number = Date.now): RateLimitSto
 
 /** Counts in the inferlo_rate_limits table (created on first use), one row per key, updated atomically. */
 export function databaseRateLimitStore(adapter: Adapter): RateLimitStore {
-  const sql = adapter.sql?.bind(adapter);
+  const sql = adapter.dialect === "postgres" ? adapter.sql?.bind(adapter) : undefined;
   if (!sql) {
     throw new InferloError("IL6008", `rateLimit store "database" needs a Postgres database, but the app uses the ${adapter.dialect} adapter.`, {
       fix: 'Use postgres() from "@browserlessapi/inferlo/postgres" for createApp({ db }), or rateLimit: { store: "memory" }.',

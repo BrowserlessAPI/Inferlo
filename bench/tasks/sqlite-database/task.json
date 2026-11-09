@@ -1,0 +1,4 @@
+{
+  "title": "Run on a SQLite file",
+  "prompt": "This app will run on a single small server without Postgres. Add an optional SQLITE_PATH setting to src/config.ts. When it is set, the app stores its data in that SQLite file with Inferlo's built-in SQLite support; otherwise keep the current behaviour (Postgres when DATABASE_URL is set, else the in-memory database). Do not add any npm packages."
+}
