@@ -30,33 +30,63 @@ createApp({
 });
 ```
 
-### Any Vercel AI SDK provider
+### Mistral and Azure OpenAI
 
-`aiSdk(provider)` turns any [Vercel AI SDK](https://ai-sdk.dev) provider into an Inferlo provider, so the providers Inferlo has no adapter of its own for (Mistral, Amazon Bedrock, Azure OpenAI, Google Vertex AI, Groq, xAI, Cohere, the AI Gateway and the others) work with aliases, fallback, structured output, tools, streaming, embeddings, usage tracking, budgets and tracing:
+Both have adapters of their own, with chat, vision, tools, streaming, native structured output and embeddings:
 
 ```ts
-import { aiSdk, createApp } from "@browserlessapi/inferlo";
-import { createMistral } from "@ai-sdk/mistral";
-import { bedrock } from "@ai-sdk/amazon-bedrock";
+import { azureOpenAI, createApp, mistral } from "@browserlessapi/inferlo";
+import { DefaultAzureCredential, getBearerTokenProvider } from "@azure/identity";
 
 createApp({
   ai: {
     providers: {
-      mistral: aiSdk(createMistral({ apiKey: settings.MISTRAL_API_KEY })),
-      bedrock: aiSdk(bedrock),
+      mistral: mistral({ apiKey: settings.MISTRAL_API_KEY }),
+      // Azure OpenAI v1 API: model ids are your deployment names.
+      azure: azureOpenAI({ resource: "contoso-eu", apiKey: settings.AZURE_OPENAI_API_KEY }),
+      // Or Microsoft Entra ID (managed identity, workload identity, az login) instead of a key:
+      // azure: azureOpenAI({ resource: "contoso-eu", token: getBearerTokenProvider(new DefaultAzureCredential(), "https://ai.azure.com/.default") }),
     },
     models: {
-      fast: ["mistral:mistral-small-latest", "bedrock:anthropic.claude-haiku-4-5-20251001-v1:0"],
+      fast: ["azure:gpt-5-mini-prod", "mistral:mistral-small-latest"],
       embed: "mistral:mistral-embed",
     },
   },
 });
 ```
 
-- Pass the **provider** (what `createMistral()` returns, or the default `mistral` instance), not a model: the part after the colon in `"mistral:mistral-small-latest"` is the model id Inferlo asks the provider for, as with every other provider. To use models you built yourself (for example with `wrapLanguageModel` middleware), group them with `customProvider({ languageModels: { ... }, embeddingModels: { ... } })` from `ai` and pass that.
+- `mistral({ apiKey, baseURL })` calls `https://api.mistral.ai/v1`; `baseURL` points it at another endpoint with the same API, such as a self-deployed Mistral model.
+- `azureOpenAI({ resource })` calls `https://<resource>.openai.azure.com/openai/v1`, Azure's v1 API (no `api-version`); `baseURL` takes the full v1 endpoint instead, such as `https://<name>.services.ai.azure.com/openai/v1` for Azure AI Foundry. Authenticate with `apiKey` (sent as the `api-key` header) or `token`, a function that returns a Microsoft Entra ID bearer token for the scope `https://ai.azure.com/.default`. Inferlo calls `token` before every request and does not keep tokens itself, so use a function that caches them until they expire, such as `getBearerTokenProvider` from `@azure/identity`. A `token` function that fails or returns nothing is IL5006 (status 401, not retried); give the identity the "Cognitive Services OpenAI User" role.
+- Both send `response_format` with `json_schema` for `ai.generate({ output })`; `nativeStructuredOutput: false` sends `json_object` instead. Inferlo validates every answer either way.
+- Missing or invalid options (no `apiKey`, both or neither of `resource` and `baseURL`, both or neither of `apiKey` and `token`) raise IL5041 at startup. API keys are redacted from logs like every provider key.
+
+### Any Vercel AI SDK provider
+
+`aiSdk(provider)` turns any [Vercel AI SDK](https://ai-sdk.dev) provider into an Inferlo provider, so the providers Inferlo has no adapter of its own for (Amazon Bedrock, Google Vertex AI, Groq, xAI, Cohere, the AI Gateway and the others) work with aliases, fallback, structured output, tools, streaming, embeddings, usage tracking, budgets and tracing:
+
+```ts
+import { aiSdk, createApp } from "@browserlessapi/inferlo";
+import { createXai } from "@ai-sdk/xai";
+import { bedrock } from "@ai-sdk/amazon-bedrock";
+
+createApp({
+  ai: {
+    providers: {
+      xai: aiSdk(createXai({ apiKey: settings.XAI_API_KEY })),
+      bedrock: aiSdk(bedrock),
+    },
+    models: {
+      fast: ["xai:grok-4-fast", "bedrock:anthropic.claude-haiku-4-5-20251001-v1:0"],
+      embed: "bedrock:amazon.titan-embed-text-v2:0",
+    },
+  },
+});
+```
+
+- Pass the **provider** (what `createXai()` returns, or the default `xai` instance), not a model: the part after the colon in `"xai:grok-4-fast"` is the model id Inferlo asks the provider for, as with every other provider. To use models you built yourself (for example with `wrapLanguageModel` middleware), group them with `customProvider({ languageModels: { ... }, embeddingModels: { ... } })` from `ai` and pass that.
 - Works with providers made for `ai` 5, 6 and 7 (`@ai-sdk/*` 2.0 and later: language model specifications v2, v3 and v4). Inferlo does not depend on the AI SDK; install the provider packages you use. An older provider, or anything that is not a provider, raises IL5029.
 - Errors of the AI SDK (`APICallError`) become IL5006 with the HTTP status, so 429, 5xx and network errors move on to the next model of an alias like any other provider. Embeddings are sent in batches of the model's `maxEmbeddingsPerCall`.
-- The provider name in errors and traces is the AI SDK's own (`mistral`); `aiSdk(provider, { name: "eu-mistral" })` sets another.
+- The provider name in errors and traces is the AI SDK's own (`xai`); `aiSdk(provider, { name: "eu-bedrock" })` sets another.
 - `ai.stream` streams text, and with `tools` it streams the tool calls too (see [Streaming with tools](#streaming-with-tools)).
 
 ## Use it without createApp

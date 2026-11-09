@@ -1,0 +1,4 @@
+{
+  "title": "Azure OpenAI with a Mistral fallback",
+  "prompt": "Create src/lib/summarize.ts for use outside the Inferlo app. Without createApp, use Inferlo's standalone AI module to create an AI client and export it as `ai`. It has two providers: Azure OpenAI on the resource \"contoso-eu\" with the API key from the AZURE_OPENAI_API_KEY environment variable, named \"azure\", and Mistral with the API key from MISTRAL_API_KEY, named \"mistral\". The \"fast\" alias uses the Azure deployment \"gpt-5-mini-prod\" and falls back to mistral-small-latest when Azure fails. Also export `async function summarize(text: string, userId: string)` that returns a one-sentence summary of the text from the \"fast\" model, tracking usage for userId."
+}

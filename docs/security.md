@@ -84,7 +84,7 @@ Everything an Inferlo app logs (failed requests, failed jobs, readiness checks, 
 - header values of `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key` and `Api-Key`, also inside error text and JSON (`Authorization: Bearer [redacted]`), and `Bearer` or `Basic` credentials anywhere;
 - passwords in URLs and connection strings (`postgres://app:[redacted]@db:5432/app`) and secrets in query strings (`?key=`, `token=`, `access_token=`, `api_key=`, `password=`, `signature=`);
 - common API key formats (`sk-...` for OpenAI and Anthropic, `AIza...` for Google, GitHub tokens);
-- the API keys of the app's AI providers (`anthropic({ apiKey })`, `openai`, `gemini`, `openaiCompatible`), even when a provider echoes one back in an error;
+- the API keys of the app's AI providers (`anthropic({ apiKey })`, `openai`, `gemini`, `mistral`, `azureOpenAI`, `openaiCompatible`), even when a provider echoes one back in an error;
 - the values you pass to `createApp({ redact })`: your `config()` result (the values of its `secrets`) and any other strings;
 - in logged objects, values under keys such as `authorization`, `cookie`, `password`, `secret`, `token`, `apiKey`, `accessToken`, `clientSecret` and `privateKey`.
 

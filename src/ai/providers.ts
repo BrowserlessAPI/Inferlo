@@ -158,10 +158,23 @@ export interface OpenAICompatibleOptions {
 }
 
 export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
+  return chatCompletions(options, {});
+}
+
+/** How a Chat Completions server differs from OpenAI's, for the provider adapters built on it. */
+interface ChatCompletionsVariant {
+  /** Leave out stream_options (servers that reject it and report usage in the last chunk anyway). */
+  noStreamOptions?: boolean;
+  /** Headers computed before each call, such as a short-lived access token. */
+  auth?: () => Promise<Record<string, string>>;
+}
+
+function chatCompletions(options: OpenAICompatibleOptions, variant: ChatCompletionsVariant): Provider {
   const name = options.name ?? "openai-compatible";
   const base = options.baseURL.replace(/\/+$/, "");
   const fetchImpl = options.fetch ?? fetch;
-  const headers: Record<string, string> = { ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}), ...options.headers };
+  const fixed: Record<string, string> = { ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}), ...options.headers };
+  const headersFor = async (): Promise<Record<string, string>> => (variant.auth ? { ...fixed, ...(await variant.auth()) } : fixed);
 
   const body = (r: ProviderRequest, stream: boolean) => {
     const out: Record<string, unknown> = { model: r.model, messages: r.messages.map(openaiMessage), stream };
@@ -174,14 +187,14 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
           ? { type: "json_schema", json_schema: { name: "output", schema: r.jsonSchema, strict: false } }
           : { type: "json_object" };
     }
-    if (stream) out.stream_options = { include_usage: true };
+    if (stream && !variant.noStreamOptions) out.stream_options = { include_usage: true };
     return out;
   };
 
   return holdSecrets({
     name,
     async generate(r) {
-      const response = await post(name, fetchImpl, `${base}/chat/completions`, headers, body(r, false), r.signal);
+      const response = await post(name, fetchImpl, `${base}/chat/completions`, await headersFor(), body(r, false), r.signal);
       const data = (await response.json()) as {
         choices?: { message?: { content?: string | null; tool_calls?: { id: string; function?: { name?: string; arguments?: string } }[] } }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -195,7 +208,7 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
       };
     },
     async *stream(r) {
-      const response = await post(name, fetchImpl, `${base}/chat/completions`, headers, body(r, true), r.signal);
+      const response = await post(name, fetchImpl, `${base}/chat/completions`, await headersFor(), body(r, true), r.signal);
       const calls: { id: string; name: string; args: string }[] = [];
       for await (const data of sseData(response.body!)) {
         if (data === "[DONE]") break;
@@ -219,7 +232,7 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
       if (toolCalls.length) yield { toolCalls };
     },
     async embed({ model, input, signal }) {
-      const response = await post(name, fetchImpl, `${base}/embeddings`, headers, { model, input }, signal);
+      const response = await post(name, fetchImpl, `${base}/embeddings`, await headersFor(), { model, input }, signal);
       const data = (await response.json()) as { data: { embedding: number[]; index: number }[]; usage?: { prompt_tokens?: number } };
       const embeddings = [...data.data].sort((a, b) => a.index - b.index).map((d) => d.embedding);
       return { embeddings, usage: { inputTokens: data.usage?.prompt_tokens ?? 0, outputTokens: 0 } };
@@ -418,6 +431,98 @@ export function gemini(options: {
     nativeStructuredOutput: options.nativeStructuredOutput ?? true,
     fetch: options.fetch,
   });
+}
+
+/** Mistral's models (La Plateforme) through its Chat Completions API: chat, tools, vision, structured output and embeddings. */
+export function mistral(options: {
+  apiKey: string;
+  /** Another endpoint with the same API, such as a self-deployed Mistral model (default https://api.mistral.ai/v1). */
+  baseURL?: string;
+  /** Send response_format json_schema (Mistral's structured output) for ai.generate({ output }) (default true). */
+  nativeStructuredOutput?: boolean;
+  fetch?: FetchLike;
+}): Provider {
+  checkProviderOptions("mistral", { apiKey: options.apiKey }, ["apiKey"]);
+  return chatCompletions(
+    {
+      name: "mistral",
+      baseURL: options.baseURL ?? "https://api.mistral.ai/v1",
+      apiKey: options.apiKey,
+      nativeStructuredOutput: options.nativeStructuredOutput ?? true,
+      fetch: options.fetch,
+    },
+    // Mistral reports the usage in the last chunk without stream_options, which its API does not list.
+    { noStreamOptions: true },
+  );
+}
+
+/** Returns an access token; called before each request (the function should cache tokens until they expire). */
+export type AccessToken = () => string | Promise<string>;
+
+/**
+ * Azure OpenAI (Azure AI Foundry) through its v1 API: model ids are deployment names ("azure:my-gpt-5-mini").
+ * Authenticate with the resource's API key, or with Microsoft Entra ID: token returns a bearer token for the scope
+ * https://ai.azure.com/.default, for example getBearerTokenProvider(new DefaultAzureCredential(), "https://ai.azure.com/.default")
+ * from @azure/identity (managed identities, workload identity and az login, without keys).
+ */
+export function azureOpenAI(options: {
+  /** The resource name: https://<resource>.openai.azure.com/openai/v1. */
+  resource?: string;
+  /** The full v1 endpoint instead of resource, such as https://<name>.services.ai.azure.com/openai/v1. */
+  baseURL?: string;
+  apiKey?: string;
+  token?: AccessToken;
+  /** Send response_format json_schema (structured outputs) for ai.generate({ output }) (default true). */
+  nativeStructuredOutput?: boolean;
+  fetch?: FetchLike;
+}): Provider {
+  if ((options.resource === undefined) === (options.baseURL === undefined)) {
+    throw invalidProvider("azureOpenAI", "needs either resource (the Azure OpenAI resource name) or baseURL, not both.");
+  }
+  if (options.resource !== undefined && !/^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$/.test(options.resource)) {
+    throw invalidProvider("azureOpenAI", `resource must be the resource name (letters, digits and dashes), got ${JSON.stringify(options.resource)}.`);
+  }
+  if (options.baseURL !== undefined && !/^https?:\/\/[^/]/.test(options.baseURL)) throw invalidProvider("azureOpenAI", `baseURL must be an http(s) URL, got ${JSON.stringify(options.baseURL)}.`);
+  if ((options.apiKey === undefined) === (options.token === undefined)) {
+    throw invalidProvider("azureOpenAI", "needs either apiKey or token (Microsoft Entra ID), not both.");
+  }
+  if (options.apiKey !== undefined) checkProviderOptions("azureOpenAI", { apiKey: options.apiKey }, ["apiKey"]);
+  if (options.token !== undefined && typeof options.token !== "function") throw invalidProvider("azureOpenAI", "token must be a function that returns an access token.");
+  return chatCompletions(
+    {
+      name: "azure",
+      baseURL: options.baseURL ?? `https://${options.resource}.openai.azure.com/openai/v1`,
+      headers: options.apiKey !== undefined ? { "api-key": options.apiKey } : undefined,
+      nativeStructuredOutput: options.nativeStructuredOutput ?? true,
+      fetch: options.fetch,
+    },
+    { auth: options.token ? bearer("azure", options.token) : undefined },
+  );
+}
+
+/** Authorization header from a token function; a failing or empty token is a provider error that is not retried. */
+function bearer(provider: string, token: AccessToken): () => Promise<Record<string, string>> {
+  return async () => {
+    let value: unknown;
+    try {
+      value = await token();
+    } catch (error) {
+      throw new ProviderError(provider, 401, `the token function failed: ${String((error as Error)?.message ?? error)}`);
+    }
+    if (typeof value !== "string" || !value) throw new ProviderError(provider, 401, "the token function returned no token");
+    return { authorization: `Bearer ${value}` };
+  };
+}
+
+function invalidProvider(factory: string, problem: string): InferloError {
+  return new InferloError("IL5041", `${factory}() ${problem}`, { fix: "See the provider's options in docs/ai.md (\"Providers\")." });
+}
+
+function checkProviderOptions(factory: string, values: Record<string, unknown>, required: string[]): void {
+  for (const key of required) {
+    const value = values[key];
+    if (typeof value !== "string" || !value.trim()) throw invalidProvider(factory, `needs ${key} (a non-empty string), got ${value === undefined ? "nothing" : typeof value === "string" ? "an empty string" : typeof value}.`);
+  }
 }
 
 /** What a mockProvider returns: text, or tool calls (with optional text). */
