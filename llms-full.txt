@@ -1987,6 +1987,40 @@ await cache.invalidate("faq");
 - **What a hit returns.** The same `text` and `object` (validated against the output schema again, so dates come back as `Date`), `cached: true` and empty `steps`. `onUsage` gets the call with `cached: true` and 0 tokens and cost, so dashboards show the savings; `allow` (budgets) is still checked first. Spans have `inferlo.ai.cached`.
 - `ttlMs` is required (1 ms to 365 days). Only successful answers are stored. Calls with `tools` cannot be cached, because a cached answer would skip the tool calls (IL5040); `ai.stream` is not cached.
 
+## Guardrails
+
+Guardrails check what goes to the model and what comes back. Set them per alias, or with `"*"` for every call:
+
+```ts
+createApp({
+  ai: {
+    providers: { anthropic: anthropic({ apiKey: settings.ANTHROPIC_API_KEY }) },
+    models: { fast: "anthropic:claude-haiku-4-5", support: "anthropic:claude-sonnet-4-5" },
+    guardrails: {
+      "*": { maxInputChars: 20_000, maxTokens: 4000, redact: ["email", "phone", "card", "iban", "ip"] },
+      support: { blockedTerms: ["refund is guaranteed", "Project Falcon"] },
+    },
+  },
+});
+
+// A call can add its own; the strictest of each limit applies.
+await ai.generate({ model: "support", prompt: body.question, guardrails: { maxTokens: 500 }, for: user.id });
+```
+
+| Guardrail | What it does |
+|---|---|
+| `maxInputChars` | User input longer than this (all user messages of the call together) is refused with IL5042 (422) before any model call. |
+| `maxTokens` | The `maxTokens` of calls that set none, and the most a call may ask for (more raises IL5044). |
+| `blockedTerms` | Words and phrases matched as whole words, ignoring case and the amount of space between words. In user input they are refused with IL5042 (422); in the model's answer it is withheld with IL5043 (502). Neither error repeats the term. |
+| `redact` | Personal data in user messages is replaced before it reaches the model: `"email"` (`[email]`), `"phone"` (numbers with a `+` country code and North American numbers), `"card"` (card numbers that pass the Luhn check), `"iban"` (IBANs with a valid check sum) and `"ip"` (IPv4 and full IPv6 addresses). |
+
+- Guardrails apply to `ai.generate` and `ai.stream`, with and without tools, and to cached answers (the cache key uses the redacted messages). They check user messages only: the system prompt and tool results are the app's own.
+- Where `"*"`, the alias's and the call's own guardrails meet, the smallest `maxInputChars` and `maxTokens` apply, and every `blockedTerms` entry and `redact` kind is added up, so a call can make limits stricter but never looser.
+- Streams check the answer as it arrives: text that could still be part of a blocked term (the last words) is held back until the next chunk shows it is not, and a stream that writes a blocked term stops with IL5043 before any part of the term is sent. Structured output is checked as the model wrote it, before it is parsed.
+- An answer that is withheld still counts its tokens in `onUsage`, because the model produced it.
+- Invalid guardrails (unknown options, a key that is not an alias or `"*"`, numbers below 1, unknown `redact` kinds) raise IL5044 when the app starts.
+- Pattern matching cannot catch every way to write personal data or a term; treat guardrails as one layer next to the model provider's own safety settings and your route's `auth` and validation.
+
 ## Usage and budgets
 
 Every call reports a `Usage` record (`requested`, `model` that answered, `inputTokens`, `outputTokens`, `cost`, `for`, `kind`, `durationMs`) to `onUsage`. Store it to bill customers. When `for` is set, `allow` is called first; returning false raises IL5004 (HTTP 402).
@@ -7025,6 +7059,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid AI answer cache.** `ai.generate({ cache: { ttlMs, tags } })` takes `ttlMs`, a whole number of milliseconds from 1 to 365 days, and optional `tags` (non-empty strings, for `cache.invalidate(tag)`), nothing else. A call with `tools` cannot be cached, because a cached answer would skip the tool calls the model makes: leave out `cache` there, or cache what the tools return with `ctx.cache.getOrSet`. See [Caching answers](ai.md#caching-answers).
 ### IL5041
 **Invalid AI provider options.** A provider adapter got options it cannot work with: `mistral()` needs `apiKey`; `azureOpenAI()` needs either `resource` (the resource name, letters, digits and dashes) or `baseURL` (the full v1 endpoint, `https://...`), and either `apiKey` or `token` (a function that returns a Microsoft Entra ID token), never both of a pair; `vertexAI()` needs `project` (a Google Cloud project id: 6 to 30 lowercase letters, digits and dashes), a `location` of `"global"` or a region such as `"us-central1"`, and `token` (a function that returns an OAuth access token). Read keys with `env()` or `config()` so an unset variable is reported by name. See [Mistral, Azure OpenAI and Vertex AI](ai.md#mistral-azure-openai-and-vertex-ai).
+### IL5042
+**Refused by a guardrail.** (422) The user input of an AI call is longer than the guardrail `maxInputChars`, or contains a word or phrase from `blockedTerms`. The message does not say which term matched. Send a shorter input or rephrase it; the limits are set in `createApp({ ai: { guardrails } })` or the call's `guardrails`. See [Guardrails](ai.md#guardrails).
+
+### IL5043
+**Answer withheld by a guardrail.** (502) The model's answer contains a word or phrase from the guardrail `blockedTerms`, so Inferlo does not return it (a stream stops before any part of the term is sent). Its tokens still count in `onUsage`. Retry, or change the system prompt so the model does not produce those terms. See [Guardrails](ai.md#guardrails).
+
+### IL5044
+**Invalid guardrails.** `guardrails` in `createAI` or `createApp({ ai })` maps aliases (or `"*"` for every call) to `{ maxInputChars, maxTokens, blockedTerms, redact }`: whole numbers of at least 1, a list of words or phrases (1 to 200 characters each), and kinds of personal data from `"email"`, `"phone"`, `"card"`, `"iban"` and `"ip"`. A key that is not an alias is refused, so a typo cannot switch a guardrail off. Also raised for a call whose `maxTokens` is above the guardrail's. See [Guardrails](ai.md#guardrails).
+
 ## App configuration (6xxx)
 
 ### IL6001

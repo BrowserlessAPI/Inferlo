@@ -1,0 +1,4 @@
+{
+  "title": "Guardrails on a support answer route",
+  "prompt": "Add POST /support/answer in src/routes/support.ts (register it in the app) that takes { question } and answers it with the \"fast\" AI model alias as { answer }, tracking AI usage for the user. Compliance rules for this route: email addresses and card numbers in the question must never reach the model, questions longer than 2000 characters are refused, the model may write at most 400 tokens, and an answer that promises \"refund is guaranteed\" must never be returned to the customer."
+}

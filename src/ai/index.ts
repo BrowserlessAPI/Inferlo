@@ -17,9 +17,11 @@ import { type InferOutput, invalidOutputSchema, schemaAdapter, type StandardSche
 import { createRedactor, secretsOf } from "../redact.ts";
 import type { Cache } from "../cache.ts";
 import { checkTracing, clientTracing, type OtelSpan, type TracingConfig } from "../tracing.ts";
+import { answerBlocked, checkGuardrails, checkGuardrailsConfig, guardedMaxTokens, guardInput, mergeGuardrails, streamGuard, withheld, type Guardrails } from "./guardrails.ts";
 import { ProviderError, imageData, type Image, type Message, type Provider, type ProviderUsage, type ToolCall, type ToolSpec } from "./providers.ts";
 
 export * from "./providers.ts";
+export type { Guardrails, PiiKind } from "./guardrails.ts";
 export { tool, isTool, ToolBuilder } from "./tool.ts";
 export type { ToolDef, FunctionToolOptions, ToolContext } from "./tool.ts";
 export { uiChatBody, fromUIMessages, type UIChatMessage } from "./ui.ts";
@@ -77,6 +79,12 @@ export interface AIConfig {
    * that answered, tokens and cost. Prompts and answers are never recorded. In an app, createApp({ tracing }) sets it.
    */
   tracing?: TracingConfig;
+  /**
+   * Checks on what goes to the model and what comes back, per alias or "*" for every call:
+   * { "*": { maxInputChars: 20_000, redact: ["email", "card"] }, support: { blockedTerms: ["refund guaranteed"] } }.
+   * Calls add their own with ai.generate({ guardrails }); the strictest of each limit applies.
+   */
+  guardrails?: Record<string, Guardrails>;
 }
 
 export interface GenerateOptions<O extends AnySchema | StandardSchema | undefined> {
@@ -116,6 +124,8 @@ export interface GenerateOptions<O extends AnySchema | StandardSchema | undefine
    * schema, temperature and maxTokens. Kept in the app's cache (createApp({ cache })), invalidated by tags. Not with tools.
    */
   cache?: { ttlMs: number; tags?: readonly string[] };
+  /** Guardrails for this call, on top of the alias's and "*" from createAI({ guardrails }); the strictest applies. */
+  guardrails?: Guardrails;
 }
 
 /** One tool call the model made, with what the route returned. */
@@ -435,6 +445,10 @@ export function createAI(config?: AIConfig): AI {
   const aliases: Record<string, string[]> = {};
   for (const [alias, ids] of Object.entries(config?.models ?? {})) aliases[alias] = Array.isArray(ids) ? ids : [ids];
   const tracingConfig = checkTracing(config?.tracing, "createAI");
+  const guardrailsConfig = checkGuardrailsConfig(config?.guardrails, Object.keys(aliases));
+  /** The guardrails of a call to `requested` (an alias or "provider:model"). */
+  const guardrailsFor = (requested: string, own: unknown, kind: "generate" | "stream"): Guardrails | undefined =>
+    mergeGuardrails([guardrailsConfig?.["*"], guardrailsConfig?.[requested], own === undefined ? undefined : checkGuardrails(own, `ai.${kind}({ guardrails })`)]);
   const spans = tracingConfig ? clientTracing(tracingConfig, "inferlo") : undefined;
   /** Attributes of an AI span before the call (OpenTelemetry GenAI conventions, plus the alias asked for). */
   const spanStart = (operation: "chat" | "embeddings", requested: string, targets: Target[], options: { maxTokens?: number; temperature?: number; promptId?: string }) => {
@@ -543,8 +557,11 @@ export function createAI(config?: AIConfig): AI {
       const adapter = options.output === undefined ? undefined : schemaAdapter(options.output);
       if (typeof adapter === "string") throw invalidOutputSchema(adapter);
       const maxSteps = Math.max(1, options.maxSteps ?? 5);
-      await guard(options.for, requested);
+      const guardrails = guardrailsFor(requested, options.guardrails, "generate");
+      const maxTokens = guardedMaxTokens(options.maxTokens, guardrails, "generate");
       const messages = buildMessages(options);
+      guardInput(messages, guardrails);
+      await guard(options.for, requested);
       const schema = adapter;
       const jsonSchema = adapter?.jsonSchema;
       if (schema) {
@@ -576,7 +593,7 @@ export function createAI(config?: AIConfig): AI {
               model: target.model,
               messages: convo,
               temperature: options.temperature,
-              maxTokens: options.maxTokens,
+              maxTokens,
               json: Boolean(schema),
               jsonSchema,
               tools: specs,
@@ -622,6 +639,10 @@ export function createAI(config?: AIConfig): AI {
             continue;
           }
 
+          if (answerBlocked(response.text, guardrails)) {
+            await record(usageNow());
+            throw withheld();
+          }
           if (!schema) {
             const usage = usageNow();
             await record(usage);
@@ -667,7 +688,7 @@ export function createAI(config?: AIConfig): AI {
       const answer = async () => {
         if (!cacheOption) return call();
         // The key is a hash of everything that shapes the answer; the answer is stored only after it succeeded.
-        const key = `inferlo:ai:${await sha256(JSON.stringify({ v: 1, models: targets.map((t) => t.id), messages, temperature: options.temperature ?? null, maxTokens: options.maxTokens ?? null, json: Boolean(schema) }))}`;
+        const key = `inferlo:ai:${await sha256(JSON.stringify({ v: 1, models: targets.map((t) => t.id), messages, temperature: options.temperature ?? null, maxTokens: maxTokens ?? null, json: Boolean(schema) }))}`;
         const store = (cacheOf ??= config?.cache ?? memoryAICache(1000));
         const hit = await store.get<{ text: string; object: unknown; model: string }>(key).catch(() => undefined);
         if (hit && typeof hit.text === "string") {
@@ -721,8 +742,11 @@ export function createAI(config?: AIConfig): AI {
         const targets = resolve(options.model);
         const prepared = prepareTools(self, options.tools, "stream");
         const maxSteps = Math.max(1, options.maxSteps ?? 5);
-        await guard(options.for, requested);
+        const guardrails = guardrailsFor(requested, options.guardrails, "stream");
+        const maxTokens = guardedMaxTokens(options.maxTokens, guardrails, "stream");
         const messages = buildMessages(options);
+        guardInput(messages, guardrails);
+        await guard(options.for, requested);
         const started = Date.now();
         let full = "";
         const start = spans && spanStart("chat", requested, targets, options);
@@ -749,18 +773,28 @@ export function createAI(config?: AIConfig): AI {
               let usage: ProviderUsage = { inputTokens: 0, outputTokens: 0 };
               let text = "";
               let toolCalls: ToolCall[] = [];
+              // Blocked terms: text that could still become one is held back until the next chunk or the step's end.
+              const checked = streamGuard(guardrails);
               try {
-                for await (const part of target.provider.stream({ model: target.model, messages: convo, temperature: options.temperature, maxTokens: options.maxTokens, tools: prepared.specs, signal: options.signal })) {
+                for await (const part of target.provider.stream({ model: target.model, messages: convo, temperature: options.temperature, maxTokens, tools: prepared.specs, signal: options.signal })) {
                   if (typeof part === "string") {
                     if (!part) continue;
                     text += part;
                     full += part;
                     sent = true;
-                    yield { type: "text", text: part };
+                    const safe = checked.push(part);
+                    if (safe) yield { type: "text", text: safe };
                   } else if ("toolCalls" in part) toolCalls = toolCalls.concat(part.toolCalls);
                   else if (part.usage) usage = part.usage;
                 }
+                const rest = checked.end();
+                if (rest) yield { type: "text", text: rest };
               } catch (error) {
+                if (error instanceof InferloError && error.code === "IL5043") {
+                  total.inputTokens += usage.inputTokens;
+                  total.outputTokens += usage.outputTokens;
+                  await record(usageNow(target));
+                }
                 if (error instanceof ProviderError && error.retryable && !sent && !toolsRan && i < targets.length - 1) {
                   fellBack = true;
                   break;

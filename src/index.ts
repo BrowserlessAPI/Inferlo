@@ -68,6 +68,8 @@ export type {
   Pricing,
   Provider,
   ProviderRequest,
+  Guardrails,
+  PiiKind,
   AccessToken,
   ProviderResponse,
   Image,

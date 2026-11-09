@@ -296,6 +296,15 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid AI answer cache.** `ai.generate({ cache: { ttlMs, tags } })` takes `ttlMs`, a whole number of milliseconds from 1 to 365 days, and optional `tags` (non-empty strings, for `cache.invalidate(tag)`), nothing else. A call with `tools` cannot be cached, because a cached answer would skip the tool calls the model makes: leave out `cache` there, or cache what the tools return with `ctx.cache.getOrSet`. See [Caching answers](ai.md#caching-answers).
 ### IL5041
 **Invalid AI provider options.** A provider adapter got options it cannot work with: `mistral()` needs `apiKey`; `azureOpenAI()` needs either `resource` (the resource name, letters, digits and dashes) or `baseURL` (the full v1 endpoint, `https://...`), and either `apiKey` or `token` (a function that returns a Microsoft Entra ID token), never both of a pair; `vertexAI()` needs `project` (a Google Cloud project id: 6 to 30 lowercase letters, digits and dashes), a `location` of `"global"` or a region such as `"us-central1"`, and `token` (a function that returns an OAuth access token). Read keys with `env()` or `config()` so an unset variable is reported by name. See [Mistral, Azure OpenAI and Vertex AI](ai.md#mistral-azure-openai-and-vertex-ai).
+### IL5042
+**Refused by a guardrail.** (422) The user input of an AI call is longer than the guardrail `maxInputChars`, or contains a word or phrase from `blockedTerms`. The message does not say which term matched. Send a shorter input or rephrase it; the limits are set in `createApp({ ai: { guardrails } })` or the call's `guardrails`. See [Guardrails](ai.md#guardrails).
+
+### IL5043
+**Answer withheld by a guardrail.** (502) The model's answer contains a word or phrase from the guardrail `blockedTerms`, so Inferlo does not return it (a stream stops before any part of the term is sent). Its tokens still count in `onUsage`. Retry, or change the system prompt so the model does not produce those terms. See [Guardrails](ai.md#guardrails).
+
+### IL5044
+**Invalid guardrails.** `guardrails` in `createAI` or `createApp({ ai })` maps aliases (or `"*"` for every call) to `{ maxInputChars, maxTokens, blockedTerms, redact }`: whole numbers of at least 1, a list of words or phrases (1 to 200 characters each), and kinds of personal data from `"email"`, `"phone"`, `"card"`, `"iban"` and `"ip"`. A key that is not an alias is refused, so a typo cannot switch a guardrail off. Also raised for a call whose `maxTokens` is above the guardrail's. See [Guardrails](ai.md#guardrails).
+
 ## App configuration (6xxx)
 
 ### IL6001

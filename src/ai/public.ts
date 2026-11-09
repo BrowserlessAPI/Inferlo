@@ -22,6 +22,7 @@ export { openai, openaiCompatible, anthropic, gemini, mistral, azureOpenAI, vert
 export type { TracingConfig, OtelApi, OtelSpan } from "../tracing.ts";
 export type { AI, AIConfig, AICache, GenerateOptions, GenerateResult, StreamResult, StreamResponseInit, StreamEvent, StreamOptions, Usage, Pricing, Step, ToolCallResult } from "./index.ts";
 export type { Provider, ProviderRequest, ProviderResponse, ProviderUsage, Image, ImageMediaType, Message, MockReply, ToolCall, ToolSpec, OpenAICompatibleOptions, AccessToken } from "./providers.ts";
+export type { Guardrails, PiiKind } from "./guardrails.ts";
 export { t, Schema, ObjectSchema, ArraySchema, ValidationError, toJSONSchema } from "../schema.ts";
 export type { Infer, InferInput, Issue, JSONSchema, AnySchema } from "../schema.ts";
 export { InferloError, httpError } from "../errors.ts";
