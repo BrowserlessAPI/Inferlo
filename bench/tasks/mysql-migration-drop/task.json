@@ -1,0 +1,5 @@
+{
+  "title": "Drop a field with a MySQL migration",
+  "prompt": "The app runs on MySQL and deploys with migrations (see migrations/). The `color` field of notes is no longer used: remove it from the model, and add the migration file migrations/0002_drop_color.sql with exactly the SQL `inferlo db migrate drop_color --allow-drop` would generate for this MySQL app, and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands.",
+  "packages": ["mysql2"]
+}

@@ -2,9 +2,10 @@
  * Migration files for MySQL: planMigration(models, snapshot, { dialect: "mysql" }) and applyMigrations() on a
  * mysql() database.
  *
- * Part 1 generates the additive changes: new tables (with their foreign keys), new columns (a required column
- * needs a fixed default, IL4014) and new indexes. Drops, column changes and renames are refused with IL4013 for
- * now; write those statements yourself in a new migration file.
+ * Generated: new tables (with their foreign keys), new columns (a required column needs a fixed default, IL4014),
+ * new indexes, and with { allowDrop: true } drops of tables, columns (their foreign key first) and indexes, which
+ * are otherwise refused with IL4017. Column changes and renames are refused with IL4013 for now; write those
+ * statements yourself in a new migration file.
  *
  * MySQL commits each schema change (CREATE, ALTER, DROP) as it runs, so a file cannot be rolled back as a whole:
  * the statements run one by one, the file is recorded once all of them ran, and a failure names the statement
@@ -13,7 +14,7 @@
 import { InferloError } from "../errors.ts";
 import { columnName, type AnyModel } from "../model.ts";
 import type { AnySchema } from "../schema.ts";
-import { columnDefinition, columnType, createTableSql, defaultSql, foreignKeySql, modelIndexes, sortByReferences } from "./mysql.ts";
+import { columnDefinition, columnType, constraintName, createTableSql, defaultSql, foreignKeySql, modelIndexes, sortByReferences } from "./mysql.ts";
 import type { DbRecord } from "./types.ts";
 import type { Migration, MigrationPlan, MigrationSnapshot, MigrationSnapshotColumn } from "./migrate.ts";
 
@@ -62,7 +63,7 @@ export function readMysqlSnapshot(input: unknown): MigrationSnapshot["tables"] {
 
 const describeColumn = (c: MigrationSnapshotColumn) => JSON.stringify([c.type, c.notNull, c.default ?? null, c.enum ?? null, c.references ?? null, Boolean(c.primaryKey)]);
 
-/** planMigration for MySQL: new tables, columns and indexes (see the file comment). */
+/** planMigration for MySQL: new tables, columns and indexes, and drops with allowDrop (see the file comment). */
 export function planMysqlMigration(models: readonly AnyModel[], previous: unknown, options: { allowDrop?: boolean; allowChange?: boolean; renames?: Readonly<Record<string, string>> }): MigrationPlan {
   const before = readMysqlSnapshot(previous);
   if (options.renames && Object.keys(options.renames).length) refuse(Object.entries(options.renames).map(([from, to]) => `rename ${from} -> ${to}`));
@@ -71,6 +72,7 @@ export function planMysqlMigration(models: readonly AnyModel[], previous: unknow
   const statements: string[] = [];
   const refused: string[] = [];
   const needDefault: string[] = [];
+  const drops: string[] = [];
   for (const model of sorted) {
     const now = tableSnapshot(model);
     snapshot.tables[model.name] = now;
@@ -80,14 +82,23 @@ export function planMysqlMigration(models: readonly AnyModel[], previous: unknow
       statements.push(...modelIndexes(model).map(([, sql]) => sql));
       continue;
     }
-    for (const [column, description] of Object.entries(old.columns)) {
-      if (!(column in now.columns)) refused.push(`drop column ${model.name}.${column}`);
-      else if (describeColumn(description) !== describeColumn(now.columns[column]!)) refused.push(`change column ${model.name}.${column}`);
-    }
+    const dropIndexes: string[] = [];
+    const dropColumns: string[] = [];
     for (const [name, sql] of Object.entries(old.indexes)) {
-      if (!(name in now.indexes)) refused.push(`drop index ${name}`);
-      else if (now.indexes[name] !== sql) refused.push(`change index ${name}`);
+      if (!(name in now.indexes)) {
+        drops.push(`drop index ${name}`);
+        dropIndexes.push(`DROP INDEX ${q(name)} ON ${q(model.name)}`);
+      } else if (now.indexes[name] !== sql) refused.push(`change index ${name}`);
     }
+    for (const [column, description] of Object.entries(old.columns)) {
+      if (!(column in now.columns)) {
+        drops.push(`drop column ${model.name}.${column}`);
+        // MySQL refuses to drop a column that a foreign key uses, so the constraint goes first.
+        if (description.references) dropColumns.push(`ALTER TABLE ${q(model.name)} DROP FOREIGN KEY ${q(constraintName(`${model.name}_${column}_fkey`))}`);
+        dropColumns.push(`ALTER TABLE ${q(model.name)} DROP COLUMN ${q(column)}`);
+      } else if (describeColumn(description) !== describeColumn(now.columns[column]!)) refused.push(`change column ${model.name}.${column}`);
+    }
+    statements.push(...dropIndexes, ...dropColumns);
     for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
       const column = columnName(field);
       if (column in old.columns) continue;
@@ -98,8 +109,22 @@ export function planMysqlMigration(models: readonly AnyModel[], previous: unknow
     }
     for (const [name, sql] of Object.entries(now.indexes)) if (!(name in old.indexes)) statements.push(sql);
   }
-  for (const table of Object.keys(before)) if (!(table in snapshot.tables)) refused.push(`drop table ${table}`);
+  const droppedTables = Object.keys(before).filter((table) => !(table in snapshot.tables));
+  if (droppedTables.length) {
+    drops.push(...droppedTables.map((table) => `drop table ${table}`));
+    // One statement, so foreign keys between the dropped tables do not matter; a table still referenced by a
+    // table that stays makes the migration fail instead of breaking the reference.
+    statements.push(`DROP TABLE IF EXISTS ${droppedTables.map(q).join(", ")}`);
+  }
   if (refused.length) refuse(refused);
+  if (drops.length && !options.allowDrop) {
+    const hint = renameHint(before, sorted);
+    throw new InferloError("IL4017", `Your model changes drop data: ${drops.join(", ")}.`, {
+      fix: `${hint ? `If you renamed it, undo the rename for now: renames are not generated on MySQL yet (write ALTER TABLE ... RENAME COLUMN yourself in a new migration file). ` : ""}If you mean to delete this data, run inferlo db migrate --allow-drop (or planMigration(models, snapshot, { dialect: "mysql", allowDrop: true })) and review the file. Otherwise restore the removed models, fields or indexes.`,
+      details: { drops },
+      expose: true,
+    });
+  }
   if (needDefault.length) {
     throw new InferloError("IL4014", `New required column${needDefault.length > 1 ? "s" : ""} ${needDefault.join(", ")} on an existing table need a value for existing rows.`, {
       fix: 'Add .default(value) (a fixed value, not a function) or .optional() to the field, e.g. status: t.enum(["open", "closed"]).default("open").',
@@ -107,12 +132,24 @@ export function planMysqlMigration(models: readonly AnyModel[], previous: unknow
       expose: true,
     });
   }
-  return { statements, snapshot, drops: [], changes: [], renames: [] };
+  return { statements, snapshot, drops, changes: [], renames: [] };
+}
+
+/** True when a table lost one column and gained one, or one table was replaced by another: probably a rename. */
+function renameHint(before: MigrationSnapshot["tables"], models: readonly AnyModel[]): boolean {
+  for (const model of models) {
+    const old = before[model.name];
+    if (!old) continue;
+    const columns = Object.keys(tableSnapshot(model).columns);
+    if (Object.keys(old.columns).filter((c) => !columns.includes(c)).length === 1 && columns.filter((c) => !(c in old.columns)).length === 1) return true;
+  }
+  const names = new Set(models.map((m) => m.name));
+  return Object.keys(before).filter((t) => !names.has(t)).length === 1 && models.filter((m) => !(m.name in before)).length === 1;
 }
 
 function refuse(changes: string[]): never {
   throw new InferloError("IL4013", `inferlo db migrate cannot generate these changes on MySQL yet: ${changes.join(", ")}.`, {
-    fix: "On MySQL, new tables, columns and indexes are generated. For drops, column changes and renames, undo these model changes, or write the SQL yourself in a new migration file (and update the models to match).",
+    fix: "On MySQL, new tables, columns and indexes, and drops with --allow-drop, are generated. For column changes and renames, undo these model changes, or write the SQL yourself in a new migration file (and update the models to match).",
     details: { changes },
     expose: true,
   });

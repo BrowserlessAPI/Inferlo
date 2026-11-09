@@ -154,7 +154,7 @@ function foreignKeys(model: AnyModel): string[] {
 }
 
 /** MySQL names are at most 64 characters. */
-function constraintName(name: string): string {
+export function constraintName(name: string): string {
   if (name.length <= 64) return name;
   let hash = 0;
   for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;

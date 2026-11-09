@@ -53,16 +53,35 @@ describe("planMigration on MySQL", () => {
     ]);
   });
 
-  test("a new required column without a default is IL4014; drops, changes and renames are IL4013 for now", () => {
+  test("a new required column without a default is IL4014; changes and renames are IL4013 for now", () => {
     const first = planMigration([Team, Note], undefined, { dialect: "mysql" });
     const required = model("mm_notes", { title: t.string().max(100), body: t.text().default(""), teamId: t.ref("mm_teams", { onDelete: "cascade" }), rank: t.int() });
     assert.throws(() => planMigration([Team, required], first.snapshot, { dialect: "mysql" }), isCode("IL4014"));
-    const dropped = model("mm_notes", { title: t.string().max(100), teamId: t.ref("mm_teams", { onDelete: "cascade" }) });
-    assert.throws(() => planMigration([Team, dropped], first.snapshot, { dialect: "mysql", allowDrop: true }), (e: unknown) => isCode("IL4013")(e) && /drop column mm_notes\.body/.test((e as Error).message));
     const changed = model("mm_notes", { title: t.string().max(200), body: t.text().default(""), teamId: t.ref("mm_teams", { onDelete: "cascade" }) });
     assert.throws(() => planMigration([Team, changed], first.snapshot, { dialect: "mysql", allowChange: true }), (e: unknown) => isCode("IL4013")(e) && /change column mm_notes\.title/.test((e as Error).message));
-    assert.throws(() => planMigration([Note], first.snapshot, { dialect: "mysql" }), (e: unknown) => isCode("IL4013")(e) && /drop table mm_teams/.test((e as Error).message));
     assert.throws(() => planMigration([Team, Note], first.snapshot, { dialect: "mysql", renames: { "mm_notes.body": "mm_notes.text" } }), isCode("IL4013"));
+  });
+
+  test("drops of tables, columns (foreign key first) and indexes need allowDrop (IL4017)", () => {
+    const full = planMigration([Team, NoteV2], undefined, { dialect: "mysql" });
+    const Smaller = model("mm_notes", { title: t.string().max(100), body: t.text().default(""), teamId: t.ref("mm_teams", { onDelete: "cascade" }), status: t.enum(["open", "done"]).default("open"), tags: t.array(t.string()).default([]) });
+    assert.throws(
+      () => planMigration([Team, Smaller], full.snapshot, { dialect: "mysql" }),
+      (e: unknown) => isCode("IL4017")(e) && Array.isArray(((e as InferloError).details as { drops?: unknown }).drops) && /drop column mm_notes\.slug/.test((e as Error).message) && /--allow-drop/.test((e as InferloError).fix!),
+    );
+    const plan = planMigration([Team, Smaller], full.snapshot, { dialect: "mysql", allowDrop: true });
+    assert.deepEqual(plan.statements, [
+      "DROP INDEX `mm_notes_slug_idx` ON `mm_notes`",
+      "ALTER TABLE `mm_notes` DROP COLUMN `slug`",
+      "ALTER TABLE `mm_notes` DROP FOREIGN KEY `mm_notes_owner_id_fkey`",
+      "ALTER TABLE `mm_notes` DROP COLUMN `owner_id`",
+    ]);
+    assert.deepEqual(plan.drops, ["drop index mm_notes_slug_idx", "drop column mm_notes.slug", "drop column mm_notes.owner_id"]);
+    const tablesGone = planMigration([], full.snapshot, { dialect: "mysql", allowDrop: true });
+    assert.deepEqual(tablesGone.statements, ["DROP TABLE IF EXISTS `mm_teams`, `mm_notes`"]);
+    const Renamed = model("mm_notes", { headline: t.string().max(100), body: t.text().default(""), teamId: t.ref("mm_teams", { onDelete: "cascade" }) });
+    const first = planMigration([Team, Note], undefined, { dialect: "mysql" });
+    assert.throws(() => planMigration([Team, Renamed], first.snapshot, { dialect: "mysql" }), (e: unknown) => isCode("IL4017")(e) && /renames are not generated on MySQL yet/.test((e as InferloError).fix!));
   });
 
   test("a snapshot written for the other database is IL4037", () => {
@@ -126,6 +145,26 @@ else describe("applyMigrations on MySQL", () => {
     const applied = await applyMigrations(db, [{ name: "0001_init", sql: "SELECT 1" }, { name: "0002_more", sql: file(second.statements) }], { onEdited: (names) => (edited = names) });
     assert.deepEqual(applied, []);
     assert.deepEqual(edited, ["0001_init"]);
+  });
+
+  test("generated drops apply: foreign key, column, index and table", async () => {
+    const Smaller = model("mm_notes", { title: t.string().max(100), body: t.text().default(""), teamId: t.ref("mm_teams", { onDelete: "cascade" }), status: t.enum(["open", "done"]).default("open"), tags: t.array(t.string()).default([]) });
+    const dropColumns = planMigration([Team, Smaller], second.snapshot, { dialect: "mysql", allowDrop: true });
+    const Extra = model("mm_extra", { teamId: t.ref("mm_teams") });
+    const withExtra = planMigration([Team, Smaller, Extra], dropColumns.snapshot, { dialect: "mysql" });
+    const dropTable = planMigration([Team, Smaller], withExtra.snapshot, { dialect: "mysql", allowDrop: true });
+    const applied = await applyMigrations(db, [
+      { name: "0001_init", sql: file(first.statements) },
+      { name: "0002_more", sql: file(second.statements) },
+      { name: "0010_drop_columns", sql: file(dropColumns.statements) },
+      { name: "0011_extra", sql: file(withExtra.statements) },
+      { name: "0012_drop_extra", sql: file(dropTable.statements) },
+    ]);
+    assert.deepEqual(applied, ["0010_drop_columns", "0011_extra", "0012_drop_extra"]);
+    assert.deepEqual(await createDb([Team, Smaller], adapter).$sync({ dryRun: true }), [], "the tables match the models");
+    const columns = (await db.$sql("SELECT COLUMN_NAME AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mm_notes'")).map((r) => r.c);
+    assert.ok(!columns.includes("slug") && !columns.includes("owner_id"));
+    assert.equal((await db.$sql("SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mm_extra'"))[0]!.n, 0);
   });
 
   test("a failing statement is IL4038 naming it; the statements before it stay applied and the file is not recorded", async () => {

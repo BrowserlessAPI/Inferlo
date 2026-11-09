@@ -29,7 +29,8 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] MySQL adapter part 1: `mysql({ url | pool })` from `@browserlessapi/inferlo/mysql` on `mysql2`, with `db push`, transactions, raw SQL and vector search, tested in CI on MySQL 8.4 and latest with mysql2 3.0.0 and latest
 - [x] MySQL adapter part 2a: the `"database"` stores for `jobQueue`, `cache` and `rateLimit` on MySQL
 - [x] MySQL adapter part 2b-1: migration files for MySQL: `inferlo db migrate` writes new tables, columns, foreign keys and indexes as MySQL SQL, and `--apply` runs them statement by statement under a named lock
-- [ ] MySQL adapter part 2b-2: drops (`--allow-drop`), column changes (`--allow-change`) and renames (`--rename`) in MySQL migration files
+- [x] MySQL adapter part 2b-2: drops (`--allow-drop`) in MySQL migration files
+- [ ] MySQL adapter part 2b-3: column changes (`--allow-change`) and renames (`--rename`) in MySQL migration files
 - [x] SQLite adapter part 1: `sqlite({ path })` from `@browserlessapi/inferlo/sqlite` on the runtime's built-in SQLite (`node:sqlite`, `bun:sqlite`), with `db push`, transactions, raw SQL and vector search, tested on Node.js 22.18 to current, Bun 1.3.0 to latest and Deno
 - [x] SQLite adapter part 2a: `inferlo new --db sqlite` (and `--db mysql`)
 - [ ] SQLite adapter part 2b: migration files for SQLite (`inferlo db migrate` writing SQLite SQL, with table rebuilds for the changes SQLite cannot `ALTER`)
