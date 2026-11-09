@@ -57,7 +57,7 @@ createApp({
 - Works with providers made for `ai` 5, 6 and 7 (`@ai-sdk/*` 2.0 and later: language model specifications v2, v3 and v4). Inferlo does not depend on the AI SDK; install the provider packages you use. An older provider, or anything that is not a provider, raises IL5029.
 - Errors of the AI SDK (`APICallError`) become IL5006 with the HTTP status, so 429, 5xx and network errors move on to the next model of an alias like any other provider. Embeddings are sent in batches of the model's `maxEmbeddingsPerCall`.
 - The provider name in errors and traces is the AI SDK's own (`mistral`); `aiSdk(provider, { name: "eu-mistral" })` sets another.
-- `ai.stream` streams text; tool calls are available with `ai.generate`, as with every provider.
+- `ai.stream` streams text, and with `tools` it streams the tool calls too (see [Streaming with tools](#streaming-with-tools)).
 
 ## Use it without createApp
 
@@ -218,7 +218,7 @@ export const assistant = route
 - **Usage per step.** `steps` lists every model call with its `text`, `toolCalls` (`name`, `input`, `status`, `output`, `isError`) and `usage`; `usage` has the totals and is reported to `onUsage` once. `allow` is checked again before every model call that follows tool calls, so budgets stop a long run.
 - **Fallback.** Once a tool has run, Inferlo does not retry on the next model in the alias (that would run the tools again); the call fails with IL5006.
 - **Structured output** works with tools: pass `output` and the final answer is validated as usual.
-- Works with Anthropic, OpenAI, Gemini and OpenAI-compatible servers whose models support tool calling. Route tools only work through `ctx.ai` inside a route handler (IL5009), and must be routes registered in `createApp` (IL5011); function tools work anywhere. Streaming with tools is not supported yet.
+- Works with Anthropic, OpenAI, Gemini and OpenAI-compatible servers whose models support tool calling. Route tools only work through `ctx.ai` inside a route handler (IL5009), and must be routes registered in `createApp` (IL5011); function tools work anywhere. `ai.stream` takes the same `tools` and `maxSteps` and streams the tool calls as they happen (see [Streaming with tools](#streaming-with-tools)).
 
 In tests, a `mockProvider` can return tool calls:
 
@@ -237,6 +237,35 @@ export const chat = route
 ```
 
 `toResponse()` sends server-sent events: `text` events with JSON-encoded chunks, then a `done` event with usage. You can also iterate: `for await (const chunk of ai.stream(...))`, or `await stream.text()`.
+
+### Streaming with tools
+
+`ai.stream` takes the same `tools` and `maxSteps` as [`ai.generate`](#tools-let-the-model-call-your-functions). The model's text streams as it is written, Inferlo runs the tools it calls (routes as the signed-in user, function tools anywhere), and the next step's text follows:
+
+```ts
+export const chat = route
+  .post("/chat", { body: t.object({ message: t.string().max(4000) }) })
+  .handle(({ body, ai, user }) =>
+    ai.stream({ model: "fast", prompt: body.message, tools: [getWeather, createTicket], for: user.id }).toResponse(),
+  );
+```
+
+The browser receives, in order:
+
+```
+event: text         data: "Let me check. "
+event: tool-call    data: {"id":"call_1","name":"getWeather","input":{"city":"Oslo"}}
+event: tool-result  data: {"id":"call_1","name":"getWeather","status":200,"isError":false}
+event: text         data: "Bring an umbrella."
+event: done         data: {"usage":{...}}
+```
+
+- **What reaches the browser.** Tool calls (name and arguments) and each result's `status` and `isError` are sent; what the tools returned stays on the server, because it can hold data the user should only see through the model's answer. `toResponse({ toolOutputs: true })` adds `output` to `tool-result` events.
+- **On the server**, `stream.events()` yields `{ type: "text", text }`, `{ type: "tool-call", id, name, input }` and `{ type: "tool-result", id, name, input, status, output, isError }` as they happen; iterating the stream itself yields only text. `await stream.steps()` lists every model call with its tool calls and usage, as `steps` does for `ai.generate`. Read a stream one way only.
+- **Steps, budgets and fallback** work as in `ai.generate`: `maxSteps` (default 5) limits model calls (IL5010), `allow` is checked before every model call that follows tool calls, usage of every step is reported to `onUsage` once, and Inferlo falls back to the next model of an alias only while nothing was sent and no tool ran (after that, IL5006). An error ends the stream with an `error` event that carries only the code.
+- **useChat.** With `toResponse({ format: "ai-sdk" })`, tool calls become tool parts of the message (`tool-input-available`, then `tool-output-available` or `tool-output-error`), and the text after a tool call is a new text part. `output` is `null` unless `toolOutputs: true`; a failed tool sends only its status.
+- **WebSockets.** `socket.stream(ai.stream({ tools }))` sends `{ "type": "tool-call", ... }` and `{ "type": "tool-result", ... }` messages (without the output) between the text chunks.
+- Anthropic, OpenAI, Gemini, OpenAI-compatible servers, `aiSdk()` providers and `mockProvider` stream tool calls. A custom provider's `stream` yields `{ toolCalls }` once a call's arguments are complete, next to text chunks and `{ usage }`.
 
 ### Chat UIs with the Vercel AI SDK (useChat)
 
@@ -261,7 +290,7 @@ const { messages, sendMessage, status } = useChat();
 
 - **Body.** `uiChatBody` accepts what `useChat` sends (`{ id, messages, trigger, ... }`) and keeps each message's `role` (`system`, `user` or `assistant`) and its parts' `type` and `text`; ids, metadata and other fields are dropped. It allows 1 to 500 messages, 100 parts per message and 100,000 characters per text part. Combine it with a route's `rateLimit` and the AI module's budgets.
 - **Messages.** `fromUIMessages(messages)` joins the text parts of each message and leaves out other parts (files, reasoning, tool calls, data parts); messages without text are dropped. Add your own system message in front: `messages: [{ role: "system", content: "..." }, ...fromUIMessages(body.messages)]`. A client can send any role, including `system`, so filter with `.filter((m) => m.role !== "system")` when callers must not change your instructions.
-- **Stream.** The answer is one text part: `start`, `text-start`, `text-delta` chunks, `text-end`, `finish`, then `[DONE]`, with the `x-vercel-ai-ui-message-stream: v1` header. If the model call fails, the stream ends with an `error` chunk that carries only the error code (`The model call failed (IL5006).`); details stay in your logs. Usage is recorded on the server (`onUsage`, budgets), not sent to the browser.
+- **Stream.** The answer is one text part: `start`, `text-start`, `text-delta` chunks, `text-end`, `finish`, then `[DONE]` (with `tools`, tool parts and more text parts, see [Streaming with tools](#streaming-with-tools)), with the `x-vercel-ai-ui-message-stream: v1` header. If the model call fails, the stream ends with an `error` chunk that carries only the error code (`The model call failed (IL5006).`); details stay in your logs. Usage is recorded on the server (`onUsage`, budgets), not sent to the browser.
 - **Auth.** The route is private by default: `useChat({ transport: new DefaultChatTransport({ api: "/api/chat", headers: { authorization: "Bearer " + token } }) })` sends a token, and cookie sessions work without extra options.
 - **Versions.** Tested with the `ai` package 5.0.0 (the first release with this protocol) and the latest release, through its `DefaultChatTransport`, the transport `useChat` uses. Nothing from the `ai` package is loaded by Inferlo.
 - An unknown `format` raises IL5027.

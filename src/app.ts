@@ -869,9 +869,21 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         }
         let text = "";
         // After the socket closes, sends do nothing; with ctx.ai the stream itself is cancelled by ctx.signal.
-        for await (const chunk of result) {
-          text += chunk;
-          socket.send({ type: "text", text: chunk });
+        // Tool calls and each tool's status are sent too; what the tools returned stays on the server.
+        const events = typeof (result as Partial<StreamResult>).events === "function" ? result.events() : undefined;
+        if (events) {
+          for await (const event of events) {
+            if (event.type === "text") {
+              text += event.text;
+              socket.send({ type: "text", text: event.text });
+            } else if (event.type === "tool-call") socket.send({ type: "tool-call", id: event.id, name: event.name, input: event.input });
+            else socket.send({ type: "tool-result", id: event.id, name: event.name, status: event.status, isError: event.isError });
+          }
+        } else {
+          for await (const chunk of result) {
+            text += chunk;
+            socket.send({ type: "text", text: chunk });
+          }
         }
         const usage = await result.usage();
         socket.send({ type: "done", usage });

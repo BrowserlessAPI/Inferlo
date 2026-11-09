@@ -1,0 +1,4 @@
+{
+  "title": "Streamed AI assistant with route tools",
+  "prompt": "Add POST /assistant with body { message } (1 to 4000 characters). It streams the \"fast\" AI model alias's answer to the browser as server-sent events, letting the model call the existing createNote and listNotes routes as tools while it streams, so it can create and list the signed-in user's notes. The browser should see the text, each tool call and each tool result's status, but not what the tools returned. Track AI usage for the user."
+}

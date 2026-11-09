@@ -191,13 +191,31 @@ export function bindTools(ai: AI, runner: ToolRunner, describe: (route: RouteDef
 export interface StreamResponseInit extends ResponseInit {
   /** "sse" (default): Inferlo's text and done events. "ai-sdk": the AI SDK UI message stream protocol, for useChat. */
   format?: "sse" | "ai-sdk";
+  /**
+   * Send what tools returned to the browser (default false). Tool calls (name and arguments) and each result's status
+   * are always sent; the tools' output stays on the server unless this is true.
+   */
+  toolOutputs?: boolean;
 }
+
+/** One event of ai.stream(...).events(): a text chunk, a tool call the model made, or what the tool returned. */
+export type StreamEvent =
+  | { type: "text"; text: string }
+  | { type: "tool-call"; id: string; name: string; input: unknown }
+  | ({ type: "tool-result" } & ToolCallResult);
+
+/** Options of ai.stream: those of ai.generate without structured output. */
+export type StreamOptions = Omit<GenerateOptions<undefined>, "output">;
 
 export interface StreamResult {
   /** Text chunks as they arrive. */
   [Symbol.asyncIterator](): AsyncIterator<string>;
-  /** Full text once the stream finishes. */
+  /** Text chunks, tool calls and tool results as they happen, for ai.stream({ tools }). Read the stream one way only. */
+  events(): AsyncIterable<StreamEvent>;
+  /** Full text once the stream finishes (every step's text, for a stream with tools). */
   text(): Promise<string>;
+  /** Every model call in order, with tool calls and usage per step, once the stream finishes. */
+  steps(): Promise<Step[]>;
   /**
    * A server-sent events Response for browsers. The default format sends "text" events, then "done" with usage.
    * format: "ai-sdk" speaks the AI SDK UI message stream protocol (v1), for useChat from @ai-sdk/react.
@@ -209,7 +227,7 @@ export interface StreamResult {
 
 export interface AI {
   generate<O extends AnySchema | StandardSchema | undefined = undefined>(options: GenerateOptions<O>): Promise<GenerateResult<O extends undefined ? undefined : InferOutput<O>>>;
-  stream(options: Omit<GenerateOptions<undefined>, "output" | "tools" | "maxSteps">): StreamResult;
+  stream(options: StreamOptions): StreamResult;
   embed(options: { model?: string; input: string | string[]; for?: string; signal?: AbortSignal }): Promise<{ embeddings: number[][]; usage: Usage }>;
   /** Configured aliases, for describe(). */
   readonly aliases: Record<string, string[]>;
@@ -286,6 +304,57 @@ export function extractJson(text: string): unknown {
     if (start !== -1 && end > start) return JSON.parse(candidate.slice(start, end + 1));
     throw new SyntaxError("No JSON found in model output");
   }
+}
+
+interface ToolEntry {
+  route?: RouteDef;
+  fn?: ToolDef;
+  spec: ToolSpec;
+}
+
+interface PreparedTools {
+  tools: Map<string, ToolEntry>;
+  specs: ToolSpec[] | undefined;
+  tooling: { runner: ToolRunner; describe: (route: RouteDef) => ToolSpec } | undefined;
+}
+
+/** The tools of one ai.generate or ai.stream call, by name. Raises IL5009 for routes outside a route handler and IL5013 for duplicate names. */
+function prepareTools(self: AI, list: readonly (ToolDef | RouteDef)[] | undefined, method: "generate" | "stream"): PreparedTools {
+  const routeTools = (list ?? []).filter((t) => !isTool(t)) as RouteDef[];
+  const tooling = routeTools.length ? toolRunners.get(self) : undefined;
+  if (routeTools.length && !tooling) {
+    throw new InferloError("IL5009", `Routes as tools in ai.${method}({ tools }) only work inside a route handler.`, {
+      fix: `Call ctx.ai.${method}({ tools }) from a route handler, so each route runs as the signed-in user with its auth and validation, or make a function tool with tool(name, { description, input }).handle(fn), which works anywhere.`,
+    });
+  }
+  const tools = new Map<string, ToolEntry>();
+  for (const entry of list ?? []) {
+    const fn = isTool(entry) ? entry : undefined;
+    const spec = fn ? functionToolSpec(fn) : tooling!.describe(entry as RouteDef);
+    if (tools.has(spec.name)) {
+      throw new InferloError("IL5013", `Two tools are named "${spec.name}" in one ai.${method} call.`, { fix: "Give each tool a unique name (a route's tool name is its export name, or tool: { name })." });
+    }
+    tools.set(spec.name, fn ? { fn, spec } : { route: entry as RouteDef, spec });
+  }
+  return { tools, specs: tools.size ? [...tools.values()].map((t) => t.spec) : undefined, tooling };
+}
+
+/**
+ * Runs one tool call the model made. Unknown tools and arguments that are not an object go back to the model as the
+ * problem; ran is false for those, because nothing ran. Errors a function tool throws (other than httpError) propagate.
+ */
+async function runToolCall(prepared: PreparedTools, call: ToolCall, signal: AbortSignal | undefined): Promise<{ status: number; output: unknown; text: string; ran: boolean }> {
+  const tool = prepared.tools.get(call.name);
+  if (!tool) {
+    const text = `Unknown tool "${call.name}". Available tools: ${[...prepared.tools.keys()].join(", ")}.`;
+    return { status: 404, output: text, text, ran: false };
+  }
+  if (typeof call.input !== "object" || call.input === null || Array.isArray(call.input)) {
+    const text = "Tool arguments must be a JSON object.";
+    return { status: 422, output: text, text, ran: false };
+  }
+  const result = tool.fn ? await runFunctionTool(tool.fn, call.input, signal) : await prepared.tooling!.runner(tool.route!, call.input);
+  return { status: result.status, output: result.output, text: result.text, ran: true };
 }
 
 export function createAI(config?: AIConfig): AI {
@@ -397,25 +466,10 @@ export function createAI(config?: AIConfig): AI {
     async generate(options) {
       const requested = options.model ?? config?.defaultModel ?? Object.keys(aliases)[0] ?? "";
       const targets = resolve(options.model);
-      const routeTools = (options.tools ?? []).filter((t) => !isTool(t)) as RouteDef[];
-      const tooling = routeTools.length ? toolRunners.get(this as AI) : undefined;
-      if (routeTools.length && !tooling) {
-        throw new InferloError("IL5009", "Routes as tools in ai.generate({ tools }) only work inside a route handler.", {
-          fix: "Call ctx.ai.generate({ tools }) from a route handler, so each route runs as the signed-in user with its auth and validation, or make a function tool with tool(name, { description, input }).handle(fn), which works anywhere.",
-        });
-      }
+      const prepared = prepareTools(this as AI, options.tools, "generate");
+      const { tools, specs } = prepared;
       const adapter = options.output === undefined ? undefined : schemaAdapter(options.output);
       if (typeof adapter === "string") throw invalidOutputSchema(adapter);
-      const tools = new Map<string, { route?: RouteDef; fn?: ToolDef; spec: ToolSpec }>();
-      for (const entry of options.tools ?? []) {
-        const fn = isTool(entry) ? entry : undefined;
-        const spec = fn ? functionToolSpec(fn) : tooling!.describe(entry as RouteDef);
-        if (tools.has(spec.name)) {
-          throw new InferloError("IL5013", `Two tools are named "${spec.name}" in one ai.generate call.`, { fix: "Give each tool a unique name (a route's tool name is its export name, or tool: { name })." });
-        }
-        tools.set(spec.name, fn ? { fn, spec } : { route: entry as RouteDef, spec });
-      }
-      const specs = tools.size ? [...tools.values()].map((t) => t.spec) : undefined;
       const maxSteps = Math.max(1, options.maxSteps ?? 5);
       await guard(options.for, requested);
       const messages = buildMessages(options);
@@ -479,25 +533,15 @@ export function createAI(config?: AIConfig): AI {
             }
             convo.push({ role: "assistant", content: response.text, toolCalls: response.toolCalls });
             for (const call of response.toolCalls) {
-              const tool = tools.get(call.name);
-              let result: { status: number; output: unknown; text: string };
-              if (!tool) {
-                const text = `Unknown tool "${call.name}". Available tools: ${[...tools.keys()].join(", ")}.`;
-                result = { status: 404, output: text, text };
-              } else if (typeof call.input !== "object" || call.input === null || Array.isArray(call.input)) {
-                const text = "Tool arguments must be a JSON object.";
-                result = { status: 422, output: text, text };
-              } else {
+              let result: { status: number; output: unknown; text: string; ran: boolean };
+              try {
+                result = await runToolCall(prepared, call, options.signal);
+              } catch (error) {
                 toolsRan = true;
-                if (tool.fn) {
-                  try {
-                    result = await runFunctionTool(tool.fn, call.input, options.signal);
-                  } catch (error) {
-                    await record(usageNow());
-                    throw error;
-                  }
-                } else result = await tooling!.runner(tool.route!, call.input);
+                await record(usageNow());
+                throw error;
               }
+              if (result.ran) toolsRan = true;
               const isError = result.status >= 400;
               step.toolCalls.push({ id: call.id, name: call.name, input: call.input, status: result.status, output: result.output, isError });
               convo.push({ role: "tool", toolCallId: call.id, content: result.text, ...(isError ? { isError } : {}) });
@@ -560,18 +604,23 @@ export function createAI(config?: AIConfig): AI {
 
     stream(options) {
       const requested = options.model ?? config?.defaultModel ?? Object.keys(aliases)[0] ?? "";
+      const self = this as AI;
       let resolveText!: (t: string) => void;
       let rejectText!: (e: unknown) => void;
       let resolveUsage!: (u: Usage) => void;
+      let resolveSteps!: (s: Step[]) => void;
       const textPromise = new Promise<string>((res, rej) => ((resolveText = res), (rejectText = rej)));
       const usagePromise = new Promise<Usage>((res) => (resolveUsage = res));
+      const stepsPromise = new Promise<Step[]>((res) => (resolveSteps = res));
       textPromise.catch(() => {});
       let consumed = false;
 
-      async function* run(): AsyncGenerator<string> {
+      async function* run(): AsyncGenerator<StreamEvent> {
         if (consumed) throw new InferloError("IL5008", "A stream can only be read once.", { fix: "Call ai.stream() again, or use await stream.text()." });
         consumed = true;
         const targets = resolve(options.model);
+        const prepared = prepareTools(self, options.tools, "stream");
+        const maxSteps = Math.max(1, options.maxSteps ?? 5);
         await guard(options.for, requested);
         const messages = buildMessages(options);
         const started = Date.now();
@@ -579,33 +628,97 @@ export function createAI(config?: AIConfig): AI {
         const start = spans && spanStart("chat", requested, targets, options);
         const span = start ? spans!.start(start.name, { ...start.attributes, "inferlo.ai.stream": true }) : undefined;
         let spanEnded = false;
+        // Fallback to the next model happens only while nothing was sent and no tool ran.
+        let sent = false;
+        let toolsRan = false;
+        const steps: Step[] = [];
+        const total = { inputTokens: 0, outputTokens: 0 };
+        let answered: Target | undefined;
+        const usageNow = (target: Target): Usage => ({ requested, model: target.id, ...total, cost: cost(target.id, total), for: options.for, kind: "stream", durationMs: Date.now() - started });
         try {
           for (let i = 0; i < targets.length; i++) {
             const target = targets[i]!;
             if (!target.provider.stream) {
               throw new InferloError("IL5005", `Provider "${target.providerName}" does not support streaming.`);
             }
-            let usage: ProviderUsage = { inputTokens: 0, outputTokens: 0 };
-            try {
-              for await (const part of target.provider.stream({ model: target.model, messages, temperature: options.temperature, maxTokens: options.maxTokens, signal: options.signal })) {
-                if (typeof part === "string") {
-                  full += part;
-                  yield part;
-                } else usage = part.usage;
+            const convo = messages.map((m) => ({ ...m }));
+            let fellBack = false;
+            while (true) {
+              // Budgets are checked again before every model call that follows tool calls.
+              if (steps.length) await guard(options.for, requested);
+              let usage: ProviderUsage = { inputTokens: 0, outputTokens: 0 };
+              let text = "";
+              let toolCalls: ToolCall[] = [];
+              try {
+                for await (const part of target.provider.stream({ model: target.model, messages: convo, temperature: options.temperature, maxTokens: options.maxTokens, tools: prepared.specs, signal: options.signal })) {
+                  if (typeof part === "string") {
+                    if (!part) continue;
+                    text += part;
+                    full += part;
+                    sent = true;
+                    yield { type: "text", text: part };
+                  } else if ("toolCalls" in part) toolCalls = toolCalls.concat(part.toolCalls);
+                  else if (part.usage) usage = part.usage;
+                }
+              } catch (error) {
+                if (error instanceof ProviderError && error.retryable && !sent && !toolsRan && i < targets.length - 1) {
+                  fellBack = true;
+                  break;
+                }
+                if (toolsRan && error instanceof ProviderError && error.retryable) {
+                  await record(usageNow(target));
+                  throw new InferloError("IL5006", error.message, { status: 502, expose: false, fix: "Tools already ran, so Inferlo does not retry on a fallback model. Retry the request.", cause: error });
+                }
+                throw error;
               }
-            } catch (error) {
-              // Fall back only if nothing was sent yet.
-              if (error instanceof ProviderError && error.retryable && full === "" && i < targets.length - 1) continue;
-              throw error;
+              total.inputTokens += usage.inputTokens;
+              total.outputTokens += usage.outputTokens;
+              const step: Step = { text, toolCalls: [], usage };
+              steps.push(step);
+              if (!prepared.specs || !toolCalls.length) {
+                answered = target;
+                break;
+              }
+              if (steps.length >= maxSteps) {
+                await record(usageNow(target));
+                throw new InferloError("IL5010", `Model ${target.id} was still calling tools after ${maxSteps} steps.`, {
+                  status: 502,
+                  expose: false,
+                  fix: "Raise maxSteps, give the model fewer and more specific tools, or say in the prompt when to stop.",
+                  details: steps.map((s) => s.toolCalls.map((c) => c.name)),
+                });
+              }
+              convo.push({ role: "assistant", content: text, toolCalls });
+              for (const call of toolCalls) {
+                sent = true;
+                yield { type: "tool-call", id: call.id, name: call.name, input: call.input };
+                let result: { status: number; output: unknown; text: string; ran: boolean };
+                try {
+                  result = await runToolCall(prepared, call, options.signal);
+                } catch (error) {
+                  toolsRan = true;
+                  await record(usageNow(target));
+                  throw error;
+                }
+                if (result.ran) toolsRan = true;
+                const isError = result.status >= 400;
+                const done: ToolCallResult = { id: call.id, name: call.name, input: call.input, status: result.status, output: result.output, isError };
+                step.toolCalls.push(done);
+                convo.push({ role: "tool", toolCallId: call.id, content: result.text, ...(isError ? { isError } : {}) });
+                yield { type: "tool-result", ...done };
+              }
             }
-            const u: Usage = { requested, model: target.id, ...usage, cost: cost(target.id, usage), for: options.for, kind: "stream", durationMs: Date.now() - started };
+            if (fellBack) continue;
+            const u = usageNow(answered!);
             await record(u);
             if (span) {
               spanUsage(span, u);
+              if (prepared.specs) span.setAttribute("inferlo.ai.steps", steps.length);
               span.end();
               spanEnded = true;
             }
             resolveUsage(u);
+            resolveSteps(steps);
             resolveText(full);
             return;
           }
@@ -625,18 +738,28 @@ export function createAI(config?: AIConfig): AI {
         }
       }
 
-      let iterator: AsyncGenerator<string> | undefined;
+      let iterator: AsyncGenerator<StreamEvent> | undefined;
       const start = () => (iterator ??= run());
+      async function* texts(): AsyncGenerator<string> {
+        for await (const event of start()) if (event.type === "text") yield event.text;
+      }
+
+      const text = async () => {
+        if (!iterator) for await (const _ of start()) void _;
+        return textPromise;
+      };
 
       return {
-        [Symbol.asyncIterator]: () => start(),
-        async text() {
-          if (!iterator) for await (const _ of start()) void _;
-          return textPromise;
+        [Symbol.asyncIterator]: () => texts(),
+        events: () => start(),
+        text,
+        steps: async () => {
+          await text();
+          return stepsPromise;
         },
         usage: () => usagePromise,
         toResponse(init) {
-          const { format = "sse", ...responseInit } = init ?? {};
+          const { format = "sse", toolOutputs = false, ...responseInit } = init ?? {};
           if (format !== "sse" && format !== "ai-sdk") {
             throw new InferloError("IL5027", `Unknown stream format "${String(format)}" in toResponse({ format }).`, {
               fix: 'Use toResponse() for Inferlo\'s server-sent events, or toResponse({ format: "ai-sdk" }) for useChat from the Vercel AI SDK.',
@@ -645,22 +768,22 @@ export function createAI(config?: AIConfig): AI {
           const encoder = new TextEncoder();
           const source = start();
           const aiSdk = format === "ai-sdk";
-          const textId = aiSdk ? `text-${crypto.randomUUID()}` : "";
-          let opened = false;
+          let textId = "";
           // AI SDK UI message stream chunks are server-sent events with only a data field.
           const chunk = (value: unknown) => encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+          const sse = (event: string, value: unknown) => encoder.encode(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
           const body = new ReadableStream<Uint8Array>({
             start(controller) {
               if (aiSdk) controller.enqueue(chunk({ type: "start" }));
             },
             async pull(controller) {
               try {
-                const { value, done } = await source.next();
+                const { value: event, done } = await source.next();
                 if (done) {
                   const usage = await usagePromise;
-                  if (!aiSdk) controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ usage })}\n\n`));
+                  if (!aiSdk) controller.enqueue(sse("done", { usage }));
                   else {
-                    if (opened) controller.enqueue(chunk({ type: "text-end", id: textId }));
+                    if (textId) controller.enqueue(chunk({ type: "text-end", id: textId }));
                     controller.enqueue(chunk({ type: "finish" }));
                     controller.enqueue(encoder.encode("data: [DONE]\n\n"));
                   }
@@ -668,17 +791,30 @@ export function createAI(config?: AIConfig): AI {
                   return;
                 }
                 if (!aiSdk) {
-                  controller.enqueue(encoder.encode(`event: text\ndata: ${JSON.stringify(value)}\n\n`));
+                  if (event.type === "text") controller.enqueue(sse("text", event.text));
+                  else if (event.type === "tool-call") controller.enqueue(sse("tool-call", { id: event.id, name: event.name, input: event.input }));
+                  else controller.enqueue(sse("tool-result", { id: event.id, name: event.name, status: event.status, isError: event.isError, ...(toolOutputs ? { output: event.output } : {}) }));
                   return;
                 }
-                if (!opened) {
-                  opened = true;
-                  controller.enqueue(chunk({ type: "text-start", id: textId }));
+                if (event.type === "text") {
+                  if (!textId) {
+                    textId = `text-${crypto.randomUUID()}`;
+                    controller.enqueue(chunk({ type: "text-start", id: textId }));
+                  }
+                  controller.enqueue(chunk({ type: "text-delta", id: textId, delta: event.text }));
+                  return;
                 }
-                controller.enqueue(chunk({ type: "text-delta", id: textId, delta: value }));
+                // Text after a tool call is a new text part, as the AI SDK sends it.
+                if (textId) {
+                  controller.enqueue(chunk({ type: "text-end", id: textId }));
+                  textId = "";
+                }
+                if (event.type === "tool-call") controller.enqueue(chunk({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input }));
+                else if (event.isError) controller.enqueue(chunk({ type: "tool-output-error", toolCallId: event.id, errorText: `The tool answered with status ${event.status}.` }));
+                else controller.enqueue(chunk({ type: "tool-output-available", toolCallId: event.id, output: toolOutputs ? event.output : null }));
               } catch (error) {
                 const code = error instanceof InferloError ? error.code : "IL9000";
-                if (!aiSdk) controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ code })}\n\n`));
+                if (!aiSdk) controller.enqueue(sse("error", { code }));
                 else {
                   // Only the code reaches the browser; the details are logged below.
                   controller.enqueue(chunk({ type: "error", errorText: `The model call failed (${code}).` }));

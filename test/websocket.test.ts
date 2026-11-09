@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import { after, before, describe, test } from "node:test";
-import { bearer, createApp, InferloError, memory, mockProvider, model, route, t, type Socket } from "../src/index.ts";
+import { bearer, createApp, InferloError, memory, mockProvider, model, route, t, tool, type ProviderRequest, type Socket } from "../src/index.ts";
 import { encodeClose, encodeFrame, FrameReader, OP_BINARY, OP_CONTINUATION, OP_PING, OP_TEXT } from "../src/websocket.ts";
 
 const quiet = { info: () => {}, error: () => {} };
@@ -45,11 +45,20 @@ const control = route
     throw new Error("secret detail");
   });
 
+const weather = tool("weather", { description: "Weather for a city", input: t.object({ city: t.string() }) }).handle(({ input }) => ({ city: input.city, sky: "rain", station: "internal-7" }));
+const answer = (r: ProviderRequest) => {
+  const last = r.messages.at(-1)!;
+  if (last.role === "tool") return "Rain today.";
+  if (last.content === "weather") return { toolCalls: [{ id: "w1", name: "weather", input: { city: "Oslo" } }] };
+  return `You said: ${last.content}. A longer answer, streamed.`;
+};
+
 const ask = route
   .ws("/ask", { message: t.object({ prompt: t.string().max(500) }) })
   .handle(async ({ message, ai, socket, user }) => {
     if (message.prompt === "not a stream") return socket.stream({} as never);
-    const { text, usage } = await socket.stream(ai.stream({ model: "fast", prompt: message.prompt, for: user.id }));
+    const tools = message.prompt === "weather" ? [weather] : undefined;
+    const { text, usage } = await socket.stream(ai.stream({ model: "fast", prompt: message.prompt, for: user.id, tools }));
     return { type: "saved", length: text.length, outputTokens: usage.outputTokens };
   });
 
@@ -60,7 +69,7 @@ function makeApp(options: { maxBodySize?: number; cors?: { origin: string[] } } 
     routes: [{ echo, members, open, limited, control, ask }],
     auth,
     logger: quiet,
-    ai: { providers: { mock: mockProvider({ respond: (r) => `You said: ${r.messages.at(-1)!.content}. A longer answer, streamed.` }) }, models: { fast: "mock:m" } },
+    ai: { providers: { mock: mockProvider({ respond: answer }) }, models: { fast: "mock:m" } },
     ...options,
   });
 }
@@ -269,6 +278,20 @@ describe("route.ws on a server from app.listen()", () => {
     assert.deepEqual(chunks.at(-1), { type: "saved", length: 40, outputTokens: done.usage!.outputTokens });
     c.ws.send(JSON.stringify({ prompt: "not a stream" }));
     assert.equal((await c.next()).error.code, "IL2013");
+    // With tools, the tool call and the tool's status are sent too; what the tool returned is not.
+    c.ws.send(JSON.stringify({ prompt: "weather" }));
+    const toolMessages: { type: string }[] = [];
+    for (;;) {
+      const m = await c.next();
+      toolMessages.push(m);
+      if (m.type === "saved") break;
+    }
+    assert.deepEqual(toolMessages.slice(0, 2), [
+      { type: "tool-call", id: "w1", name: "weather", input: { city: "Oslo" } },
+      { type: "tool-result", id: "w1", name: "weather", status: 200, isError: false },
+    ]);
+    assert.equal(JSON.stringify(toolMessages).includes("internal-7"), false);
+    assert.equal(toolMessages.filter((m) => m.type === "text").map((m) => (m as { text?: string }).text).join(""), "Rain today.");
     c.ws.close();
   });
 

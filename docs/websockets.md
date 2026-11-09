@@ -40,7 +40,7 @@ export const assistant = route
   });
 ```
 
-The client receives `{ "type": "text", "text": "..." }` for each chunk, then `{ "type": "done", "usage": { ... } }`. When the model call fails, the error message (`{ "error": { "code": "IL5006", ... } }`) follows the chunks already sent. Streams from `ctx.ai` are cancelled when the socket closes (`ctx.signal`), so a client that leaves stops the model call and its cost. `socket.stream` takes only the result of `ai.stream(...)` (IL2013 otherwise).
+The client receives `{ "type": "text", "text": "..." }` for each chunk, then `{ "type": "done", "usage": { ... } }`. With `ai.stream({ tools })`, each tool call the model makes arrives as `{ "type": "tool-call", "id", "name", "input" }` and its result as `{ "type": "tool-result", "id", "name", "status", "isError" }` (what the tool returned stays on the server). When the model call fails, the error message (`{ "error": { "code": "IL5006", ... } }`) follows the chunks already sent. Streams from `ctx.ai` are cancelled when the socket closes (`ctx.signal`), so a client that leaves stops the model call and its cost. `socket.stream` takes only the result of `ai.stream(...)` (IL2013 otherwise).
 
 ## Rooms and broadcast
 

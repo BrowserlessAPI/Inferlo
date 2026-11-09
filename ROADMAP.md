@@ -12,7 +12,7 @@ Priority order: AI model support is Inferlo's core promise, so the "Now" section
 
 These can all be built and tested in the maintainer's environment. Work through them before the harder or blocked items further down.
 
-- [ ] Streaming with tool calls: `ai.stream({ tools })` streams text and tool-call events to the browser
+- [x] Streaming with tool calls: `ai.stream({ tools })` streams text and tool-call events to the browser
 - [ ] Vector search on Postgres pgvector: `t.vector(1536)` field and `db.x.search({ vector, limit })`
 - [ ] RAG helper: chunk, embed and search documents in one call
 - [ ] Prompt files: versioned prompts in `src/prompts/*.md` with typed variables

@@ -117,7 +117,7 @@ export function aiSdk(provider: AISdkProvider, options: AISdkOptions = {}): Prov
       const model = languageModel(r.model);
       const name = nameOf(model);
       const v2 = model.specificationVersion === "v2";
-      let stream: ReadableStream<{ type: string; delta?: string; textDelta?: string; usage?: unknown; error?: unknown }>;
+      let stream: ReadableStream<{ type: string; delta?: string; textDelta?: string; usage?: unknown; error?: unknown; toolCallId?: string; toolName?: string; input?: unknown }>;
       try {
         ({ stream } = await model.doStream(callOptions(r, v2)));
       } catch (error) {
@@ -125,6 +125,7 @@ export function aiSdk(provider: AISdkProvider, options: AISdkOptions = {}): Prov
       }
       const reader = stream.getReader();
       let total: ProviderUsage | undefined;
+      const toolCalls: ToolCall[] = [];
       try {
         while (true) {
           const { done, value: part } = await reader.read();
@@ -132,13 +133,15 @@ export function aiSdk(provider: AISdkProvider, options: AISdkOptions = {}): Prov
           if (part.type === "text-delta") {
             const text = part.delta ?? part.textDelta;
             if (text) yield text;
-          } else if (part.type === "finish") total = usage(part.usage);
+          } else if (part.type === "tool-call") toolCalls.push({ id: part.toolCallId ?? "", name: part.toolName ?? "", input: parseInput(part.input) });
+          else if (part.type === "finish") total = usage(part.usage);
           else if (part.type === "error") throw providerError(name, part.error);
         }
       } finally {
         reader.releaseLock();
       }
       yield { usage: total ?? { inputTokens: 0, outputTokens: 0 } };
+      if (toolCalls.length) yield { toolCalls };
     },
     async embed({ model: id, input, signal }) {
       const model = embeddingModel(id);

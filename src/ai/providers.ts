@@ -81,10 +81,17 @@ export interface ProviderResponse {
   toolCalls?: ToolCall[];
 }
 
+/** One part of a provider stream: a text chunk, the usage of the call, or tool calls the model wants to run. */
+export type StreamPart = string | { usage: ProviderUsage } | { toolCalls: ToolCall[] };
+
 export interface Provider {
   readonly name: string;
   generate(request: ProviderRequest): Promise<ProviderResponse>;
-  stream?(request: ProviderRequest): AsyncIterable<string | { usage: ProviderUsage }>;
+  /**
+   * Streams the answer: text chunks, the usage, and the tool calls the model made (once each call is complete), for
+   * ai.stream({ tools }). A provider that never yields { toolCalls } streams text only.
+   */
+  stream?(request: ProviderRequest): AsyncIterable<StreamPart>;
   embed?(request: { model: string; input: string[]; signal?: AbortSignal }): Promise<{ embeddings: number[][]; usage: ProviderUsage }>;
 }
 
@@ -189,13 +196,27 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
     },
     async *stream(r) {
       const response = await post(name, fetchImpl, `${base}/chat/completions`, headers, body(r, true), r.signal);
+      const calls: { id: string; name: string; args: string }[] = [];
       for await (const data of sseData(response.body!)) {
         if (data === "[DONE]") break;
-        const chunk = JSON.parse(data) as { choices?: { delta?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } };
-        const text = chunk.choices?.[0]?.delta?.content;
-        if (text) yield text;
+        const chunk = JSON.parse(data) as {
+          choices?: { delta?: { content?: string; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.content) yield delta.content;
+        // Tool calls arrive in pieces: the id and name first, then the arguments, keyed by index.
+        for (const part of delta?.tool_calls ?? []) {
+          const index = part.index ?? 0;
+          const call = (calls[index] ??= { id: "", name: "", args: "" });
+          if (part.id) call.id = part.id;
+          if (part.function?.name) call.name += part.function.name;
+          if (part.function?.arguments) call.args += part.function.arguments;
+        }
         if (chunk.usage) yield { usage: { inputTokens: chunk.usage.prompt_tokens ?? 0, outputTokens: chunk.usage.completion_tokens ?? 0 } };
       }
+      const toolCalls = calls.filter(Boolean).map((call) => ({ id: call.id, name: call.name, input: parseArguments(call.args) }));
+      if (toolCalls.length) yield { toolCalls };
     },
     async embed({ model, input, signal }) {
       const response = await post(name, fetchImpl, `${base}/embeddings`, headers, { model, input }, signal);
@@ -320,18 +341,30 @@ export function anthropic(options: { apiKey: string; baseURL?: string; version?:
     async *stream(r) {
       const response = await post(name, fetchImpl, `${base}/v1/messages`, headers, body(r, true), r.signal);
       const usage = { inputTokens: 0, outputTokens: 0 };
+      // tool_use blocks start with the id and name; their input arrives as pieces of JSON.
+      const calls = new Map<number, { id: string; name: string; json: string }>();
       for await (const data of sseData(response.body!)) {
         const event = JSON.parse(data) as {
           type: string;
-          delta?: { type?: string; text?: string };
+          index?: number;
+          content_block?: { type?: string; id?: string; name?: string };
+          delta?: { type?: string; text?: string; partial_json?: string };
           message?: { usage?: { input_tokens?: number } };
           usage?: { output_tokens?: number };
         };
         if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) yield event.delta.text;
+        if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
+          calls.set(event.index ?? calls.size, { id: event.content_block.id ?? "", name: event.content_block.name ?? "", json: "" });
+        }
+        if (event.type === "content_block_delta" && event.delta?.type === "input_json_delta") {
+          const call = calls.get(event.index ?? -1);
+          if (call) call.json += event.delta.partial_json ?? "";
+        }
         if (event.type === "message_start") usage.inputTokens = event.message?.usage?.input_tokens ?? 0;
         if (event.type === "message_delta") usage.outputTokens = event.usage?.output_tokens ?? 0;
       }
       yield { usage };
+      if (calls.size) yield { toolCalls: [...calls.values()].map((call) => ({ id: call.id, name: call.name, input: parseArguments(call.json) })) };
     },
   }, [options.apiKey]);
 }
@@ -369,9 +402,10 @@ export function mockProvider(options: {
       return { text, usage, ...(toolCalls.length ? { toolCalls } : {}) };
     },
     async *stream(r) {
-      const { text, usage } = await this.generate(r);
+      const { text, usage, toolCalls } = await this.generate(r);
       for (const part of text.match(/.{1,8}/gs) ?? []) yield part;
       yield { usage };
+      if (toolCalls?.length) yield { toolCalls };
     },
     async embed({ input }) {
       const embeddings = input.map((s) => {

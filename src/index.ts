@@ -53,6 +53,8 @@ export type {
   GenerateOptions,
   GenerateResult,
   StreamResult,
+  StreamEvent,
+  StreamOptions,
   StreamResponseInit,
   UIChatMessage,
   Usage,
