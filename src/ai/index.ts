@@ -43,6 +43,8 @@ export interface Usage {
   for?: string;
   kind: "generate" | "stream" | "embed";
   durationMs: number;
+  /** The prompt file that made the call ("summarize-ticket@2"), when the options came from prompt.render(). */
+  prompt?: string;
 }
 
 export interface AIConfig {
@@ -99,6 +101,8 @@ export interface GenerateOptions<O extends AnySchema | StandardSchema | undefine
   tools?: readonly (ToolDef | RouteDef)[];
   /** Most model calls when tools are given: tool rounds plus the final answer (default 5). More raises IL5010. */
   maxSteps?: number;
+  /** "name@version" of the prompt the text came from, recorded in usage and traces. Set by prompt.render(). */
+  promptId?: string;
 }
 
 /** One tool call the model made, with what the route returned. */
@@ -241,6 +245,11 @@ interface Target {
   id: string;
 }
 
+/** { prompt: "name@version" } for usage, when the options came from prompt.render(). */
+function promptOf(options: { promptId?: unknown }): { prompt?: string } {
+  return typeof options.promptId === "string" && options.promptId ? { prompt: options.promptId } : {};
+}
+
 function buildMessages(o: GenerateOptions<any>): Message[] {
   const messages: Message[] = [];
   if (o.system) messages.push({ role: "system", content: o.system });
@@ -366,7 +375,7 @@ export function createAI(config?: AIConfig): AI {
   const tracingConfig = checkTracing(config?.tracing, "createAI");
   const spans = tracingConfig ? clientTracing(tracingConfig, "inferlo") : undefined;
   /** Attributes of an AI span before the call (OpenTelemetry GenAI conventions, plus the alias asked for). */
-  const spanStart = (operation: "chat" | "embeddings", requested: string, targets: Target[], options: { maxTokens?: number; temperature?: number }) => {
+  const spanStart = (operation: "chat" | "embeddings", requested: string, targets: Target[], options: { maxTokens?: number; temperature?: number; promptId?: string }) => {
     const first = targets[0]!;
     const attributes: Record<string, string | number | boolean> = {
       "gen_ai.operation.name": operation,
@@ -376,6 +385,7 @@ export function createAI(config?: AIConfig): AI {
     };
     if (options.maxTokens !== undefined) attributes["gen_ai.request.max_tokens"] = options.maxTokens;
     if (options.temperature !== undefined) attributes["gen_ai.request.temperature"] = options.temperature;
+    if (typeof options.promptId === "string") attributes["inferlo.ai.prompt"] = options.promptId;
     return { name: `${operation} ${first.model}`, attributes };
   };
   /** The model that answered, its tokens and cost, on the span. */
@@ -493,7 +503,7 @@ export function createAI(config?: AIConfig): AI {
         let repairsLeft = schema ? Math.max(0, options.repairAttempts ?? 1) : 0;
         let toolRounds = 0;
         let lastIssues = "";
-        const usageNow = (): Usage => ({ requested, model: target.id, ...total, cost: cost(target.id, total), for: options.for, kind: "generate", durationMs: Date.now() - started });
+        const usageNow = (): Usage => ({ requested, model: target.id, ...total, cost: cost(target.id, total), for: options.for, kind: "generate", durationMs: Date.now() - started, ...promptOf(options) });
         while (true) {
           // Budgets are checked again before every model call that follows tool calls.
           if (steps.at(-1)?.toolCalls.length) await guard(options.for, requested);
@@ -634,7 +644,7 @@ export function createAI(config?: AIConfig): AI {
         const steps: Step[] = [];
         const total = { inputTokens: 0, outputTokens: 0 };
         let answered: Target | undefined;
-        const usageNow = (target: Target): Usage => ({ requested, model: target.id, ...total, cost: cost(target.id, total), for: options.for, kind: "stream", durationMs: Date.now() - started });
+        const usageNow = (target: Target): Usage => ({ requested, model: target.id, ...total, cost: cost(target.id, total), for: options.for, kind: "stream", durationMs: Date.now() - started, ...promptOf(options) });
         try {
           for (let i = 0; i < targets.length; i++) {
             const target = targets[i]!;

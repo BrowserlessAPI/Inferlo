@@ -285,6 +285,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5038
 **Invalid rag() table or options.** `rag(table, { ai, model, textField, vectorField, chunk })` takes a table client (`db.doc_chunks`) whose model has a text field (`text`, or the one named by `textField`) and a `t.vector()` field (the only one, or `vectorField`), and an AI client (`ctx.ai`, `app.ai` or `createAI()`). `chunk.maxChars` is a whole number from 50 to 100000 and `chunk.overlap` at most half of it. `add({ text, fields })` takes the text as a string, `fields` without the text and vector fields (rag fills them in), and makes at most 1000 chunks per call. `search({ query, where, limit, maxDistance })` takes a non-empty query, a `limit` from 1 to 100 and a `maxDistance` from 0 to 2. See [Retrieval (RAG)](ai.md#retrieval-rag).
 
+
+### IL5039
+**Invalid prompt or prompt file.** A prompt file in `src/prompts/<name>.md` starts with front matter between `---` lines with `version` (required), `description` and `variables` (one indented `name: type` line each; types `string`, `text`, `number`, `int`, `boolean`), followed by the text, optionally under `## System` and `## Prompt` headings. Every `{{name}}` must be a declared variable and every variable must be used. File names are lowercase letters, digits and dashes. `prompt({ name, version, text, variables })` checks the same rules. See [Prompt files](ai.md#prompt-files).
 ## App configuration (6xxx)
 
 ### IL6001
@@ -575,6 +578,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL8008
 **`inferlo worker` needs a shared job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres adapter or `createApp({ redis, jobQueue: { store: "redis" } })`, or run jobs in the server process with `app.jobs.start()`.
+
+### IL8009
+**src/prompts/index.ts is out of date.** `inferlo prompts --check` found that the generated module does not match the prompt files in `src/prompts/*.md`. Run `inferlo prompts` and commit `src/prompts/index.ts`. See [Prompt files](ai.md#prompt-files).
 
 ## Internal (9xxx)
 

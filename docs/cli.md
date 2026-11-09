@@ -11,6 +11,7 @@ inferlo db migrate [name]      Write migrations/NNNN_name.sql for model changes 
 inferlo db migrate --apply     Run pending migration files
 inferlo openapi [--out file]   Print or write the OpenAPI document
 inferlo add resource <name>    Generate a model and CRUD routes
+inferlo prompts [--check]      Write src/prompts/index.ts from src/prompts/*.md (--check: fail when it is out of date)
 inferlo version
 ```
 
@@ -56,3 +57,7 @@ It needs jobs (IL8007) and a shared queue, `createApp({ jobQueue: { store: "data
 ## inferlo add resource invoices
 
 Adds an `Invoice` model to `src/models.ts`, creates `src/routes/invoices.ts` with list, get, create, update and delete routes that check ownership, and registers the routes in `src/app.ts`. It edits files only at the `// inferlo:models` and `// inferlo:routes` markers; without them it prints what to add.
+
+## inferlo prompts
+
+Reads every prompt file in `src/prompts/*.md` and writes `src/prompts/index.ts`, one typed `prompt()` export per file (`summarize-ticket.md` becomes `summarizeTicket`). Run it after changing a prompt file and commit both. `inferlo prompts --check` changes nothing and fails with IL8009 when `src/prompts/index.ts` is out of date, for CI. An invalid file fails with IL5039 and its line. See [Prompt files](ai.md#prompt-files).

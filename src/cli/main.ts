@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { InferloError } from "../errors.ts";
 import { INFERLO_VERSION } from "../describe.ts";
 import { applyMigrations, planMigration } from "../db/migrate.ts";
+import { parsePromptFile, promptsModule } from "../prompt.ts";
 
 const HELP = `inferlo ${INFERLO_VERSION}
 
@@ -29,6 +30,8 @@ Commands:
   db migrate --apply       Run pending migration files
   openapi [--out file]     Print or write the OpenAPI document
   add resource <name>      Generate a model plus list/get/create/update/delete routes
+  prompts [--check]        Write src/prompts/index.ts from the prompt files src/prompts/*.md
+                           (--check fails when it is out of date, for CI)
   version                  Print the Inferlo version
 
 Options:
@@ -494,6 +497,30 @@ export const delete${Model} = route
 
 // ---------------------------------------------------------------------------------------------
 
+async function cmdPrompts(args: Args) {
+  const dir = path.join(cwd, "src", "prompts");
+  const names = existsSync(dir) ? (await readdir(dir)).filter((f) => f.toLowerCase().endsWith(".md")).sort() : [];
+  const files = [];
+  for (const name of names) files.push(parsePromptFile(await readFile(path.join(dir, name), "utf8"), name));
+  const target = path.join(dir, "index.ts");
+  const ids = files.map((f) => `${f.name}@${f.version}`).sort();
+  if (!files.length) {
+    return print({ ok: true, written: null, prompts: [] }, Boolean(args.flags.json), () => "No prompt files in src/prompts/*.md. Add one, such as src/prompts/summarize.md, then run inferlo prompts.");
+  }
+  const source = promptsModule(files);
+  const current = existsSync(target) ? await readFile(target, "utf8") : undefined;
+  if (args.flags.check) {
+    if (current !== source) {
+      throw new InferloError("IL8009", "src/prompts/index.ts is out of date with src/prompts/*.md.", { fix: "Run inferlo prompts and commit src/prompts/index.ts." });
+    }
+    return print({ ok: true, written: null, prompts: ids }, Boolean(args.flags.json), () => `src/prompts/index.ts is up to date (${ids.join(", ")}).`);
+  }
+  if (current !== source) await writeFile(target, source);
+  print({ ok: true, written: "src/prompts/index.ts", prompts: ids }, Boolean(args.flags.json), () => `Wrote src/prompts/index.ts: ${ids.join(", ")}`);
+}
+
+// ---------------------------------------------------------------------------------------------
+
 /**
  * --json error output. Unlike InferloError.toJSON() (which hides server error details from
  * API clients), the CLI always shows the real message, the fix and the details to the developer.
@@ -527,6 +554,8 @@ async function main() {
         return await cmdOpenapi(args);
       case "add":
         return await cmdAdd(args);
+      case "prompts":
+        return await cmdPrompts(args);
       case "version":
       case "--version":
       case "-v":

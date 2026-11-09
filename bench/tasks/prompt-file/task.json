@@ -1,0 +1,4 @@
+{
+  "title": "Move a prompt into a versioned prompt file",
+  "prompt": "Move the prompt of POST /notes/:id/summary into a versioned prompt file named summarize-note (version 1) with typed variables title and body, with a system message that says to summarize notes in one or two sentences, generate the prompts module with the Inferlo CLI, and use it in the route so usage records which prompt version answered. The route keeps its structured output and its answer."
+}

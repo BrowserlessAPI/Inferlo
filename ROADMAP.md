@@ -15,7 +15,7 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] Streaming with tool calls: `ai.stream({ tools })` streams text and tool-call events to the browser
 - [x] Vector search on Postgres pgvector: `t.vector(1536)` field and `db.x.search({ vector, limit })`
 - [x] RAG helper: chunk, embed and search documents in one call
-- [ ] Prompt files: versioned prompts in `src/prompts/*.md` with typed variables
+- [x] Prompt files: versioned prompts in `src/prompts/*.md` with typed variables
 - [ ] Response caching for identical AI calls (opt in, TTL)
 - [ ] Native structured output for Anthropic and Gemini when available
 - [ ] More providers: Mistral, Azure OpenAI, AWS Bedrock and Vertex AI adapters (OpenAI-compatible where possible)

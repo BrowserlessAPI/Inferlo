@@ -1799,6 +1799,47 @@ export const ask = route
 - **`toAISdkTools(tools, { ai })`** turns Inferlo function tools (`tool(name, ...).handle(fn)`) into AI SDK tools, keyed by name, with the tool's schema and validation (invalid input goes back to the model as the problem). Routes work too when you pass a request's `ctx.ai`: each call runs as the signed-in user with the route's auth, permissions, validation and rate limits; without `ai`, a route raises IL5009. AI SDK tools made with `tool()` from `ai` work next to them: `tools: { ...toAISdkTools([getWeather]), forecast }`.
 - Both are in `@browserlessapi/inferlo` and `@browserlessapi/inferlo/ai` (for apps on other frameworks), and import nothing from the `ai` package. Tested with `ai` 5.0.0, 6 and the latest release. Inside Inferlo routes, `ctx.ai.generate` remains the simplest way to call a model; use these when code already uses the AI SDK.
 
+## Prompt files
+
+Keep prompts out of route code, versioned and with typed variables, in `src/prompts/<name>.md`:
+
+```md
+---
+version: 2
+description: Summarize a support ticket
+variables:
+  title: string
+  body: text
+---
+## System
+You summarize support tickets in two sentences.
+
+## Prompt
+Summarize the ticket "{{title}}":
+
+{{body}}
+```
+
+Run `inferlo prompts` to write `src/prompts/index.ts` (commit it with the `.md` files), then use the prompt in a route:
+
+```ts
+import { summarizeTicket } from "../prompts/index.ts";
+
+export const summarize = route
+  .post("/tickets/:id/summary", { params: t.object({ id: t.uuid() }), rateLimit: { max: 20, per: "hour" } })
+  .handle(async ({ params, ai, db, user }) => {
+    const ticket = await db.tickets.get(params.id);
+    const { text } = await ai.generate({ model: "fast", ...summarizeTicket.render({ title: ticket.title, body: ticket.body }), for: user.id });
+    return { summary: text };
+  });
+```
+
+- **Variables** are declared in the front matter as `name: type` (`string`, `text`, `number`, `int` or `boolean`) and used as `{{name}}`. `render()` is typed from them and validates the values (IL1001), and returns `{ system, prompt, promptId }` to spread into `ai.generate` or `ai.stream`. A placeholder that is not declared, or a variable that is never used, fails `inferlo prompts` (IL5039).
+- **Versions.** `version` is required; raise it whenever the text changes. The usage passed to `onUsage` has `prompt: "summarize-ticket@2"`, and AI spans have the `inferlo.ai.prompt` attribute, so you can compare cost and quality per version.
+- **Sections.** Text under `## System` is the system message and text under `## Prompt` the user message; a file without these headings is all prompt. Front matter takes only `version`, `description` and `variables`.
+- **CI.** `inferlo prompts --check` fails with IL8009 when `src/prompts/index.ts` does not match the files.
+- The generated module calls `prompt({ name, version, system, text, variables })`, which you can also call yourself; `parsePromptFile(source, fileName)` reads a file without the CLI. Nothing reads files at runtime, so prompts work on every runtime, including Workers.
+
 ## Embeddings
 
 ```ts
@@ -2948,6 +2989,7 @@ inferlo db migrate [name]      Write migrations/NNNN_name.sql for model changes 
 inferlo db migrate --apply     Run pending migration files
 inferlo openapi [--out file]   Print or write the OpenAPI document
 inferlo add resource <name>    Generate a model and CRUD routes
+inferlo prompts [--check]      Write src/prompts/index.ts from src/prompts/*.md (--check: fail when it is out of date)
 inferlo version
 ```
 
@@ -2993,6 +3035,10 @@ It needs jobs (IL8007) and a shared queue, `createApp({ jobQueue: { store: "data
 ## inferlo add resource invoices
 
 Adds an `Invoice` model to `src/models.ts`, creates `src/routes/invoices.ts` with list, get, create, update and delete routes that check ownership, and registers the routes in `src/app.ts`. It edits files only at the `// inferlo:models` and `// inferlo:routes` markers; without them it prints what to add.
+
+## inferlo prompts
+
+Reads every prompt file in `src/prompts/*.md` and writes `src/prompts/index.ts`, one typed `prompt()` export per file (`summarize-ticket.md` becomes `summarizeTicket`). Run it after changing a prompt file and commit both. `inferlo prompts --check` changes nothing and fails with IL8009 when `src/prompts/index.ts` is out of date, for CI. An invalid file fails with IL5039 and its line. See [Prompt files](ai.md#prompt-files).
 
 ---
 
@@ -6873,6 +6919,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5038
 **Invalid rag() table or options.** `rag(table, { ai, model, textField, vectorField, chunk })` takes a table client (`db.doc_chunks`) whose model has a text field (`text`, or the one named by `textField`) and a `t.vector()` field (the only one, or `vectorField`), and an AI client (`ctx.ai`, `app.ai` or `createAI()`). `chunk.maxChars` is a whole number from 50 to 100000 and `chunk.overlap` at most half of it. `add({ text, fields })` takes the text as a string, `fields` without the text and vector fields (rag fills them in), and makes at most 1000 chunks per call. `search({ query, where, limit, maxDistance })` takes a non-empty query, a `limit` from 1 to 100 and a `maxDistance` from 0 to 2. See [Retrieval (RAG)](ai.md#retrieval-rag).
 
+
+### IL5039
+**Invalid prompt or prompt file.** A prompt file in `src/prompts/<name>.md` starts with front matter between `---` lines with `version` (required), `description` and `variables` (one indented `name: type` line each; types `string`, `text`, `number`, `int`, `boolean`), followed by the text, optionally under `## System` and `## Prompt` headings. Every `{{name}}` must be a declared variable and every variable must be used. File names are lowercase letters, digits and dashes. `prompt({ name, version, text, variables })` checks the same rules. See [Prompt files](ai.md#prompt-files).
 ## App configuration (6xxx)
 
 ### IL6001
@@ -7163,6 +7212,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL8008
 **`inferlo worker` needs a shared job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres adapter or `createApp({ redis, jobQueue: { store: "redis" } })`, or run jobs in the server process with `app.jobs.start()`.
+
+### IL8009
+**src/prompts/index.ts is out of date.** `inferlo prompts --check` found that the generated module does not match the prompt files in `src/prompts/*.md`. Run `inferlo prompts` and commit `src/prompts/index.ts`. See [Prompt files](ai.md#prompt-files).
 
 ## Internal (9xxx)
 

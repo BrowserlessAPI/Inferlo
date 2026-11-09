@@ -320,6 +320,47 @@ export const ask = route
 - **`toAISdkTools(tools, { ai })`** turns Inferlo function tools (`tool(name, ...).handle(fn)`) into AI SDK tools, keyed by name, with the tool's schema and validation (invalid input goes back to the model as the problem). Routes work too when you pass a request's `ctx.ai`: each call runs as the signed-in user with the route's auth, permissions, validation and rate limits; without `ai`, a route raises IL5009. AI SDK tools made with `tool()` from `ai` work next to them: `tools: { ...toAISdkTools([getWeather]), forecast }`.
 - Both are in `@browserlessapi/inferlo` and `@browserlessapi/inferlo/ai` (for apps on other frameworks), and import nothing from the `ai` package. Tested with `ai` 5.0.0, 6 and the latest release. Inside Inferlo routes, `ctx.ai.generate` remains the simplest way to call a model; use these when code already uses the AI SDK.
 
+## Prompt files
+
+Keep prompts out of route code, versioned and with typed variables, in `src/prompts/<name>.md`:
+
+```md
+---
+version: 2
+description: Summarize a support ticket
+variables:
+  title: string
+  body: text
+---
+## System
+You summarize support tickets in two sentences.
+
+## Prompt
+Summarize the ticket "{{title}}":
+
+{{body}}
+```
+
+Run `inferlo prompts` to write `src/prompts/index.ts` (commit it with the `.md` files), then use the prompt in a route:
+
+```ts
+import { summarizeTicket } from "../prompts/index.ts";
+
+export const summarize = route
+  .post("/tickets/:id/summary", { params: t.object({ id: t.uuid() }), rateLimit: { max: 20, per: "hour" } })
+  .handle(async ({ params, ai, db, user }) => {
+    const ticket = await db.tickets.get(params.id);
+    const { text } = await ai.generate({ model: "fast", ...summarizeTicket.render({ title: ticket.title, body: ticket.body }), for: user.id });
+    return { summary: text };
+  });
+```
+
+- **Variables** are declared in the front matter as `name: type` (`string`, `text`, `number`, `int` or `boolean`) and used as `{{name}}`. `render()` is typed from them and validates the values (IL1001), and returns `{ system, prompt, promptId }` to spread into `ai.generate` or `ai.stream`. A placeholder that is not declared, or a variable that is never used, fails `inferlo prompts` (IL5039).
+- **Versions.** `version` is required; raise it whenever the text changes. The usage passed to `onUsage` has `prompt: "summarize-ticket@2"`, and AI spans have the `inferlo.ai.prompt` attribute, so you can compare cost and quality per version.
+- **Sections.** Text under `## System` is the system message and text under `## Prompt` the user message; a file without these headings is all prompt. Front matter takes only `version`, `description` and `variables`.
+- **CI.** `inferlo prompts --check` fails with IL8009 when `src/prompts/index.ts` does not match the files.
+- The generated module calls `prompt({ name, version, system, text, variables })`, which you can also call yourself; `parsePromptFile(source, fileName)` reads a file without the CLI. Nothing reads files at runtime, so prompts work on every runtime, including Workers.
+
 ## Embeddings
 
 ```ts
