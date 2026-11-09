@@ -154,24 +154,24 @@ function httpsUrl(value: unknown, what: string): URL {
   return url;
 }
 
-function base64url(bytes: Uint8Array): string {
+export function base64url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function random(): string {
+export function random(): string {
   return base64url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
 /** A path on this app to return to after the sign-in, or "/": never another site (open redirect). */
-function safeReturnTo(value: unknown): string {
+export function safeReturnTo(value: unknown): string {
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\") || value.length > 2000) return "/";
   if (/[\u0000-\u001f\u007f\\]/.test(value)) return "/";
   return value;
 }
 
-function readCookie(header: string | null, name: string): string | undefined {
+export function readCookie(header: string | null, name: string): string | undefined {
   if (!header) return undefined;
   for (const part of header.split(";")) {
     const index = part.indexOf("=");
@@ -184,7 +184,7 @@ function readCookie(header: string | null, name: string): string | undefined {
  * The short-lived cookie that carries state, nonce and the PKCE verifier from login to callback ("inferlo_oidc"),
  * and the one that keeps the ID token for signing out at the provider ("inferlo_oidc_id").
  */
-function cookieFor(url: URL, base = "inferlo_oidc"): { name: string; attributes: string } {
+export function cookieFor(url: URL, base = "inferlo_oidc"): { name: string; attributes: string } {
   const local = url.protocol === "http:" && isLocal(url);
   // __Host- cookies cannot be set by subdomains or for other paths; browsers need Secure for them.
   return local ? { name: base, attributes: "Path=/; HttpOnly; SameSite=Lax" } : { name: `__Host-${base}`, attributes: "Path=/; HttpOnly; Secure; SameSite=Lax" };

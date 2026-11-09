@@ -25,7 +25,7 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] `inferlo db migrate` part 4e: reference changes behind `--allow-change` (`onDelete` and target table: replace the foreign key constraint)
 - [x] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [ ] Email: `mail({ smtp })` helper with templates, used by jobs
-- [ ] OAuth login helpers: GitHub and Google, built on cookie sessions
+- [x] OAuth login helpers: GitHub and Google, built on cookie sessions
 - [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)
 - [ ] SQLite adapter for small apps and tests (tested on the oldest supported and latest versions)
 

@@ -1355,6 +1355,60 @@ createApp({ auth: session, routes: [notes, sso], ... });
 - **Authorization parameters.** `authorizationParams` adds parameters to every sign-in at the provider: `{ prompt: "select_account" }` to always show the account picker, Google's `{ hd: "acme.com" }` to offer only accounts of a Google Workspace domain (still check `claims.hd` or the email domain in `userId`, as the parameter is only a hint), Entra ID's `{ domain_hint: "acme.com" }` to skip the home realm page, or a provider's own. The flow's own parameters (`state`, `nonce`, `redirect_uri`, `scope`, ...) cannot be set (IL6047). Per sign-in, the login link takes `?loginHint=ada@acme.com` (sent as `login_hint`, to fill in the user's name at the provider) and `?prompt=login` (or `select_account`, `consent`, `none`, `create`; other values are ignored): `/auth/login?prompt=select_account&returnTo=/settings` for a "switch account" link.
 - Tested against a local stand-in provider and against [oidc-provider](https://github.com/panva/node-oidc-provider) (a certified OpenID Connect server), 9.0.0 and the latest, in `test/oidc.test.ts` and `test/oidc-provider.test.ts`.
 
+### Sign in with Google
+
+Google is an OpenID Connect provider, so "Sign in with Google" is `oidc()` with Google's issuer. Create an OAuth client of type "Web application" in the Google Cloud console and register `<your app's URL>/auth/callback` as an authorized redirect URI:
+
+```ts
+export const google = oidc({
+  issuer: "https://accounts.google.com",
+  clientId: settings.GOOGLE_CLIENT_ID,
+  clientSecret: settings.GOOGLE_CLIENT_SECRET,
+  session,
+  authorizationParams: { prompt: "select_account" },  // or { hd: "acme.com" } for one Google Workspace domain
+  async userId(claims, { db }) {
+    if (!claims.email_verified || !claims.email) return null;
+    return (await db.users.findOne({ email: claims.email }))?.id ?? null;
+  },
+});
+```
+
+Google has no `end_session_endpoint`, so `POST /auth/logout` ends the app's session and goes to `postLogoutRedirectUri`. To offer both Google and GitHub, give one of them another `basePath`.
+
+## Sign in with GitHub
+
+GitHub accounts sign in with `githubOAuth()`. GitHub is an OAuth provider, not an OpenID Connect one, so `oidc()` cannot be used for it. It runs the authorization code flow with a one-time state and PKCE, loads the account's profile and verified emails from GitHub's API, and ends in a [cookie session](#cookie-sessions). No runtime dependency:
+
+```ts
+// src/github.ts
+import { githubOAuth } from "@browserlessapi/inferlo";
+import { settings } from "./config.ts"; // GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (listed in secrets)
+import { session } from "./session.ts";
+
+export const github = githubOAuth({
+  clientId: settings.GITHUB_CLIENT_ID,
+  clientSecret: settings.GITHUB_CLIENT_SECRET,
+  session,
+  // Match on GitHub's numeric id (logins can be renamed); create the user on the first sign-in, or return null to refuse.
+  async userId(profile, { db }) {
+    const known = await db.users.findOne({ githubId: profile.id });
+    if (known) return known.id;
+    if (!profile.email) return null;
+    return (await db.users.insert({ githubId: profile.id, email: profile.email, name: profile.name ?? profile.login })).id;
+  },
+});
+
+// src/app.ts
+createApp({ auth: session, routes: [notes, github] });
+```
+
+- **Routes.** `routes: [github]` adds `GET /auth/github/login` and `GET /auth/github/callback` (public routes). Link to `/auth/github/login?returnTo=/path` (or `github.loginPath`); `returnTo` must be a path on the app. Create an OAuth app (GitHub: Settings, Developer settings, OAuth Apps, or the organization's settings) with `<your app's URL>/auth/github/callback` as the callback URL; a GitHub App's client id and secret work too. `basePath` moves both routes, and `redirectUri` sets the callback URL when the app runs behind a proxy that changes the URL it sees.
+- **What is checked.** The login route keeps a random state and PKCE verifier in a short-lived cookie (`HttpOnly`, `SameSite=Lax`, 10 minutes, a `__Host-` cookie on https). The callback accepts only the state that browser started and an answer without `error`, and exchanges the code with the client secret and the verifier. The pending sign-in is used once. A failed check answers 400 IL3009; a wrong client id, secret or callback URL, or GitHub not answering, is 502 IL3010.
+- **The profile.** `userId(profile, { db, req, tokens })` gets `{ id, login, name, email, verifiedEmails, avatarUrl, raw }`: `email` is the account's primary email only when GitHub has verified it (otherwise `null`), and `verifiedEmails` lists every verified address (both need the `user:email` scope, asked for by default with `read:user`). `tokens.accessToken` calls GitHub's API as the user; Inferlo does not store it. Return the app's user id, or `null` to refuse (403 IL3011). Match users on `profile.id`, not the login.
+- `scopes` (default `["read:user", "user:email"]`) asks for more, such as `["read:user", "user:email", "read:org"]` to check organization membership with `tokens.accessToken` in `userId`. `allowSignup: false` hides GitHub's sign-up option; `?loginHint=octocat` on the login link fills in the username.
+- **GitHub Enterprise Server.** `url: "https://github.acme.com"` signs in at that server (its API is `<url>/api/v3`). It must be https (plain http only on localhost).
+- Signing out is the app's own: `session.signOut(ctx)` in a POST route; GitHub keeps its own session. Invalid options raise IL6067 at startup.
+
 ## Access tokens from an identity provider (JWT)
 
 APIs whose users sign in with an identity provider (Auth0, Okta, Microsoft Entra ID, Google, Keycloak, Clerk, WorkOS, Amazon Cognito, Supabase) receive the provider's access tokens as `Authorization: Bearer <token>`. `jwt()` checks them, with Web Crypto and no runtime dependency:
@@ -5970,7 +6024,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Errors do not leak.** Unexpected errors answer `500` with IL9000 and `"Internal server error"`; the real error is logged. Readiness checks show `"Check failed."`.
 - **Secrets stay out of logs.** Authorization and cookie headers, tokens, API keys, passwords in URLs, the AI provider keys and your `config({ secrets })` are replaced with `"[redacted]"` in everything the app logs (below).
 - **Cookie sessions resist CSRF.** `sessions()` cookies are signed, `HttpOnly`, `Secure` and `SameSite=Lax`, and requests that change data with a session cookie must send the session's CSRF token (IL3005); see [Cookie sessions](auth.md#cookie-sessions).
-- **Single sign-on is checked end to end.** `oidc()` uses the authorization code flow with PKCE, a one-time state and nonce, and checks the ID token's signature, issuer, audience and expiry before it starts a session; `returnTo` can only point at the app. Signing out (`POST /auth/logout`) needs the session's CSRF token and sends the ID token only to the provider that issued it. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+- **Single sign-on is checked end to end.** `oidc()` uses the authorization code flow with PKCE, a one-time state and nonce, and checks the ID token's signature, issuer, audience and expiry before it starts a session; `returnTo` can only point at the app. Signing out (`POST /auth/logout`) needs the session's CSRF token and sends the ID token only to the provider that issued it. `githubOAuth()` checks a one-time state and PKCE the same way and uses only emails GitHub has verified. See [Single sign-on](auth.md#single-sign-on-with-openid-connect) and [Sign in with GitHub](auth.md#sign-in-with-github).
 - **Access tokens are fully checked.** `jwt({ issuer, audience })` requires the audience, checks the signature with the issuer's keys and the expiry, and never accepts `none` or an algorithm that does not match the key; see [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
 - **Security headers** are sent on every response (below).
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
@@ -6921,13 +6975,13 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Identity provider keys unavailable (503).** A request sent an access token, and `jwt()` could not load the identity provider's signing keys (its OpenID configuration or key set did not answer, answered an error, or was not a JSON Web Key Set), with none cached from before. The token may be valid; it cannot be checked. Make sure the server can reach the provider (the `issuer`'s `/.well-known/openid-configuration` and its `jwks_uri`, or `jwksUrl`), and that the `issuer` matches the `issuer` field of that configuration exactly. Keys that were loaded once keep working while the provider is unreachable. See [Access tokens](auth.md#access-tokens-from-an-identity-provider-jwt).
 
 ### IL3009
-**Single sign-on could not be completed (400).** The `oidc()` callback refused what came back from the identity provider: the sign-in was not started in this browser or is older than 10 minutes (the pending sign-in cookie is missing or expired), the `state` does not match, the answer names another provider (`iss`), the provider answered an `error` (such as `access_denied`) or refused the code (used or expired), or the ID token is not valid for this app (signature, issuer, audience, expiry or nonce). Nobody is signed in. Start the sign-in again from the app's login link (`/auth/login`), in the same browser. If it keeps failing, check the `issuer`, `clientId` and the redirect URI registered at the provider (`<app URL>/auth/callback`, or `redirectUri`). See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+**Single sign-on could not be completed (400).** The `oidc()` (or `githubOAuth()`) callback refused what came back from the identity provider: the sign-in was not started in this browser or is older than 10 minutes (the pending sign-in cookie is missing or expired), the `state` does not match, the answer names another provider (`iss`), the provider answered an `error` (such as `access_denied`) or refused the code (used or expired), or the ID token is not valid for this app (signature, issuer, audience, expiry or nonce). Nobody is signed in. Start the sign-in again from the app's login link (`/auth/login`), in the same browser. If it keeps failing, check the `issuer`, `clientId` and the redirect URI registered at the provider (`<app URL>/auth/callback`, or `redirectUri`). See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
 
 ### IL3010
-**Identity provider unavailable for single sign-on (502).** `oidc()` could not load the provider's OpenID configuration (`<issuer>/.well-known/openid-configuration`, whose `issuer` must match exactly), its token endpoint did not answer, or the provider refused the app's client id or secret (`invalid_client`). The log has the cause. Check that the server can reach the provider and that `issuer`, `clientId` and `clientSecret` are the ones the provider shows for this app. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+**Identity provider unavailable for single sign-on (502).** `githubOAuth()` could not exchange the code (a wrong client id, secret or callback URL: `incorrect_client_credentials`, `redirect_uri_mismatch`) or read the profile from GitHub's API, or `oidc()` could not load the provider's OpenID configuration (`<issuer>/.well-known/openid-configuration`, whose `issuer` must match exactly), its token endpoint did not answer, or the provider refused the app's client id or secret (`invalid_client`). The log has the cause. Check that the server can reach the provider and that `issuer`, `clientId` and `clientSecret` are the ones the provider shows for this app. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
 
 ### IL3011
-**Account may not sign in (403).** The identity provider signed the user in, but `oidc({ userId })` returned `null` for them (an unknown or unverified email, a user who is not allowed in), so no session was started. Give the user access in the app, or change `userId`. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
+**Account may not sign in (403).** The identity provider signed the user in, but `oidc({ userId })` (or `githubOAuth({ userId })`) returned `null` for them (an unknown or unverified email, a user who is not allowed in), so no session was started. Give the user access in the app, or change `userId`. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
 
 ### IL3012
 **Webhook signature missing or invalid.** A route with `webhook: { scheme, secret }` got a request without a valid signature for its scheme (Standard Webhooks headers, `Stripe-Signature` or `X-Hub-Signature-256`), with a body changed after signing, or with a signed timestamp more than `toleranceMs` (default 5 minutes) from now. Status 401; the handler did not run. Check that the sender uses the secret the route is configured with and that the server clock is right. See [Webhooks](routes.md#webhooks).
@@ -7300,6 +7354,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6066
 **Invalid `webhook` route option.** `webhook` takes `{ scheme, secret, toleranceMs }`: `scheme` is `"standard"`, `"stripe"` or `"github"`, `secret` is the provider's signing secret (a non-empty string, `whsec_` and base64 for `"standard"`) or a list of them, and `toleranceMs` (not for `"github"`) is 1000 to 3600000. The route must be a POST, PUT or PATCH route with `auth: "public"`, and cannot be an AI tool or take `t.file()` uploads. An unset environment variable as the secret raises this at startup. See [Webhooks](routes.md#webhooks).
+
+### IL6067
+**Invalid `githubOAuth()` options.** `githubOAuth({ clientId, clientSecret, session, userId })` needs the OAuth app's client id and secret (non-empty strings), a `sessions()` to sign in to, and a `userId(profile, { db })` function that returns the app's user id or `null`; `scopes` is a list of GitHub scope names, `basePath` a path such as `"/auth/github"`, `redirectUri` and `url` https URLs (plain http only on localhost), and `allowSignup` true or false. Unknown options are refused. Also raised when `userId` returns something other than a string or `null`. See [Sign in with GitHub](auth.md#sign-in-with-github).
 
 ## Environment (7xxx)
 

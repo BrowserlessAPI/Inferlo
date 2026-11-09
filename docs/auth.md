@@ -238,6 +238,60 @@ createApp({ auth: session, routes: [notes, sso], ... });
 - **Authorization parameters.** `authorizationParams` adds parameters to every sign-in at the provider: `{ prompt: "select_account" }` to always show the account picker, Google's `{ hd: "acme.com" }` to offer only accounts of a Google Workspace domain (still check `claims.hd` or the email domain in `userId`, as the parameter is only a hint), Entra ID's `{ domain_hint: "acme.com" }` to skip the home realm page, or a provider's own. The flow's own parameters (`state`, `nonce`, `redirect_uri`, `scope`, ...) cannot be set (IL6047). Per sign-in, the login link takes `?loginHint=ada@acme.com` (sent as `login_hint`, to fill in the user's name at the provider) and `?prompt=login` (or `select_account`, `consent`, `none`, `create`; other values are ignored): `/auth/login?prompt=select_account&returnTo=/settings` for a "switch account" link.
 - Tested against a local stand-in provider and against [oidc-provider](https://github.com/panva/node-oidc-provider) (a certified OpenID Connect server), 9.0.0 and the latest, in `test/oidc.test.ts` and `test/oidc-provider.test.ts`.
 
+### Sign in with Google
+
+Google is an OpenID Connect provider, so "Sign in with Google" is `oidc()` with Google's issuer. Create an OAuth client of type "Web application" in the Google Cloud console and register `<your app's URL>/auth/callback` as an authorized redirect URI:
+
+```ts
+export const google = oidc({
+  issuer: "https://accounts.google.com",
+  clientId: settings.GOOGLE_CLIENT_ID,
+  clientSecret: settings.GOOGLE_CLIENT_SECRET,
+  session,
+  authorizationParams: { prompt: "select_account" },  // or { hd: "acme.com" } for one Google Workspace domain
+  async userId(claims, { db }) {
+    if (!claims.email_verified || !claims.email) return null;
+    return (await db.users.findOne({ email: claims.email }))?.id ?? null;
+  },
+});
+```
+
+Google has no `end_session_endpoint`, so `POST /auth/logout` ends the app's session and goes to `postLogoutRedirectUri`. To offer both Google and GitHub, give one of them another `basePath`.
+
+## Sign in with GitHub
+
+GitHub accounts sign in with `githubOAuth()`. GitHub is an OAuth provider, not an OpenID Connect one, so `oidc()` cannot be used for it. It runs the authorization code flow with a one-time state and PKCE, loads the account's profile and verified emails from GitHub's API, and ends in a [cookie session](#cookie-sessions). No runtime dependency:
+
+```ts
+// src/github.ts
+import { githubOAuth } from "@browserlessapi/inferlo";
+import { settings } from "./config.ts"; // GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (listed in secrets)
+import { session } from "./session.ts";
+
+export const github = githubOAuth({
+  clientId: settings.GITHUB_CLIENT_ID,
+  clientSecret: settings.GITHUB_CLIENT_SECRET,
+  session,
+  // Match on GitHub's numeric id (logins can be renamed); create the user on the first sign-in, or return null to refuse.
+  async userId(profile, { db }) {
+    const known = await db.users.findOne({ githubId: profile.id });
+    if (known) return known.id;
+    if (!profile.email) return null;
+    return (await db.users.insert({ githubId: profile.id, email: profile.email, name: profile.name ?? profile.login })).id;
+  },
+});
+
+// src/app.ts
+createApp({ auth: session, routes: [notes, github] });
+```
+
+- **Routes.** `routes: [github]` adds `GET /auth/github/login` and `GET /auth/github/callback` (public routes). Link to `/auth/github/login?returnTo=/path` (or `github.loginPath`); `returnTo` must be a path on the app. Create an OAuth app (GitHub: Settings, Developer settings, OAuth Apps, or the organization's settings) with `<your app's URL>/auth/github/callback` as the callback URL; a GitHub App's client id and secret work too. `basePath` moves both routes, and `redirectUri` sets the callback URL when the app runs behind a proxy that changes the URL it sees.
+- **What is checked.** The login route keeps a random state and PKCE verifier in a short-lived cookie (`HttpOnly`, `SameSite=Lax`, 10 minutes, a `__Host-` cookie on https). The callback accepts only the state that browser started and an answer without `error`, and exchanges the code with the client secret and the verifier. The pending sign-in is used once. A failed check answers 400 IL3009; a wrong client id, secret or callback URL, or GitHub not answering, is 502 IL3010.
+- **The profile.** `userId(profile, { db, req, tokens })` gets `{ id, login, name, email, verifiedEmails, avatarUrl, raw }`: `email` is the account's primary email only when GitHub has verified it (otherwise `null`), and `verifiedEmails` lists every verified address (both need the `user:email` scope, asked for by default with `read:user`). `tokens.accessToken` calls GitHub's API as the user; Inferlo does not store it. Return the app's user id, or `null` to refuse (403 IL3011). Match users on `profile.id`, not the login.
+- `scopes` (default `["read:user", "user:email"]`) asks for more, such as `["read:user", "user:email", "read:org"]` to check organization membership with `tokens.accessToken` in `userId`. `allowSignup: false` hides GitHub's sign-up option; `?loginHint=octocat` on the login link fills in the username.
+- **GitHub Enterprise Server.** `url: "https://github.acme.com"` signs in at that server (its API is `<url>/api/v3`). It must be https (plain http only on localhost).
+- Signing out is the app's own: `session.signOut(ctx)` in a POST route; GitHub keeps its own session. Invalid options raise IL6067 at startup.
+
 ## Access tokens from an identity provider (JWT)
 
 APIs whose users sign in with an identity provider (Auth0, Okta, Microsoft Entra ID, Google, Keycloak, Clerk, WorkOS, Amazon Cognito, Supabase) receive the provider's access tokens as `Authorization: Bearer <token>`. `jwt()` checks them, with Web Crypto and no runtime dependency:

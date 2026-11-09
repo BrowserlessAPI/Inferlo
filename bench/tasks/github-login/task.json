@@ -1,0 +1,4 @@
+{
+  "title": "Sign in with GitHub",
+  "prompt": "Users can now sign in with their GitHub account. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET settings to src/config.ts (required strings; the client secret is a secret). Create src/github.ts with Inferlo's built-in GitHub sign-in, ending in the existing cookie session from src/session.ts, with its routes at GET /auth/github/login and GET /auth/github/callback, and add it to the app's routes. Sign in the existing user whose email is the GitHub account's primary email, only when GitHub has verified it; refuse unknown or unverified emails. Keep the password login and API keys working."
+}
