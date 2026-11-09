@@ -9,7 +9,9 @@
  * directly. Drops of tables, columns and indexes delete data, so they are refused with IL4017
  * unless you pass { allowDrop: true } (inferlo db migrate --allow-drop). Type, default, required and
  * enum value and reference changes are refused with IL4019 unless you pass { allowChange: true }
- * (--allow-change). Renames and index changes are refused with IL4013, so nothing is lost silently. Snapshots in the
+ * (--allow-change). A renamed table or column looks like a drop plus an add, so renames are only
+ * generated when you name them in { renames: { "notes.color": "notes.colour" } } (--rename); index
+ * changes are refused with IL4013, so nothing is lost silently. Snapshots in the
  * 0.2.0 format (inferlo: 1) are read and upgraded; plans always return the current format (inferlo: 2).
  */
 import { InferloError } from "../errors.ts";
@@ -55,6 +57,8 @@ export interface MigrationPlan {
   drops: string[];
   /** The column changes included in `statements`, e.g. "change column tasks.done (default false -> none)". Empty unless allowChange was set. */
   changes: string[];
+  /** The renames included in `statements`, e.g. "rename column notes.color -> notes.colour". Empty unless renames were given. */
+  renames: string[];
 }
 
 export interface PlanMigrationOptions {
@@ -70,6 +74,14 @@ export interface PlanMigrationOptions {
    * time (IL4021) if rows still use it. Default false.
    */
   allowChange?: boolean;
+  /**
+   * Tables and columns you renamed, from the old name to the new one: { notes: "memos" } for a table,
+   * { "notes.color": "notes.colour" } for a column (field names or column names; the table on the
+   * right is the table's new name). They become ALTER TABLE ... RENAME statements, together with the
+   * indexes and constraints named after them, instead of a drop plus an add that loses the data.
+   * Invalid renames raise IL4032.
+   */
+  renames?: Readonly<Record<string, string>>;
 }
 
 export interface Migration {
@@ -293,16 +305,128 @@ function alterColumnSql(table: string, column: string, before: MigrationSnapshot
   return out;
 }
 
+function invalidRename(problem: string): never {
+  throw new InferloError("IL4032", `Invalid rename: ${problem}`, {
+    fix: 'Name each rename as old=new with the names in migrations/snapshot.json on the left and in your models on the right: --rename notes=memos for a table, --rename notes.color=notes.colour for a column (after a table rename, the right side uses the new table name: --rename notes.color=memos.colour).',
+    expose: true,
+  });
+}
+
+/**
+ * Applies the renames to the previous snapshot's tables, so the rest of the plan compares like with
+ * like, and returns the RENAME statements: tables, then columns, then the indexes and constraints
+ * Postgres named after them (which keep their old names otherwise).
+ */
+function applyRenames(
+  before: MigrationSnapshot["tables"],
+  models: readonly AnyModel[],
+  renames: Readonly<Record<string, string>>,
+): { tables: MigrationSnapshot["tables"]; statements: string[]; descriptions: string[] } {
+  const entries = Object.entries(renames);
+  if (!entries.length) return { tables: before, statements: [], descriptions: [] };
+  const now = new Map(models.map((m) => [m.name, new Set(Object.keys(tableSnapshot(m).columns))]));
+  const tables: MigrationSnapshot["tables"] = structuredClone(before);
+  const statements: string[] = [];
+  const descriptions: string[] = [];
+  const tableRenames = new Map<string, string>();
+  const columnRenames: { table: string; from: string; to: string }[] = [];
+  const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  for (const [from, to] of entries) {
+    if (typeof to !== "string") invalidRename(`${JSON.stringify(from)} must map to a string.`);
+    const left = from.split(".");
+    const right = to.split(".");
+    if (left.length !== right.length || left.length > 2 || ![...left, ...right].every((part) => NAME.test(part))) {
+      invalidRename(`"${from}=${to}" is not table=table or table.column=table.column.`);
+    }
+    if (left.length === 1) {
+      if (!(from in before)) invalidRename(`there is no table "${from}" in migrations/snapshot.json.`);
+      if (to in before) invalidRename(`table "${to}" already exists in migrations/snapshot.json.`);
+      if (!now.has(to)) invalidRename(`there is no model "${to}".`);
+      if (now.has(from)) invalidRename(`model "${from}" still exists, so table "${from}" was not renamed.`);
+      if ([...tableRenames.values()].includes(to)) invalidRename(`two tables are renamed to "${to}".`);
+      tableRenames.set(from, to);
+    } else {
+      columnRenames.push({ table: left[0]!, from: columnName(left[1]!), to: `${right[0]}.${columnName(right[1]!)}` });
+    }
+  }
+  for (const [from, to] of tableRenames) {
+    tables[to] = tables[from]!;
+    delete tables[from];
+    statements.push(`ALTER TABLE ${q(from)} RENAME TO ${q(to)}`);
+    descriptions.push(`rename table ${from} -> ${to}`);
+  }
+  // Foreign keys follow a renamed table in Postgres; the snapshot has to say so too.
+  for (const table of Object.values(tables)) {
+    for (const column of Object.values(table.columns)) {
+      if (column.references && tableRenames.has(column.references.table)) column.references = { ...column.references, table: tableRenames.get(column.references.table)! };
+    }
+  }
+  /** The old table and column of each column of a renamed table or renamed column, by new table and column. */
+  const oldNames = new Map<string, Map<string, [table: string, column: string]>>();
+  const remember = (table: string, column: string, old: [string, string]) => {
+    if (!oldNames.has(table)) oldNames.set(table, new Map());
+    oldNames.get(table)!.set(column, old);
+  };
+  for (const [from, to] of tableRenames) for (const column of Object.keys(tables[to]!.columns)) remember(to, column, [from, column]);
+  const renamedColumns = new Set<string>();
+  for (const { table, from, to } of columnRenames) {
+    const [toTable, toColumn] = to.split(".") as [string, string];
+    const current = tableRenames.get(table) ?? table;
+    if (!(table in before)) invalidRename(`there is no table "${table}" in migrations/snapshot.json.`);
+    if (toTable !== current) invalidRename(`a column stays in its table: "${table}.${from}" can only become "${current}.<column>".`);
+    const columns = tables[current]!.columns;
+    if (!(from in columns)) invalidRename(`there is no column "${table}.${from}" in migrations/snapshot.json.`);
+    if (toColumn in columns) invalidRename(`column "${current}.${toColumn}" already exists in migrations/snapshot.json.`);
+    if (!now.get(current)?.has(toColumn)) invalidRename(`model "${current}" has no field for column "${toColumn}".`);
+    if (now.get(current)!.has(from)) invalidRename(`model "${current}" still has column "${from}", so it was not renamed.`);
+    if (renamedColumns.has(`${current}.${from}`)) invalidRename(`column "${table}.${from}" is renamed twice.`);
+    renamedColumns.add(`${current}.${from}`);
+    columns[toColumn] = columns[from]!;
+    delete columns[from];
+    statements.push(`ALTER TABLE ${q(current)} RENAME COLUMN ${q(from)} TO ${q(toColumn)}`);
+    descriptions.push(`rename column ${table}.${from} -> ${current}.${toColumn}`);
+    remember(current, toColumn, [oldNames.get(current)?.get(from)?.[0] ?? table, from]);
+    oldNames.get(current)?.delete(from);
+  }
+  // Indexes and the CHECK and foreign key constraints are named after the table and column; give them the names Inferlo now expects.
+  for (const [table, columns] of oldNames) {
+    const snapshot = tables[table]!;
+    for (const [column, [oldTable, oldColumn]] of columns) {
+      if (oldTable === table && oldColumn === column) continue;
+      const definition = snapshot.columns[column]!;
+      for (const [present, suffix] of [[definition.enum, "check"], [definition.references, "fkey"]] as const) {
+        if (!present) continue;
+        const from = constraintName(oldTable, oldColumn, suffix);
+        const to = constraintName(table, column, suffix);
+        if (from !== to) statements.push(`ALTER TABLE ${q(table)} RENAME CONSTRAINT ${q(from)} TO ${q(to)}`);
+      }
+      for (const suffix of ["key", "idx"]) {
+        const from = `${oldTable}_${oldColumn}_${suffix}`;
+        const sql = snapshot.indexes[from];
+        if (sql === undefined) continue;
+        const to = `${table}_${column}_${suffix}`;
+        const on = sql.indexOf(` ON ${q(oldTable)} `);
+        if (on === -1) continue;
+        delete snapshot.indexes[from];
+        snapshot.indexes[to] = sql.slice(0, on).replace(q(from), q(to)) + ` ON ${q(table)} ` + sql.slice(on + ` ON ${q(oldTable)} `.length).replaceAll(q(oldColumn), q(column));
+        statements.push(`ALTER INDEX ${q(from)} RENAME TO ${q(to)}`);
+      }
+    }
+  }
+  return { tables, statements, descriptions };
+}
+
 /** SQL to bring the database from `previous` (or an empty database) to `models`. */
 export function planMigration(
   models: readonly AnyModel[],
   previous?: MigrationSnapshot | MigrationSnapshotV1,
   options: PlanMigrationOptions = {},
 ): MigrationPlan {
-  const before = previous === undefined ? {} : readSnapshot(previous).tables;
+  const renamed = applyRenames(previous === undefined ? {} : readSnapshot(previous).tables, models, options.renames ?? {});
+  const before = renamed.tables;
   const sorted = sortByReferences([...models]);
   const snapshot: MigrationSnapshot = { inferlo: 2, tables: {} };
-  const statements: string[] = [];
+  const statements: string[] = [...renamed.statements];
   const refused: string[] = [];
   const changedColumns: { table: string; column: string; changes: string[] }[] = [];
   const drops: string[] = [];
@@ -368,14 +492,16 @@ export function planMigration(
       return column ? `${change} (${column.changes.join(", ")})` : change;
     });
     throw new InferloError("IL4013", `inferlo db migrate cannot generate these changes yet: ${explained.join(", ")}.`, {
-      fix: "New tables, columns and indexes, drops with --allow-drop, and type, default, required, enum value and reference changes with --allow-change are generated. Renames and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
+      fix: "New tables, columns and indexes, drops with --allow-drop, and type, default, required, enum value and reference changes with --allow-change are generated. Renames are generated when you name them with --rename old=new. Index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
       details: { changes: refused, columns: changedColumns },
       expose: true,
     });
   }
   if (drops.length && !options.allowDrop) {
+    // A dropped column next to a new column in the same table (or a dropped table next to a new one) is usually a rename.
+    const hint = renameHint(before, sorted);
     throw new InferloError("IL4017", `Your model changes drop data: ${drops.join(", ")}.`, {
-      fix: "If you mean to delete this data, run inferlo db migrate --allow-drop (or planMigration(models, snapshot, { allowDrop: true })) and review the file. Otherwise restore the removed models, fields or indexes.",
+      fix: `${hint ? `If you renamed it, run inferlo db migrate --rename ${hint} (or pass { renames: { ... } }), which keeps the data. ` : ""}If you mean to delete this data, run inferlo db migrate --allow-drop (or planMigration(models, snapshot, { allowDrop: true })) and review the file. Otherwise restore the removed models, fields or indexes.`,
       details: { drops },
       expose: true,
     });
@@ -395,7 +521,24 @@ export function planMigration(
       expose: true,
     });
   }
-  return { statements, snapshot, drops, changes };
+  return { statements, snapshot, drops, changes, renames: renamed.descriptions };
+}
+
+/** "notes.color=notes.colour" (or "notes=memos") when a table lost one column and gained one, the likely rename; otherwise undefined. */
+function renameHint(before: MigrationSnapshot["tables"], models: readonly AnyModel[]): string | undefined {
+  const names = new Set(models.map((m) => m.name));
+  for (const model of models) {
+    const old = before[model.name];
+    if (!old) continue;
+    const columns = Object.keys(tableSnapshot(model).columns);
+    const removed = Object.keys(old.columns).filter((c) => !columns.includes(c));
+    const added = columns.filter((c) => !(c in old.columns));
+    if (removed.length === 1 && added.length === 1) return `${model.name}.${removed[0]}=${model.name}.${added[0]}`;
+  }
+  const removedTables = Object.keys(before).filter((t) => !names.has(t));
+  const addedTables = models.map((m) => m.name).filter((t) => !(t in before));
+  if (removedTables.length === 1 && addedTables.length === 1) return `${removedTables[0]}=${addedTables[0]}`;
+  return undefined;
 }
 
 const MIGRATION_NAME = /^[A-Za-z0-9_-]{1,200}$/;

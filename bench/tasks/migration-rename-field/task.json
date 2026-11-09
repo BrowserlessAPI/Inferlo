@@ -1,0 +1,4 @@
+{
+  "title": "Rename a field without losing data",
+  "prompt": "Rename the notes field ownerId to authorId everywhere in the app (models, routes and tests). Production already has notes, and their owners must be kept. This project deploys with migrations: add the migration file migrations/0002_rename_note_owner.sql with exactly the SQL `inferlo db migrate rename_note_owner` would generate for this rename, keeping the data, and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands."
+}

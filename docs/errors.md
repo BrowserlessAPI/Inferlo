@@ -518,7 +518,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid config options.** `config()` needs `schema: t.object({ ... })` with one non-object field per variable, `secrets` that are fields of the schema, and `environments` whose values are objects of schema fields: `environments: { test: { PORT: "3001" } }`.
 
 ### IL4013
-**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and type, default, required and enum value changes with `--allow-change` (IL4019), including reference changes. Your models change an index in place (same name, other definition), or a column in a way that cannot be generated. `details.changes` lists them, and `details.columns` says what changed in each column. Undo the model change, or write the SQL yourself in a new migration file.
+**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, type, default, required, enum value and reference changes with `--allow-change` (IL4019), and renames with `--rename old=new`. Your models change an index in place (same name, other definition), or a column in a way that cannot be generated. `details.changes` lists them, and `details.columns` says what changed in each column. Undo the model change, or write the SQL yourself in a new migration file.
 
 ### IL4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
@@ -530,7 +530,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid or duplicate migration name.** Migration names use letters, digits, `_` and `-` and must be unique, e.g. `0002_add_due_dates`.
 
 ### IL4017
-**Migration drops data.** Your models no longer have a table, column or index that the last migration created. `details.drops` lists them. If you mean to delete that data, run `inferlo db migrate --allow-drop` (or pass `{ allowDrop: true }` to `planMigration`) and review the file. Otherwise restore the removed model, field or index. A rename is not a drop: undo it and write the rename SQL yourself.
+**Migration drops data.** Your models no longer have a table, column or index that the last migration created. `details.drops` lists them. If you mean to delete that data, run `inferlo db migrate --allow-drop` (or pass `{ allowDrop: true }` to `planMigration`) and review the file. Otherwise restore the removed model, field or index. A rename is not a drop: name it with `inferlo db migrate --rename notes.color=notes.colour` (or `--rename notes=memos` for a table), which keeps the data; when one column was replaced by another, the fix names the `--rename` to use.
 
 ### IL4018
 **Applied migration file was edited** (warning, not an error). `inferlo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `inferlo db migrate <name>`.
@@ -573,6 +573,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL4031
 **Migration adds a foreign key, but rows point at missing ids.** `inferlo db migrate --apply` replaced a reference's foreign key constraint (generated with `--allow-change`, usually because the reference now points at another table) and rows hold ids the referenced table does not have. The migration was rolled back and not recorded. `details` has `migration`, `table`, `constraint` and Postgres's `reason` (the first id that is missing). If the file has not been applied anywhere, add an `UPDATE` that sets those references to existing ids or `NULL` (for an optional field), or a `DELETE` of those rows, before the `ADD CONSTRAINT` statement. Or keep the old reference in the model. See [Migrations](database.md#migrations).
+
+### IL4032
+**Invalid rename.** A `--rename old=new` given to `inferlo db migrate` (or `planMigration(models, snapshot, { renames })`) cannot be applied: it is not `table=table` or `table.column=table.column` with plain names; the old table or column is not in `migrations/snapshot.json`; the new one is not in your models, or already exists in the snapshot; the old one is still in your models; a column moves to another table; or two renames have the same target. The left side uses the old names and the right side your models' names, so after a table rename a column is `--rename notes.color=memos.colour`. Nothing is written. See [Migrations](database.md#migrations).
 
 ## CLI (8xxx)
 

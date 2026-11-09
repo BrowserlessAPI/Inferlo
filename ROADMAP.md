@@ -23,7 +23,7 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] More providers part 3: AWS Bedrock adapter on the Converse API (`bedrock({ region, credentials | apiKey })`, SigV4 signing with Web Crypto, streaming through Bedrock's event stream, Titan and Cohere embeddings)
 - [x] Guardrails: optional input and output checks (max tokens, PII redaction, blocked terms) per AI call or per alias
 - [x] `inferlo db migrate` part 4e: reference changes behind `--allow-change` (`onDelete` and target table: replace the foreign key constraint)
-- [ ] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
+- [x] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [ ] Email: `mail({ smtp })` helper with templates, used by jobs
 - [ ] OAuth login helpers: GitHub and Google, built on cookie sessions
 - [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)

@@ -7,7 +7,7 @@ inferlo worker                 Run background jobs from the database queue until
 inferlo describe [--json]      App map: models, routes, auth, AI
 inferlo check [--json]         Typecheck, load the app, run tests
 inferlo db push [--dry-run]    Create missing tables, columns and indexes
-inferlo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops, --allow-change to include type, default, required, enum value and reference changes)
+inferlo db migrate [name]      Write migrations/NNNN_name.sql for model changes (--dry-run to preview, --allow-drop to include drops, --allow-change to include type, default, required, enum value and reference changes, --rename old=new for each renamed table or column)
 inferlo db migrate --apply     Run pending migration files
 inferlo openapi [--out file]   Print or write the OpenAPI document
 inferlo add resource <name>    Generate a model and CRUD routes
@@ -46,7 +46,7 @@ Agents should run this after every change and not stop until `ok` is `true`.
 { "ok": true, "dryRun": false, "file": "migrations/0002_add_due_dates.sql", "statements": ["ALTER TABLE \"tasks\" ADD COLUMN IF NOT EXISTS \"due_at\" timestamptz"], "drops": [] }
 ```
 
-`file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`, and `changes` lists the column changes (only with `--allow-change`), e.g. `["change column tasks.done (default false -> none)"]`. `inferlo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"], "edited": [] }`. `edited` lists migrations that were applied earlier but whose file has changed since (warning IL4018); they are not run again. See [Migrations](database.md#migrations).
+`file` is `null` when nothing changed or with `--dry-run`. `drops` lists the drops in the file (only with `--allow-drop`), e.g. `["drop column tasks.notes"]`, and `changes` lists the column changes (only with `--allow-change`), e.g. `["change column tasks.done (default false -> none)"]`, and `renames` the renames (only with `--rename`), e.g. `["rename column tasks.color -> tasks.colour"]`. `inferlo db migrate --apply --json` prints `{ "ok": true, "applied": ["0002_add_due_dates"], "edited": [] }`. `edited` lists migrations that were applied earlier but whose file has changed since (warning IL4018); they are not run again. See [Migrations](database.md#migrations).
 
 ## inferlo worker
 
