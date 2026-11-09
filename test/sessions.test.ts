@@ -101,7 +101,10 @@ describe("sessions", () => {
     const value = cookie.split("; ")[0]!.split("=")[1]!;
     const [, payload, signature] = value.split(".");
     const forged = Buffer.from(JSON.stringify({ u: "u1", s: "x", i: Date.now(), e: Date.now() + 1e9 })).toString("base64url");
-    for (const bad of [`v1.${forged}.${signature}`, `v1.${payload}.${signature!.slice(0, -2)}AA`, `v2.${payload}.${signature}`, "garbage", `v1.${payload}.${signature}.x`]) {
+    // Always a different signature: one in about a thousand real signatures already ends in "AA".
+    const tampered = `${signature!.slice(0, -2)}${signature!.endsWith("AA") ? "BA" : "AA"}`;
+    assert.notEqual(tampered, signature);
+    for (const bad of [`v1.${forged}.${signature}`, `v1.${payload}.${tampered}`, `v2.${payload}.${signature}`, "garbage", `v1.${payload}.${signature}.x`]) {
       assert.equal((await app.fetch(new Request("https://app.example.com/me", { headers: { cookie: `inferlo_session=${bad}` } }))).status, 401, bad);
     }
     const other = makeApp({ secret: "another-secret-that-is-at-least-32-characters" }).app;
