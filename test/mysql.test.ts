@@ -38,9 +38,11 @@ const Task = model("my_tasks", {
   embedding: t.vector(3).optional(),
 });
 
-describe("mysql()", { skip: !MYSQL_URL && "set INFERLO_TEST_MYSQL_URL" }, () => {
-  const adapter = MYSQL_URL ? mysqlAdapter() : undefined;
-  const db = createDb([Team, Task], adapter!);
+// Defined only with a server: Bun 1.3.0 runs the body of a skipped describe, which would create the db.
+if (!MYSQL_URL) test.skip("mysql() against a server: set INFERLO_TEST_MYSQL_URL", () => {});
+else describe("mysql()", () => {
+  const adapter = mysqlAdapter();
+  const db = createDb([Team, Task], adapter);
   after(async () => {
     await db.$close();
   });
@@ -51,7 +53,7 @@ describe("mysql()", { skip: !MYSQL_URL && "set INFERLO_TEST_MYSQL_URL" }, () => 
     assert.ok(first.includes("CREATE UNIQUE INDEX `my_teams_name_key` ON `my_teams` (`name`)"));
     assert.deepEqual(await db.$sync({ dryRun: true }), []);
     const Extended = model("my_teams", { name: t.string().max(40).unique(), settings: t.json().default({ plan: "free" }), motto: t.string().optional() });
-    assert.deepEqual(await createDb([Extended], adapter!).$sync(), ["ALTER TABLE `my_teams` ADD COLUMN `motto` TEXT"]);
+    assert.deepEqual(await createDb([Extended], adapter).$sync(), ["ALTER TABLE `my_teams` ADD COLUMN `motto` TEXT"]);
   });
 
   test("values keep their types: dates, booleans, integers, real numbers, JSON with defaults and vectors", async () => {
@@ -115,11 +117,11 @@ describe("mysql()", { skip: !MYSQL_URL && "set INFERLO_TEST_MYSQL_URL" }, () => 
   });
 
   test("a missing table is IL4012; Postgres-only features say so", async () => {
-    const other = createDb([model("my_missing", { x: t.string() })], adapter!);
+    const other = createDb([model("my_missing", { x: t.string() })], adapter);
     await assert.rejects(other.my_missing.insert({ x: "a" }), isCode("IL4012"));
-    assert.throws(() => createApp({ db: adapter!, jobQueue: { store: "database" }, logger: quiet }), isCode("IL6012"));
+    assert.throws(() => createApp({ db: adapter, jobQueue: { store: "database" }, logger: quiet }), isCode("IL6012"));
     await assert.rejects(applyMigrations(db, [{ name: "0001_init", sql: "SELECT 1" }]), isCode("IL4035"));
     await assert.rejects(db.$pgClient(), isCode("IL4028"));
-    assert.equal(createApp({ db: adapter!, logger: quiet }).describe().database, "mysql");
+    assert.equal(createApp({ db: adapter, logger: quiet }).describe().database, "mysql");
   });
 });
