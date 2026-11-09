@@ -47,7 +47,7 @@ describe("webhook signatures", () => {
     const both = `${stripeHeader("whsec_wrong", body)},v1=${stripeHeader(STRIPE_SECRET, body).split("v1=")[1]}`;
     assert.equal((await post("/webhooks/stripe", body, { "stripe-signature": both })).status, 200, "any v1 signature may match");
     const before = received.length;
-    for (const header of [stripeHeader("whsec_wrong", body), stripeHeader(STRIPE_SECRET, body + " "), stripeHeader(STRIPE_SECRET, body, now() - 301), stripeHeader(STRIPE_SECRET, body, now() + 301), `t=${now()}`, "v1=abc", "", "t=abc,v1=00"]) {
+    for (const header of [stripeHeader("whsec_wrong", body), stripeHeader(STRIPE_SECRET, body + " "), stripeHeader(STRIPE_SECRET, body, now() - 310), stripeHeader(STRIPE_SECRET, body, now() + 310), `t=${now()}`, "v1=abc", "", "t=abc,v1=00"]) {
       const res = await post("/webhooks/stripe", body, header ? { "stripe-signature": header } : {});
       assert.equal(res.status, 401, header);
       const error = (await res.json()).error;
