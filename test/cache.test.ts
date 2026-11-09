@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { bearer, createApp, InferloError, job, memory, route, t, type Adapter, type Cache, type CacheConfig } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
+import { MYSQL_URL, mysqlAdapter } from "./mysql-adapter.ts";
 import { createCache, memoryCacheStore } from "../src/cache.ts";
 import type { RedisClient } from "../src/redis.ts";
 import { createClient } from "redis";
@@ -302,6 +303,32 @@ if (PG_URL) {
       assert.deepEqual(await second.json(), { call: 1 });
       await make().cache.invalidate(`route-${suffix}`);
       assert.deepEqual(await (await make().request(`/shared-${suffix}`)).json(), { call: 2 });
+    });
+  });
+}
+
+if (MYSQL_URL) {
+  // One database for the block: the apps below share it like instances of one app.
+  const db = mysqlAdapter();
+  after(async () => {
+    await db.close?.();
+  });
+  cacheContract("database, mysql", () => createApp({ db, cache: { store: "database" }, logger: quiet }).cache);
+
+  describe("database cache store on MySQL", () => {
+    test("entries are shared by every instance; keys up to 512 characters, case-sensitive; tags invalidate", async () => {
+      const first = createApp({ db, cache: { store: "database" }, logger: quiet });
+      const second = createApp({ db, cache: { store: "database" }, logger: quiet });
+      assert.equal(first.describe().cache, "database");
+      const long = `${"k".repeat(512 - 6 - suffix.length)}-long-${suffix}`;
+      await first.cache.set(long, { from: "first" }, { ttlMs: 60_000, tags: [`shared-${suffix}`, "x".repeat(256)] });
+      await first.cache.set(`other-${suffix}`, 1, { ttlMs: 60_000, tags: [`kept-${suffix}`] });
+      assert.deepEqual(await second.cache.get(long), { from: "first" });
+      assert.equal(await second.cache.get(long.toUpperCase()), undefined, "keys are case-sensitive");
+      assert.equal(long.length, 512);
+      await second.cache.invalidate([`shared-${suffix}`, `none-${suffix}`]);
+      assert.equal(await first.cache.get(long), undefined);
+      assert.equal(await first.cache.get(`other-${suffix}`), 1);
     });
   });
 }

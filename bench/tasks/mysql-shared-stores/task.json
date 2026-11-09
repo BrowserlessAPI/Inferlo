@@ -1,0 +1,5 @@
+{
+  "title": "Jobs, cache and rate limits shared through MySQL",
+  "prompt": "The app runs on several servers and its database is MySQL: DATABASE_URL is a mysql:// URL (for example mysql://app:secret@db:3306/app). Use Inferlo's built-in MySQL support when DATABASE_URL is set, and the in-memory database when it is not. When DATABASE_URL is set, keep background jobs, the app cache and rate limit counts in the database so every server shares them; without it, keep the defaults. The mysql2 package is already installed.",
+  "packages": ["mysql2"]
+}

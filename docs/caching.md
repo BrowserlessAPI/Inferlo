@@ -49,7 +49,7 @@ createApp({ cache: { store: "redis" }, redis });   // redis = await createClient
 ```
 
 - `"memory"` (default): entries live in the process. Fast and fine for one instance and for tests, but each instance has its own entries, and `invalidate` only reaches the instance that calls it. It keeps at most `maxEntries` entries (default 10000; `{ store: "memory", maxEntries: 50_000 }`) and removes the least recently used first.
-- `"database"`: entries live in the `inferlo_cache` table of the app's Postgres database (created on first use), so every instance shares them and `invalidate` and `delete` reach all of them. Expired entries are never returned and are removed from time to time. Apps that share one database share this table, so give their keys and tags a prefix. It needs `postgres()` as the database; with another adapter `createApp` raises IL6028.
+- `"database"`: entries live in the `inferlo_cache` table of the app's Postgres or MySQL database (created on first use), so every instance shares them and `invalidate` and `delete` reach all of them. Expired entries are never returned and are removed from time to time. Apps that share one database share this table, so give their keys and tags a prefix. It needs `postgres()` or `mysql()` as the database; with another adapter `createApp` raises IL6028.
 
 - `"redis"`: entries live in the Redis of `createApp({ redis })` (see [Redis](redis.md)), so every instance shares them and `invalidate`, `delete` and `clear` reach all of them. Redis expires entries itself. Keys start with `inferlo:<app name>:cache:`, so apps that share one Redis keep their entries apart, and `clear()` removes only the app's own. Without `createApp({ redis })` it raises IL6031.
 

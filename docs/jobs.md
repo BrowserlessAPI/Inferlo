@@ -205,7 +205,7 @@ export const app = createApp({
 
 By default the queue is kept in memory in the process that enqueues, so jobs are lost on restart and every instance runs its own. That is right for development and tests.
 
-In production, keep jobs in Postgres or Redis. In Postgres:
+In production, keep jobs in the database (Postgres or MySQL) or Redis. In Postgres (MySQL works the same with `mysql()`):
 
 ```ts
 export const app = createApp({
@@ -219,7 +219,7 @@ export const app = createApp({
 - Every instance shares the queue. Due jobs are claimed with `FOR UPDATE SKIP LOCKED`, so each attempt runs on exactly one instance, however many run `app.jobs.start()`.
 - An instance only claims jobs it has registered, so during a rolling deploy an old instance never picks up a job that only the new code knows.
 - While a job runs, its worker reports every 30 seconds that it is still alive. A job still `"running"` without a report for 5 minutes (its process crashed or was killed) is picked up again as its next attempt, with `lastError` saying the worker stopped. If it has no attempts left, it is marked `"failed"` instead. This is why handlers must be safe to run twice.
-- `{ store: "database" }` needs the Postgres adapter (IL6012). Any other store name raises IL6011.
+- `{ store: "database" }` needs the Postgres or MySQL adapter (IL6012). Any other store name raises IL6011.
 - `app.jobs.get(id)` reads the record from the table, so any instance can check a job's status.
 
 Or keep them in Redis, with the same guarantees:

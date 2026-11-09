@@ -21,7 +21,7 @@ export interface RateLimit {
 export interface RateLimitConfig {
   /**
    * Where counts are kept. "memory" (default): in this process, for one instance and tests.
-   * "database": in the inferlo_rate_limits table of the app's Postgres database, shared by every instance.
+   * "database": in the inferlo_rate_limits table of the app's Postgres or MySQL database, shared by every instance.
    * "redis": in the Redis of createApp({ redis }), shared by every instance.
    */
   store?: "memory" | "database" | "redis";
@@ -74,10 +74,11 @@ export function memoryRateLimitStore(now: () => number = Date.now): RateLimitSto
 
 /** Counts in the inferlo_rate_limits table (created on first use), one row per key, updated atomically. */
 export function databaseRateLimitStore(adapter: Adapter): RateLimitStore {
+  if (adapter.dialect === "mysql" && adapter.sql && adapter.transaction) return mysqlRateLimitStore(adapter);
   const sql = adapter.dialect === "postgres" ? adapter.sql?.bind(adapter) : undefined;
   if (!sql) {
-    throw new InferloError("IL6008", `rateLimit store "database" needs a Postgres database, but the app uses the ${adapter.dialect} adapter.`, {
-      fix: 'Use postgres() from "@browserlessapi/inferlo/postgres" for createApp({ db }), or rateLimit: { store: "memory" }.',
+    throw new InferloError("IL6008", `rateLimit store "database" needs a Postgres or MySQL database, but the app uses the ${adapter.dialect} adapter.`, {
+      fix: 'Use postgres() from "@browserlessapi/inferlo/postgres" or mysql() from "@browserlessapi/inferlo/mysql" for createApp({ db }), or rateLimit: { store: "memory" }.',
     });
   }
   let ready: Promise<unknown> | undefined;
@@ -103,6 +104,43 @@ export function databaseRateLimitStore(adapter: Adapter): RateLimitStore {
       );
       const row = rows[0] as { count: number | string; reset_ms?: number | string; resetMs?: number | string };
       return { count: Number(row.count), resetMs: Math.max(0, Number(row.reset_ms ?? row.resetMs ?? 0)) };
+    },
+  };
+}
+
+/**
+ * The inferlo_rate_limits table on MySQL, keyed by the SHA-256 of the key. The upsert and the read of the new count
+ * run in one transaction, which holds the row's lock, so concurrent hits are counted one by one.
+ */
+function mysqlRateLimitStore(adapter: Adapter): RateLimitStore {
+  const sql = adapter.sql!.bind(adapter);
+  let ready: Promise<unknown> | undefined;
+  return {
+    async hit(key, ms) {
+      ready ??= sql(
+        "CREATE TABLE IF NOT EXISTS `inferlo_rate_limits` (`key_hash` BINARY(32) PRIMARY KEY, `count` INT NOT NULL, `reset_at` DATETIME(3) NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
+      ).catch((error) => {
+        ready = undefined;
+        throw error;
+      });
+      await ready;
+      return adapter.transaction!(async (tx) => {
+        const txSql = tx.sql!.bind(tx);
+        // count is assigned first, so it still sees the old reset_at.
+        await txSql(
+          `INSERT INTO \`inferlo_rate_limits\` (\`key_hash\`, \`count\`, \`reset_at\`) VALUES (UNHEX(SHA2(?, 256)), 1, UTC_TIMESTAMP(3) + INTERVAL ? * 1000 MICROSECOND) AS n
+           ON DUPLICATE KEY UPDATE
+             \`count\` = IF(\`inferlo_rate_limits\`.\`reset_at\` <= UTC_TIMESTAMP(3), 1, \`inferlo_rate_limits\`.\`count\` + 1),
+             \`reset_at\` = IF(\`inferlo_rate_limits\`.\`reset_at\` <= UTC_TIMESTAMP(3), n.\`reset_at\`, \`inferlo_rate_limits\`.\`reset_at\`)`,
+          [key, ms],
+        );
+        const rows = await txSql(
+          "SELECT `count`, CEIL(TIMESTAMPDIFF(MICROSECOND, UTC_TIMESTAMP(3), `reset_at`) / 1000) AS reset_ms FROM `inferlo_rate_limits` WHERE `key_hash` = UNHEX(SHA2(?, 256))",
+          [key],
+        );
+        const row = rows[0] as { count: number | string; reset_ms: number | string };
+        return { count: Number(row.count), resetMs: Math.max(0, Number(row.reset_ms)) };
+      });
     },
   };
 }

@@ -328,7 +328,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid rate limit configuration.** `rateLimit` needs `max` (a whole number of at least 1), `per` (`"second"`, `"minute"`, `"hour"` or `"day"`) and optionally `by` (`"user"`, `"tenant"` or `"ip"`); `createApp({ rateLimit: { store } })` takes `"memory"`, `"database"`, `"redis"` (which needs `createApp({ redis })`, IL6031) or a BullMQ queue with `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq`.
 
 ### IL6008
-**Rate limit store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
+**Rate limit store "database" needs Postgres or MySQL.** Use `postgres()` or `mysql()` for `createApp({ db })`, or the default `"memory"` store (or `"redis"`). The memory and SQLite adapters cannot share counts between instances.
 
 ### IL6009
 **Invalid job.** A job name must be lowercase letters, digits and dashes, starting with a letter (`"send-email"`), unique in the app, with `input` a schema and `retries` a whole number from 0 to 25. `enqueue(..., { runAt })` needs a valid `Date`.
@@ -340,7 +340,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid job queue configuration.** `createApp({ jobQueue: { store } })` takes `"memory"` (the default), `"database"`, `"redis"` (which needs `createApp({ redis })`, IL6031) or a BullMQ queue with `bullmqJobStore(queue, worker)` from `@browserlessapi/inferlo/bullmq`.
 
 ### IL6012
-**Job queue store "database" needs Postgres.** Use `postgres()` for `createApp({ db })`, or the default `"memory"` store.
+**Job queue store "database" needs Postgres or MySQL.** Use `postgres()` or `mysql()` for `createApp({ db })`, or the default `"memory"` store (or `"redis"`). The memory and SQLite adapters cannot share a queue between processes.
 
 ### IL6013
 **Invalid cron.** `cron(schedule, job)` needs five fields, `minute hour day-of-month month day-of-week` in UTC (numbers, `*`, ranges `1-5`, lists `1,15`, steps `*/15`, and month and weekday names such as `jan` or `mon`), a schedule that matches some date, and a job whose input schema accepts `{}`.
@@ -388,7 +388,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Audit log not available or used wrongly.** `ctx.audit(action, entry)` in a route or job needs the built-in `AuditLog` model in `createApp({ models: [...models, AuditLog] })` (run `inferlo db migrate` to create the `audit_log` table), an action name such as `"tickets.update"`, and an object as `entry`, whose `tenantId`, when given, is a tenant id (a non-empty string of at most 200 characters) or `null`. See [Audit log](auth.md#audit-log).
 
 ### IL6028
-**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1), `{ store: "database" }`, which needs `postgres()` as the database, or `{ store: "redis" }`, which needs `createApp({ redis })` (IL6031). Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. The route option `cache` only works on GET routes and takes `{ ttlMs, by: "user" | "tenant" | "public", tags }`: `route.get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })`. See [Caching](caching.md).
+**Invalid cache options or cache call.** `createApp({ cache })` takes `{ store: "memory" }` (the default, with an optional `maxEntries`, a whole number of at least 1), `{ store: "database" }`, which needs `postgres()` or `mysql()` as the database, or `{ store: "redis" }`, which needs `createApp({ redis })` (IL6031). Cache calls need a key of 1 to 512 characters, `{ ttlMs }` with a whole number of milliseconds from 1 to 365 days, tags that are strings of 1 to 256 characters, and a value that can be stored as JSON (not `undefined`, a function or a `BigInt`; cache `null` for "nothing"): `await cache.getOrSet("tickets:stats", { ttlMs: 60_000, tags: ["tickets"] }, compute)`. The route option `cache` only works on GET routes and takes `{ ttlMs, by: "user" | "tenant" | "public", tags }`: `route.get("/tickets/stats", { cache: { ttlMs: 60_000, tags: ["tickets"] } })`. See [Caching](caching.md).
 
 ### IL6029
 **Invalid sessions() options or call.** `sessions({ secret, user })` needs a `secret` of at least 32 characters (or a list of them for rotation, newest first; generate one with `openssl rand -base64 32` and keep it in `config({ secrets })`) and a `user({ userId, issuedAt }, { db })` function that loads the signed-in user. `maxAgeMs` is a whole number of milliseconds from 1 minute to 400 days, `cookie.name` a valid cookie name, `cookie.sameSite` `"lax"` or `"strict"`, and `cookie.domain` and `cookie.path` strings without spaces, commas or semicolons. `session.signIn(ctx, userId)` and `session.signOut(ctx)` need the route's context and a non-empty user id. See [Cookie sessions](auth.md#cookie-sessions).
@@ -631,7 +631,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **No background jobs to run.** `inferlo worker` found no jobs in the app. Define them with `job(...).handle(...)` and register them with `createApp({ jobs: [jobs] })`.
 
 ### IL8008
-**`inferlo worker` needs a shared job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres adapter or `createApp({ redis, jobQueue: { store: "redis" } })`, or run jobs in the server process with `app.jobs.start()`.
+**`inferlo worker` needs a shared job queue.** With the default in-memory queue a separate process cannot see the jobs the server enqueues. Set `createApp({ jobQueue: { store: "database" } })` with the Postgres or MySQL adapter or `createApp({ redis, jobQueue: { store: "redis" } })`, or run jobs in the server process with `app.jobs.start()`.
 
 ### IL8009
 **src/prompts/index.ts is out of date.** `inferlo prompts --check` found that the generated module does not match the prompt files in `src/prompts/*.md`. Run `inferlo prompts` and commit `src/prompts/index.ts`. See [Prompt files](ai.md#prompt-files).

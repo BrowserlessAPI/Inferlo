@@ -140,7 +140,7 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   routes?: RouteSource[];
   /** Background jobs, crons and event subscriptions: jobs, cron(schedule, job) and on(event, job) values, arrays or modules (import * as jobs from "./jobs.ts"). */
   jobs?: JobSource[];
-  /** Where queued jobs are kept: { store: "memory" } (default) or { store: "database" } (Postgres table inferlo_jobs, shared by every instance). */
+  /** Where queued jobs are kept: { store: "memory" } (default) or { store: "database" } (Postgres or MySQL table inferlo_jobs, shared by every instance). */
   jobQueue?: JobQueueConfig;
   /**
    * Events between services: { transport: "redis" } sends published events through Redis Streams (needs redis and
@@ -148,7 +148,7 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    */
   events?: EventsConfig;
   /**
-   * Where ctx.cache and app.cache keep entries: { store: "memory" } (default), { store: "database" } (Postgres
+   * Where ctx.cache and app.cache keep entries: { store: "memory" } (default), { store: "database" } (Postgres or MySQL
    * table inferlo_cache) or { store: "redis" } (createApp({ redis })), both shared by every instance.
    */
   cache?: CacheConfig;
@@ -189,7 +189,7 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    */
   sockets?: SocketsConfig;
   /**
-   * Where route rateLimit counts are kept: { store: "memory" } (default), { store: "database" } (Postgres) or
+   * Where route rateLimit counts are kept: { store: "memory" } (default), { store: "database" } (Postgres or MySQL) or
    * { store: "redis" } (createApp({ redis })), both shared by every instance.
    */
   rateLimit?: RateLimitConfig;

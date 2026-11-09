@@ -4,7 +4,7 @@
  *   const stats = await cache.getOrSet("stats:daily", { ttlMs: 60_000, tags: ["tickets"] }, () => computeStats(db));
  *   await cache.invalidate("tickets"); // after a ticket changes
  *
- * Values are stored as JSON, in memory (one process, the default) or in the app's Postgres database (shared by
+ * Values are stored as JSON, in memory (one process, the default) or in the app's Postgres or MySQL database (shared by
  * every instance), chosen with createApp({ cache: { store } }).
  */
 import type { Adapter } from "./db/types.ts";
@@ -13,7 +13,7 @@ import { InferloError } from "./errors.ts";
 export interface CacheConfig {
   /**
    * Where entries are kept. "memory" (default): in this process, for one instance and tests.
-   * "database": in the inferlo_cache table of the app's Postgres database, shared by every instance.
+   * "database": in the inferlo_cache table of the app's Postgres or MySQL database, shared by every instance.
    * "redis": in the Redis of createApp({ redis }), shared by every instance.
    */
   store?: "memory" | "database" | "redis";
@@ -204,11 +204,12 @@ export function memoryCacheStore(maxEntries = 10_000, now: () => number = Date.n
   };
 }
 
-/** Entries in the inferlo_cache table (created on first use), shared by every instance of the app. */
+/** Entries in the inferlo_cache table (created on first use), shared by every instance of the app. Postgres or MySQL. */
 export function databaseCacheStore(adapter: Adapter): CacheStore {
+  if (adapter.dialect === "mysql" && adapter.sql && adapter.transaction) return mysqlCacheStore(adapter);
   const sql = adapter.dialect === "postgres" ? adapter.sql?.bind(adapter) : undefined;
   if (!sql) {
-    throw bad(`cache store "database" needs a Postgres database, but the app uses the ${adapter.dialect} adapter.`, 'Use postgres() from "@browserlessapi/inferlo/postgres" for createApp({ db }), or cache: { store: "memory" }.');
+    throw bad(`cache store "database" needs a Postgres or MySQL database, but the app uses the ${adapter.dialect} adapter.`, 'Use postgres() from "@browserlessapi/inferlo/postgres" or mysql() from "@browserlessapi/inferlo/mysql" for createApp({ db }), or cache: { store: "memory" }.');
   }
   let ready: Promise<unknown> | undefined;
   const create = () =>
@@ -259,6 +260,77 @@ export function databaseCacheStore(adapter: Adapter): CacheStore {
     },
     async clear() {
       await query('DELETE FROM "inferlo_cache"');
+    },
+  };
+}
+
+/**
+ * The inferlo_cache table on MySQL. Keys are stored with their SHA-256 as the primary key (keys can be longer than
+ * an index allows), tags as a JSON array with a multi-valued index for invalidate(), times in UTC.
+ */
+function mysqlCacheStore(adapter: Adapter): CacheStore {
+  const sql = adapter.sql!.bind(adapter);
+  let ready: Promise<unknown> | undefined;
+  const query = async (text: string, params: unknown[] = []) => {
+    ready ??= sql(
+      `CREATE TABLE IF NOT EXISTS \`inferlo_cache\` (
+        \`key\` VARCHAR(512) PRIMARY KEY, \`value\` LONGTEXT NOT NULL,
+        \`tags\` JSON NOT NULL, \`expires_at\` DATETIME(3) NOT NULL,
+        INDEX \`inferlo_cache_tags\` ((CAST(\`tags\`->'$' AS CHAR(256) ARRAY))), INDEX \`inferlo_cache_expires\` (\`expires_at\`)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+    ).catch((error) => {
+      ready = undefined;
+      throw error;
+    });
+    await ready;
+    return sql(text, params);
+  };
+  const live = "`expires_at` > UTC_TIMESTAMP(3)";
+  const expiry = "UTC_TIMESTAMP(3) + INTERVAL ? * 1000 MICROSECOND";
+  let writes = 0;
+  return {
+    async get(key) {
+      const rows = await query(`SELECT \`value\` FROM \`inferlo_cache\` WHERE \`key\` = ? AND ${live}`, [key]);
+      return rows.length ? String((rows[0] as { value: string }).value) : undefined;
+    },
+    async set(key, json, ttlMs, tags) {
+      await query(
+        `INSERT INTO \`inferlo_cache\` (\`key\`, \`value\`, \`tags\`, \`expires_at\`) VALUES (?, ?, CAST(? AS JSON), ${expiry}) AS n
+         ON DUPLICATE KEY UPDATE \`value\` = n.\`value\`, \`tags\` = n.\`tags\`, \`expires_at\` = n.\`expires_at\``,
+        [key, json, JSON.stringify(tags), ttlMs],
+      );
+      if (++writes % 100 === 0) await query("DELETE FROM `inferlo_cache` WHERE `expires_at` <= UTC_TIMESTAMP(3)");
+    },
+    async add(key, json, ttlMs) {
+      // One connection: insert unless the key exists, else write over the entry only if it expired. ROW_COUNT()
+      // says whether either statement wrote. Two adds racing for one expired entry can deadlock; MySQL then rolls
+      // one back, and that one lost.
+      await query("SELECT 1 FROM `inferlo_cache` LIMIT 0");
+      try {
+        return await adapter.transaction!(async (tx) => {
+          const txSql = tx.sql!.bind(tx);
+          const wrote = async () => Number((await txSql("SELECT ROW_COUNT() AS n"))[0]?.n ?? 0) > 0;
+          await txSql(
+            `INSERT IGNORE INTO \`inferlo_cache\` (\`key\`, \`value\`, \`tags\`, \`expires_at\`) VALUES (?, ?, JSON_ARRAY(), ${expiry})`,
+            [key, json, ttlMs],
+          );
+          if (await wrote()) return true;
+          await txSql(`UPDATE \`inferlo_cache\` SET \`value\` = ?, \`tags\` = JSON_ARRAY(), \`expires_at\` = ${expiry} WHERE \`key\` = ? AND \`expires_at\` <= UTC_TIMESTAMP(3)`, [json, ttlMs, key]);
+          return wrote();
+        });
+      } catch (error) {
+        if ((error as { errno?: number })?.errno === 1213) return false;
+        throw error;
+      }
+    },
+    async delete(key) {
+      await query("DELETE FROM `inferlo_cache` WHERE `key` = ?", [key]);
+    },
+    async invalidate(tags) {
+      await query("DELETE FROM `inferlo_cache` WHERE JSON_OVERLAPS(`tags`->'$', CAST(? AS JSON))", [JSON.stringify(tags)]);
+    },
+    async clear() {
+      await query("DELETE FROM `inferlo_cache`");
     },
   };
 }

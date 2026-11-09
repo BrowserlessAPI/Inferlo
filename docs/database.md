@@ -213,7 +213,8 @@ createApp({ db: mysql({ pool }) });                        // a mysql2/promise p
 - Tables are created with `utf8mb4` and the binary collation `utf8mb4_bin`, so `=`, unique values and `like` are case-sensitive, as on Postgres; `ilike` compares lower-cased values. Dates are `DATETIME(3)` in UTC (millisecond precision), booleans `BOOLEAN`, JSON fields MySQL's `JSON`, ids `CHAR(36)`.
 - Strings that are `.unique()` or `.index()` need a length in MySQL: their `.max()`, else `VARCHAR(255)`. Give them a `.max()` when values can be longer. Other strings without `.max()` are `TEXT`, `t.text()` is `MEDIUMTEXT`.
 - MySQL has no `RETURNING`: inserts and updates read the rows back by id (an update locks and reads the matching ids first, in a transaction).
-- Tables are created and extended with `inferlo db push`; migration files are PostgreSQL SQL, so `inferlo db migrate` refuses MySQL with IL4035. The `"database"` stores for `jobQueue`, `cache` and `rateLimit` need Postgres (use `"memory"` or Redis), and `db.$pgClient()` is IL4028.
+- Tables are created and extended with `inferlo db push`; migration files are PostgreSQL SQL, so `inferlo db migrate` refuses MySQL with IL4035. `db.$pgClient()` is IL4028.
+- The `"database"` stores work on MySQL: `jobQueue: { store: "database" }` keeps jobs in `inferlo_jobs` (due jobs claimed with `FOR UPDATE SKIP LOCKED`, so each runs on one instance), `cache: { store: "database" }` entries in `inferlo_cache` (tags in a JSON array with a multi-valued index) and `rateLimit: { store: "database" }` counts in `inferlo_rate_limits`, each created on first use, with times in UTC. A `mysql({ pool })` you create needs `timezone: "Z"` for them too.
 
 ### SQLite
 

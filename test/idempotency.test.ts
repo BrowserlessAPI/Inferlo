@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { bearer, createApp, InferloError, route, t, type Adapter, type CacheConfig, type RedisClient } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
+import { MYSQL_URL, mysqlAdapter } from "./mysql-adapter.ts";
 import { databaseCacheStore, memoryCacheStore, type CacheStore } from "../src/cache.ts";
 import { redisCacheStore } from "../src/redis.ts";
 import { createClient } from "redis";
@@ -205,6 +206,15 @@ if (PG_URL) {
   });
   contract("database", () => ({ db: pg(), cache: { store: "database" } }));
   addContract("database", () => databaseCacheStore(pg()));
+}
+
+if (MYSQL_URL) {
+  const db = mysqlAdapter();
+  after(async () => {
+    await db.close?.();
+  });
+  contract("database, mysql", () => ({ db, cache: { store: "database" } }));
+  addContract("database, mysql", () => databaseCacheStore(db));
 }
 
 if (REDIS_URL) {

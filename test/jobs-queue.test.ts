@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { createApp, InferloError, job, memory, t, type Adapter, type JobQueueConfig } from "../src/index.ts";
 import { postgres } from "../src/db/postgres.ts";
+import { MYSQL_URL, mysqlAdapter } from "./mysql-adapter.ts";
 import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 import { databaseJobStore, STOPPED_MESSAGE, type InternalJobs } from "../src/jobs.ts";
 import { redisJobStore } from "../src/redis-jobs.ts";
@@ -38,14 +39,20 @@ describe("job queue config", () => {
   });
 });
 
-for (const driver of PG_URL ? ["pg", "postgres.js"] : []) {
+for (const driver of [...(PG_URL ? ["pg", "postgres.js"] : []), ...(MYSQL_URL ? ["mysql"] : [])]) {
   describe(`job queue (database store, ${driver})`, () => {
     const adapters: Adapter[] = [];
+    // MySQL: one test database shared by every instance (mysqlAdapter() creates a new database each time).
+    const shared = driver === "mysql" ? mysqlAdapter() : undefined;
     const pg = () => {
+      if (shared) return shared;
       const a = driver === "pg" ? postgres({ url: PG_URL! }) : postgresJsAdapter(PG_URL!);
       adapters.push(a);
       return a;
     };
+    after(async () => {
+      await shared?.close?.();
+    });
     after(async () => {
       for (const a of adapters) await a.close?.();
     });
@@ -103,8 +110,12 @@ for (const driver of PG_URL ? ["pg", "postgres.js"] : []) {
       const crashed = await app.jobs.enqueue(record, { n: 7 });
       const exhausted = await app.jobs.enqueue(record, { n: 8 });
       const sql = db.sql!.bind(db);
-      await sql(`UPDATE "inferlo_jobs" SET "status" = 'running', "attempts" = 1, "updated_at" = now() - interval '10 minutes' WHERE "id" = $1`, [crashed.id]);
-      await sql(`UPDATE "inferlo_jobs" SET "status" = 'running', "attempts" = 2, "updated_at" = now() - interval '10 minutes' WHERE "id" = $1`, [exhausted.id]);
+      const stop = (id: string, attempts: number) =>
+        driver === "mysql"
+          ? sql("UPDATE `inferlo_jobs` SET `status` = 'running', `attempts` = ?, `updated_at` = UTC_TIMESTAMP(3) - INTERVAL 10 MINUTE WHERE `id` = ?", [attempts, id])
+          : sql(`UPDATE "inferlo_jobs" SET "status" = 'running', "attempts" = $1, "updated_at" = now() - interval '10 minutes' WHERE "id" = $2`, [attempts, id]);
+      await stop(crashed.id, 1);
+      await stop(exhausted.id, 2);
       ran.length = 0;
       assert.deepEqual(await app.jobs.runDue(), { done: 1, retried: 0, failed: 0 });
       assert.deepEqual(ran, ["7:2"]);

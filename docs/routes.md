@@ -87,7 +87,7 @@ export const summarize = route
 - The count is checked after auth and before input validation: failed sign-ins on private routes do not use it up, invalid bodies do.
 - Over the limit the route answers **429** with IL2005 and a `Retry-After` header. Every response of a limited route has `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (seconds) headers.
 - Tool calls from `ai.generate({ tools })` and the MCP server count too, as the same user.
-- Counts are kept in memory by default (one process, tests). With several instances, keep them in Postgres: `createApp({ rateLimit: { store: "database" } })` uses the `inferlo_rate_limits` table, created on first use (IL6008 without Postgres). Or keep them in Redis: `createApp({ redis, rateLimit: { store: "redis" } })` (see [Redis](redis.md)).
+- Counts are kept in memory by default (one process, tests). With several instances, keep them in the database: `createApp({ rateLimit: { store: "database" } })` uses the `inferlo_rate_limits` table of the app's Postgres or MySQL database, created on first use (IL6008 with another adapter). Or keep them in Redis: `createApp({ redis, rateLimit: { store: "redis" } })` (see [Redis](redis.md)).
 - The client IP comes from the server (`app.listen()`, Bun and Deno). Behind a load balancer or proxy, set `createApp({ trustProxy: true })` to use the first `X-Forwarded-For` address; leave it off otherwise, because clients can send that header themselves.
 - Invalid options raise IL6007 when the app starts.
 

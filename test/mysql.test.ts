@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { applyMigrations, createApp, createDb, InferloError, model, t } from "../src/index.ts";
 import { mysql } from "../src/db/mysql.ts";
+import { databaseRateLimitStore } from "../src/rate-limit.ts";
 import { MYSQL_URL, mysqlAdapter } from "./mysql-adapter.ts";
 
 const isCode = (code: string) => (e: unknown) => e instanceof InferloError && e.code === code;
@@ -119,9 +120,21 @@ else describe("mysql()", () => {
   test("a missing table is IL4012; Postgres-only features say so", async () => {
     const other = createDb([model("my_missing", { x: t.string() })], adapter);
     await assert.rejects(other.my_missing.insert({ x: "a" }), isCode("IL4012"));
-    assert.throws(() => createApp({ db: adapter, jobQueue: { store: "database" }, logger: quiet }), isCode("IL6012"));
     await assert.rejects(applyMigrations(db, [{ name: "0001_init", sql: "SELECT 1" }]), isCode("IL4035"));
     await assert.rejects(db.$pgClient(), isCode("IL4028"));
     assert.equal(createApp({ db: adapter, logger: quiet }).describe().database, "mysql");
+  });
+
+  test('the "database" stores for jobs, cache and rate limits use MySQL tables', async () => {
+    const app = createApp({ db: adapter, jobQueue: { store: "database" }, cache: { store: "database" }, rateLimit: { store: "database" }, logger: quiet });
+    assert.equal(app.describe().jobQueue, "database");
+    assert.equal(app.describe().cache, "database");
+    const store = databaseRateLimitStore(adapter);
+    const key = `concurrent-${crypto.randomUUID()}`;
+    const hits = await Promise.all(Array.from({ length: 20 }, () => store.hit(key, 60_000)));
+    assert.deepEqual(hits.map((h) => h.count).sort((a, b) => a - b), Array.from({ length: 20 }, (_, i) => i + 1), "concurrent hits are counted one by one");
+    assert.ok(hits.every((h) => h.resetMs > 55_000 && h.resetMs <= 60_000));
+    const tables = (await db.$sql("SELECT TABLE_NAME AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND TABLE_NAME LIKE 'inferlo\\_%' ORDER BY TABLE_NAME")).map((r) => r.name);
+    assert.ok(tables.includes("inferlo_rate_limits"));
   });
 });

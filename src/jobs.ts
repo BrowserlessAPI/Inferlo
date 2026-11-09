@@ -123,7 +123,7 @@ export interface Jobs {
 export interface JobQueueConfig {
   /**
    * Where queued jobs are kept. "memory" (default): in this process, for development and tests.
-   * "database": in the inferlo_jobs table of the app's Postgres database, shared by every instance.
+   * "database": in the inferlo_jobs table of the app's Postgres or MySQL database, shared by every instance.
    * "redis": in the Redis of createApp({ redis }), shared by every instance.
    * bullmqJobStore(queue, worker) from "@browserlessapi/inferlo/bullmq": in an app's BullMQ queue.
    */
@@ -346,13 +346,14 @@ function fromRow(row: Record<string, unknown>): JobRecord {
  * stopped reporting (see STALE_AFTER_MS) is claimed again, or marked failed if it has no attempts left.
  */
 export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: number } = {}): JobStore {
+  const staleAfterMs = options.staleAfterMs ?? STALE_AFTER_MS;
+  if (adapter.dialect === "mysql" && adapter.sql && adapter.transaction) return mysqlJobStore(adapter, staleAfterMs);
   const sql = adapter.dialect === "postgres" ? adapter.sql?.bind(adapter) : undefined;
   if (!sql) {
-    throw new InferloError("IL6012", `jobQueue store "database" needs a Postgres database, but the app uses the ${adapter.dialect} adapter.`, {
-      fix: 'Use postgres() from "@browserlessapi/inferlo/postgres" for createApp({ db }), or jobQueue: { store: "memory" }.',
+    throw new InferloError("IL6012", `jobQueue store "database" needs a Postgres or MySQL database, but the app uses the ${adapter.dialect} adapter.`, {
+      fix: 'Use postgres() from "@browserlessapi/inferlo/postgres" or mysql() from "@browserlessapi/inferlo/mysql" for createApp({ db }), or jobQueue: { store: "memory" }.',
     });
   }
-  const staleAfterMs = options.staleAfterMs ?? STALE_AFTER_MS;
   let ready: Promise<unknown> | undefined;
   const create = async () => {
     try {
@@ -431,8 +432,94 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
 }
 
 /**
+ * The inferlo_jobs table on MySQL (8.4 or newer). Due jobs are claimed in a transaction with FOR UPDATE SKIP LOCKED,
+ * then marked running and read back by id (MySQL has no UPDATE ... RETURNING). Times are UTC.
+ */
+function mysqlJobStore(adapter: Adapter, staleAfterMs: number): JobStore {
+  const sql = adapter.sql!.bind(adapter);
+  const columns = JOB_COLUMNS.replace(/"/g, "`");
+  let ready: Promise<unknown> | undefined;
+  const table = async () => {
+    ready ??= sql(
+      `CREATE TABLE IF NOT EXISTS \`inferlo_jobs\` (
+        \`id\` CHAR(36) PRIMARY KEY, \`name\` VARCHAR(255) NOT NULL, \`input\` JSON NOT NULL, \`status\` VARCHAR(16) NOT NULL,
+        \`attempts\` INT NOT NULL, \`max_attempts\` INT NOT NULL, \`run_at\` DATETIME(3) NOT NULL,
+        \`last_error\` MEDIUMTEXT, \`created_at\` DATETIME(3) NOT NULL, \`updated_at\` DATETIME(3) NOT NULL,
+        \`traceparent\` TEXT, \`tracestate\` TEXT, \`tenant_id\` TEXT,
+        INDEX \`inferlo_jobs_due_idx\` (\`status\`, \`run_at\`)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+    ).catch((error) => {
+      ready = undefined;
+      throw error;
+    });
+    await ready;
+  };
+  const marks = (list: readonly unknown[]) => list.map(() => "?").join(", ");
+  const stale = "`status` = 'running' AND `updated_at` < UTC_TIMESTAMP(3) - INTERVAL ? * 1000 MICROSECOND";
+  return {
+    async add(r) {
+      await table();
+      await sql(`INSERT INTO \`inferlo_jobs\` (${columns}) VALUES (?, ?, CAST(? AS JSON), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE \`id\` = \`id\``, [
+        r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt, r.trace?.traceparent ?? null, r.trace?.tracestate ?? null, r.tenantId ?? null,
+      ]);
+    },
+    async claim(now, limit, names) {
+      await table();
+      if (!names.length) return [];
+      // Stuck jobs without attempts left are failed, not run again.
+      await sql(`UPDATE \`inferlo_jobs\` SET \`status\` = 'failed', \`last_error\` = ?, \`updated_at\` = UTC_TIMESTAMP(3) WHERE ${stale} AND \`attempts\` >= \`max_attempts\` AND \`name\` IN (${marks(names)})`, [
+        STOPPED_MESSAGE, staleAfterMs, ...names,
+      ]);
+      const rows = await adapter.transaction!(async (tx) => {
+        const txSql = tx.sql!.bind(tx);
+        const ids = (
+          await txSql(
+            `SELECT \`id\` FROM \`inferlo_jobs\`
+             WHERE \`name\` IN (${marks(names)}) AND ((\`status\` = 'pending' AND \`run_at\` <= ?) OR (${stale} AND \`attempts\` < \`max_attempts\`))
+             ORDER BY \`run_at\`, \`created_at\` LIMIT ${Math.max(0, Math.floor(limit))} FOR UPDATE SKIP LOCKED`,
+            [...names, now, staleAfterMs],
+          )
+        ).map((row) => String(row.id));
+        if (!ids.length) return [];
+        // last_error is assigned first, so it still sees the old status.
+        await txSql(
+          `UPDATE \`inferlo_jobs\` SET \`last_error\` = IF(\`status\` = 'running', ?, \`last_error\`), \`status\` = 'running', \`attempts\` = \`attempts\` + 1, \`updated_at\` = UTC_TIMESTAMP(3)
+           WHERE \`id\` IN (${marks(ids)})`,
+          [STOPPED_MESSAGE, ...ids],
+        );
+        return txSql(`SELECT ${columns} FROM \`inferlo_jobs\` WHERE \`id\` IN (${marks(ids)})`, ids);
+      });
+      return rows
+        .map(fromRow)
+        .sort((a, b) => a.runAt.getTime() - b.runAt.getTime() || a.createdAt.getTime() - b.createdAt.getTime());
+    },
+    async update(id, patch) {
+      await table();
+      const sets = ["`updated_at` = UTC_TIMESTAMP(3)"];
+      const params: unknown[] = [];
+      for (const [column, value] of [["status", patch.status], ["run_at", patch.runAt], ["last_error", patch.lastError]] as const) {
+        if (value === undefined) continue;
+        sets.push(`\`${column}\` = ?`);
+        params.push(value);
+      }
+      await sql(`UPDATE \`inferlo_jobs\` SET ${sets.join(", ")} WHERE \`id\` = ?`, [...params, id]);
+    },
+    async get(id) {
+      await table();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+      const rows = await sql(`SELECT ${columns} FROM \`inferlo_jobs\` WHERE \`id\` = ?`, [id]);
+      return rows[0] ? fromRow(rows[0]) : null;
+    },
+    async touch(id) {
+      await table();
+      await sql("UPDATE `inferlo_jobs` SET `updated_at` = UTC_TIMESTAMP(3) WHERE `id` = ? AND `status` = 'running'", [id]);
+    },
+  };
+}
+
+/**
  * Pick the job store for createApp({ jobQueue }). Raises IL6011 for an unknown store, IL6012 for "database" without
- * Postgres. "redis" uses the redis option, a function that returns the Redis store (or throws IL6031 without a client).
+ * Postgres or MySQL. "redis" uses the redis option, a function that returns the Redis store (or throws IL6031 without a client).
  */
 /** Rooms for createJobs runtimes without WebSockets: broadcasts reach no one. */
 const noSockets = createSocketHub();
