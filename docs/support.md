@@ -63,6 +63,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Deno | 2.9.0 and newer (Deno supports only its newest minor line) |
 | Other runtimes with Web APIs | Work through `app.fetch`; not tested in CI |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
+| pgvector (`t.vector(n)` fields and vector search) | 0.5.0 and newer |
 | Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |
 | TypeScript | 5.9 and newer |
 | Hono (`/hono`) | 4.0.0 and newer |

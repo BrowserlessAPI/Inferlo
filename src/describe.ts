@@ -20,6 +20,8 @@ export interface FieldDescription {
   index?: boolean;
   references?: string;
   values?: readonly unknown[];
+  /** t.vector() fields: the number of dimensions. */
+  dimensions?: number;
   column: string;
   description?: string;
 }
@@ -111,6 +113,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   if (d.index) out.index = true;
   if (d.refTable) out.references = d.refTable;
   if (d.values && d.kind === "enum") out.values = d.values;
+  if (d.dimensions !== undefined) out.dimensions = d.dimensions;
   if (d.description) out.description = d.description;
   return out;
 }

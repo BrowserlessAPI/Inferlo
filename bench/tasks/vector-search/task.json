@@ -1,0 +1,4 @@
+{
+  "title": "Semantic search over notes with vectors",
+  "prompt": "Make the signed-in user's notes searchable by meaning. Store an embedding of each new note (its title and body, from the \"embed\" AI model alias, which returns vectors of 8 numbers) with the note, tracking AI usage for the user. Add GET /notes/search?q=... (q: 1 to 200 characters) that returns the 5 of the user's notes closest to q, closest first, as [{ id, title, distance }], where distance is the cosine distance. Never return other users' notes."
+}

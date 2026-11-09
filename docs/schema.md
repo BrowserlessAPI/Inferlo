@@ -36,6 +36,7 @@ type Signup = Infer<typeof Signup>;
 | `t.object({...})` | object | `jsonb` |
 | `t.json<T>()` | `T` | `jsonb` |
 | `t.any()` | `unknown` | `jsonb` |
+| `t.vector(1536)` | `number[]` (exactly that many numbers) | `vector(1536)` (pgvector; see [Vector search](database.md#vector-search)) |
 | `t.file({ maxBytes, types })` | `File` (route bodies only, sent as multipart/form-data; see [File uploads](routes.md#file-uploads)) | not stored |
 
 ## Modifiers

@@ -114,6 +114,35 @@ export const listTickets = route
 - **Cursors** are opaque strings. Pass them back unchanged with the same `orderBy`. A cursor that was changed, is not from `paginate`, or was made for another order raises IL4024 with status 400, so a bad `?cursor=` from a client is a 400 response. Cursors are not secret: they contain the last row's id and order value, and `where` still applies to every page.
 - For numbered pages ("page 3 of 12"), use `findMany({ limit, offset })` with `count(where)`.
 
+## Vector search
+
+Store embeddings in a `t.vector(dimensions)` field and find the rows closest to a question with `db.<table>.search`:
+
+```ts
+// src/models.ts
+export const Doc = model("docs", {
+  title: t.string().max(200),
+  body: t.text(),
+  ownerId: t.ref("users"),
+  embedding: t.vector(1536).optional().index(), // OpenAI text-embedding-3-small has 1536 dimensions
+});
+
+// Store the embedding with the row.
+const { embeddings } = await ai.embed({ model: "embed", input: body.body, for: user.id });
+await db.docs.insert({ ...body, ownerId: user.id, embedding: embeddings[0] });
+
+// The five rows closest to the question, closest first.
+const { embeddings: [question] } = await ai.embed({ model: "embed", input: query.q, for: user.id });
+const hits = await db.docs.search({ vector: question!, where: { ownerId: user.id }, limit: 5 });
+// [{ row: { id, title, body, ... }, distance: 0.12 }, ...]
+```
+
+- **Distance** is cosine distance (pgvector's `<=>`): 0 for the same direction, 1 for unrelated, 2 for the opposite. Each result is `{ row, distance }`, closest first. Rows whose vector is `null` are left out.
+- **Options.** `vector` (exactly the field's number of dimensions), `where` (as in `findMany`), `limit` (default 10, maximum 1000), and `field` when the model has more than one `t.vector()` field. A wrong field or vector raises IL4030. Tenant-scoped tables only search the tenant's rows.
+- **Validation.** Inserts and updates accept exactly `dimensions` finite numbers (IL1001 with `invalid_dimensions` otherwise). `t.vector()` takes 1 to 16000 dimensions (IL1005). Use the same embedding model for the stored rows and the question.
+- **Postgres** stores the field as pgvector's `vector(dimensions)` column. `inferlo db push` and `inferlo db migrate` run `CREATE EXTENSION IF NOT EXISTS vector` before the first vector column, so the server needs pgvector installed (managed Postgres such as Amazon RDS, Google Cloud SQL, Azure, Supabase and Neon include it) and the database user needs permission to create the extension (or create it once yourself). `.index()` adds an HNSW index for cosine distance, which keeps searches fast on large tables (at most 2000 dimensions for an index). Tested with pgvector 0.5.0 (the first release with HNSW indexes) and the latest release.
+- **memory()** searches by computing the distances in JavaScript, so tests need no database.
+
 ## Multi-tenancy
 
 In an app used by many organisations (workspaces, customers), a table whose rows belong to one organisation is **tenant-scoped**: pass `{ tenant: true }` as the third argument of `model`.

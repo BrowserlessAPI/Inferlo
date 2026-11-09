@@ -47,6 +47,26 @@ export interface PaginateOptions<R> {
   limit?: number;
 }
 
+/** Fields of a row that hold a list of numbers (t.vector() fields). */
+export type VectorField<R> = { [K in keyof R & string]: NonNullable<R[K]> extends number[] ? K : never }[keyof R & string];
+
+export interface SearchOptions<R> {
+  /** The embedding to compare with, such as (await ai.embed({ input: question })).embeddings[0]. */
+  vector: number[];
+  /** The t.vector() field to search. Can be left out when the model has one. */
+  field?: VectorField<R>;
+  /** Only search rows matching this filter. */
+  where?: Where<R>;
+  /** Most rows returned. Default 10, maximum 1000. */
+  limit?: number;
+}
+
+/** One search result: the row and its cosine distance to the vector (0 is the same direction, 2 the opposite). */
+export interface SearchResult<R> {
+  row: R;
+  distance: number;
+}
+
 /** One page: the rows, and the cursor for the next page (null on the last page). */
 export interface Page<T> {
   items: T[];
@@ -417,6 +437,41 @@ export class Table<M extends AnyModel, Models extends readonly AnyModel[] = read
     }
   }
 
+  /**
+   * The rows closest to a vector, closest first, by cosine distance on a t.vector() field:
+   * const hits = await db.docs.search({ vector: embeddings[0], where: { ownerId: user.id }, limit: 5 }).
+   * Uses pgvector on Postgres (an HNSW index when the field has .index()); rows without a vector are left out.
+   */
+  async search(options: SearchOptions<Row<M>>): Promise<SearchResult<Row<M>>[]> {
+    const name = this.model.name;
+    if (!options || typeof options !== "object") throw searchError(name, "search() takes { vector, field, where, limit }.");
+    const fields = Object.entries(this.model.fields as Record<string, AnySchema>).filter(([, schema]) => schema.def.kind === "vector");
+    let field = options.field as string | undefined;
+    if (field === undefined) {
+      if (!fields.length) throw searchError(name, `"${name}" has no t.vector() field to search.`, `Add one to the model, e.g. embedding: t.vector(1536).optional(), and store ai.embed results in it.`);
+      if (fields.length > 1) throw searchError(name, `"${name}" has several t.vector() fields (${fields.map(([f]) => f).join(", ")}); say which one to search.`, `Pass field: "${fields[0]![0]}".`);
+      field = fields[0]![0];
+    }
+    const schema = fields.find(([f]) => f === field)?.[1];
+    if (!schema) {
+      throw searchError(name, `"${String(field)}" is not a t.vector() field of "${name}".${didYouMean(String(field), fields.map(([f]) => f))}`, `Vector fields: ${fields.map(([f]) => f).join(", ") || "none"}.`);
+    }
+    const dimensions = schema.def.dimensions!;
+    const vector = options.vector as unknown;
+    if (!Array.isArray(vector) || vector.length !== dimensions || !vector.every((n) => typeof n === "number" && Number.isFinite(n))) {
+      throw searchError(
+        name,
+        `search() on "${name}.${field}" needs a vector of ${dimensions} finite numbers, got ${Array.isArray(vector) ? `a list of ${vector.length}` : typeof vector}.`,
+        "Embed the query with the same model as the stored rows: vector: (await ai.embed({ model: \"embed\", input: question })).embeddings[0].",
+      );
+    }
+    const adapter = this.#adapter();
+    if (!adapter.search) throw searchError(name, `The ${adapter.dialect} database adapter cannot search vectors.`, "Use postgres() (with pgvector) or memory().");
+    const limit = Math.min(Math.max(1, Math.floor(options.limit ?? 10)), MAX_LIMIT);
+    const results = await adapter.search(this.model, { field, vector: [...vector], where: [...this.#where(options.where), ...this.#tenantWhere()], limit });
+    return results as SearchResult<Row<M>>[];
+  }
+
   async count(where: Where<Row<M>> = {}): Promise<number> {
     return this.#adapter().count(this.model, [...this.#where(where), ...this.#tenantWhere()]);
   }
@@ -543,6 +598,10 @@ function describeRelation(r: Relation): string {
   return r.kind === "one" ? `${r.name} (${r.field})` : `${r.name} (${r.table}.${r.field})`;
 }
 
+function searchError(table: string, message: string, fix?: string): InferloError {
+  return new InferloError("IL4030", message, { fix: fix ?? `Example: db.${table}.search({ vector, where: { ... }, limit: 5 }).` });
+}
+
 function noTenant(table: string): InferloError {
   return new InferloError("IL4027", `"${table}" is tenant-scoped, and this db client has no tenant.`, {
     fix: `In routes, sign the user in and give them a tenant (user.tenantId, or createApp({ auth: { tenant: (user) => ... } })). Elsewhere (app.db, jobs, scripts) say which tenant: db.$tenant(tenantId).${table}, or db.$allTenants().${table} to read across tenants.`,
@@ -665,6 +724,7 @@ export function guardAdapter(adapter: Adapter, signal: AbortSignal): Adapter {
     close: async () => adapter.close?.(),
   };
   if (adapter.transaction) guarded.transaction = async (fn) => (check(), adapter.transaction!((tx) => fn(guardAdapter(tx, signal))));
+  if (adapter.search) guarded.search = async (model, query) => (check(), adapter.search!(model, query));
   if (adapter.sql) guarded.sql = async (text, params) => (check(), adapter.sql!(text, params));
   if (adapter.client) guarded.client = async () => (check(), adapter.client!());
   return guarded;

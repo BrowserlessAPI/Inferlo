@@ -60,6 +60,8 @@ export function columnType(schema: AnySchema): string {
     case "object":
     case "any":
       return "jsonb";
+    case "vector":
+      return `vector(${d.dimensions})`;
     case "file":
       // model() rejects t.file() fields, so this is only reached by a hand-built schema.
       throw new InferloError("IL1004", "t.file() fields cannot be stored in a database column.", { fix: "Store the file elsewhere and keep its key or URL in a t.string() field." });
@@ -68,6 +70,18 @@ export function columnType(schema: AnySchema): string {
 
 function isJson(schema: AnySchema): boolean {
   return columnType(schema) === "jsonb";
+}
+
+function isVector(schema: AnySchema): boolean {
+  return schema.def.kind === "vector";
+}
+
+/** The statement that enables pgvector, for models with t.vector() fields. */
+export const VECTOR_EXTENSION = "CREATE EXTENSION IF NOT EXISTS vector";
+
+/** True when a statement creates a vector column, so pgvector must be enabled first. */
+export function needsVectorExtension(statements: readonly string[]): boolean {
+  return statements.some((s) => /^(CREATE TABLE|ALTER TABLE)\b[\s\S]* vector\(\d+\)/.test(s));
 }
 
 function literal(value: unknown): string {
@@ -124,6 +138,10 @@ export function modelIndexes(model: AnyModel): [name: string, sql: string][] {
       const name = `${model.name}_${col}_key`;
       const cols = model.tenant ? `${q("tenant_id")}, ${q(col)}` : q(col);
       out.push([name, `CREATE UNIQUE INDEX IF NOT EXISTS ${q(name)} ON ${q(model.name)} (${cols})`]);
+    } else if (schema.def.index && isVector(schema)) {
+      // HNSW index for cosine distance, the distance db.<table>.search() orders by (pgvector 0.5.0 and later).
+      const name = `${model.name}_${col}_idx`;
+      out.push([name, `CREATE INDEX IF NOT EXISTS ${q(name)} ON ${q(model.name)} USING hnsw (${q(col)} vector_cosine_ops)`]);
     } else if (schema.def.index || schema.def.kind === "ref") {
       const name = `${model.name}_${col}_idx`;
       out.push([name, `CREATE INDEX IF NOT EXISTS ${q(name)} ON ${q(model.name)} (${q(col)})`]);
@@ -199,7 +217,7 @@ function createPgAdapter(
 
   const toDb = (model: AnyModel, field: string, value: unknown): unknown => {
     const schema = fieldSchema(model, field);
-    if (schema && isJson(schema) && value !== null && value !== undefined) return JSON.stringify(value);
+    if (schema && (isJson(schema) || isVector(schema)) && value !== null && value !== undefined) return JSON.stringify(value);
     return value;
   };
 
@@ -207,6 +225,7 @@ function createPgAdapter(
   // column's type (postgres.js through postgresJsPool) do not encode the JSON text a second time.
   const placeholder = (model: AnyModel, field: string, index: number): string => {
     const schema = fieldSchema(model, field);
+    if (schema && isVector(schema)) return `$${index}::text::vector`;
     return schema && isJson(schema) ? `$${index}::text::jsonb` : `$${index}`;
   };
 
@@ -215,6 +234,8 @@ function createPgAdapter(
     for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
       let value = row[columnName(field)];
       if (value !== null && value !== undefined && schema.def.kind === "number" && typeof value === "string") value = Number(value);
+      // pgvector sends vectors as text: [1,2,3].
+      if (typeof value === "string" && isVector(schema)) value = JSON.parse(value);
       out[field] = value ?? null;
     }
     return out;
@@ -231,6 +252,7 @@ function createPgAdapter(
       const list = (values: unknown[]) => {
         params.push(values.map((v) => toDb(model, field, v)));
         const schema = fieldSchema(model, field);
+        if (schema && isVector(schema)) return `$${params.length}::text[]::vector[]`;
         return schema && isJson(schema) ? `$${params.length}::text[]::jsonb[]` : `$${params.length}`;
       };
       switch (op) {
@@ -317,8 +339,16 @@ function createPgAdapter(
         }
         statements.push(...indexSql(model));
       }
+      if (needsVectorExtension(statements)) statements.unshift(VECTOR_EXTENSION);
       if (!options.dryRun) for (const s of statements) await run(s);
       return statements;
+    },
+    async search(model, query) {
+      const params: unknown[] = [JSON.stringify(query.vector)];
+      const col = q(columnName(query.field));
+      const where = whereSql(model, [...query.where, { field: query.field, op: "isNull", value: false }], params);
+      const sql = `SELECT *, ${col} <=> $1::text::vector AS "inferlo_distance" FROM ${q(model.name)}${where} ORDER BY "inferlo_distance" LIMIT ${Number(query.limit)}`;
+      return (await run(sql, params)).rows.map((r) => ({ row: fromDb(model, r), distance: Number(r.inferlo_distance) }));
     },
     async sql(text, params = []) {
       return (await run(text, params)).rows;

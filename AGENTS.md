@@ -54,6 +54,7 @@ Every runtime, database and language Inferlo supports is tested in CI at its **o
 | Bun | 1.3.0 | `latest` |
 | Deno (`npm run test:deno`: the whole suite with the examples; Ts.ED with `--unsafe-proto`, which Ts.ED needs on Deno) | 2.9.0 (Deno supports only its newest minor line; its LTS releases ended 2026-04-30) | `latest` |
 | PostgreSQL | oldest major still supported upstream (14 until 2026-11-12, then 15) and every major after it | `latest` |
+| pgvector (`t.vector(n)` fields and `db.<table>.search()`; test/vector.test.ts with `INFERLO_TEST_PGVECTOR=1`) | 0.5.0 (the first release with HNSW indexes, which `.index()` creates; pgvector has no long-term support releases), on PostgreSQL 14 | `latest` (its newest release tag), on the latest PostgreSQL |
 | TypeScript | 5.9 | `latest` |
 | Redis (`createApp({ redis })`: rate limits, cache, job queue, events transport and WebSocket broadcasts) | Redis 6.2 (oldest version still supported upstream, until 2027-04-01; 7.2 is tested too), `redis` package 5.0.0 (node-redis 4 gets no more releases) | `latest` (server and package) |
 | Hono (`@browserlessapi/inferlo/hono`, examples/with-hono) | 4.0.0 | `latest` |

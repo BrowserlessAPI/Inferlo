@@ -19,13 +19,16 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ## Validation (1xxx)
 
 ### IL1001
-**Invalid input (422).** A body, query string, path parameter, insert or update did not match its schema. `details` lists each problem with its `path` and an issue `code`: `required`, `invalid_type`, `too_short`, `too_long`, `too_small`, `too_big`, `invalid_enum`, `invalid_email`, `invalid_url`, `invalid_uuid`, `invalid_date`, `invalid_format`, `unknown_key`, `read_only`, and for uploaded files `file_too_large`, `file_too_small`, `file_type` and `file_content` (the file's bytes do not match its declared type). `unknown_key` and `invalid_enum` include a "Did you mean" hint.
+**Invalid input (422).** A body, query string, path parameter, insert or update did not match its schema. `details` lists each problem with its `path` and an issue `code`: `required`, `invalid_type`, `too_short`, `too_long`, `too_small`, `too_big`, `invalid_enum`, `invalid_email`, `invalid_url`, `invalid_uuid`, `invalid_date`, `invalid_format`, `unknown_key`, `read_only`, `invalid_dimensions` (a `t.vector()` value with the wrong number of numbers), and for uploaded files `file_too_large`, `file_too_small`, `file_type` and `file_content` (the file's bytes do not match its declared type). `unknown_key` and `invalid_enum` include a "Did you mean" hint.
 
 ### IL1003
 **pick() named a field that does not exist.** Check the spelling against the model.
 
 ### IL1004
 **Invalid file field.** `t.file({ maxBytes, types })` takes a whole number of bytes above 0 and a list of media types such as `"image/png"` or `"image/*"`. Files can only be top-level fields of a route body (`body: t.object({ avatar: t.file() })`), a list of files needs a limit (`t.array(t.file()).max(10)`), and a route with files cannot be an MCP or AI tool, because tools send JSON. Models cannot store files: store the file elsewhere and keep its key or URL in a `t.string()` field. See [File uploads](routes.md#file-uploads).
+
+### IL1005
+**Invalid t.vector() size.** `t.vector(dimensions)` takes a whole number from 1 to 16000 (pgvector's limit): the length of the vectors your embedding model returns, such as `t.vector(1536)` for OpenAI's text-embedding-3-small. See [Vector search](database.md#vector-search).
 
 ## Routing (2xxx)
 
@@ -528,6 +531,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL4029
 **`postgresJsPool(sql)` needs a postgres.js `sql` instance.** `postgresJsPool` from `@browserlessapi/inferlo/postgres-js` takes the `sql` function postgres.js creates (`import postgresJs from "postgres"; const sql = postgresJs(process.env.DATABASE_URL)`), version 3.4.0 or later (it uses `sql.unsafe` and `sql.reserve`). A connection URL, a `pg.Pool` or a transaction's `sql` cannot be used: pass the app's own instance, `postgres({ pool: postgresJsPool(sql) })`. See [postgres.js](integrations.md#postgresjs).
+
+### IL4030
+**Invalid vector search.** `db.<table>.search({ vector, field, where, limit })` needs a model with a `t.vector()` field (say which one with `field` when it has several), and `vector` must be a list of exactly that field's number of finite numbers: embed the question with the same model as the stored rows. The database adapter must support vector search (`postgres()` with pgvector, or `memory()`). See [Vector search](database.md#vector-search).
 
 ## CLI (8xxx)
 

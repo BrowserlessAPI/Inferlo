@@ -17,6 +17,14 @@ export interface Query {
 
 export type DbRecord = Record<string, unknown>;
 
+/** A nearest-neighbour search on a t.vector() field: the rows closest to vector by cosine distance. */
+export interface SearchQuery {
+  field: string;
+  vector: number[];
+  where: Condition[];
+  limit: number;
+}
+
 /**
  * Storage backend. Inferlo ships memory() and postgres(). Adapters receive validated,
  * already-normalised data with camelCase field names.
@@ -29,6 +37,8 @@ export interface Adapter {
   update(model: AnyModel, where: Condition[], patch: DbRecord): Promise<DbRecord[]>;
   delete(model: AnyModel, where: Condition[]): Promise<number>;
   count(model: AnyModel, where: Condition[]): Promise<number>;
+  /** Rows closest to query.vector by cosine distance (0 is the same direction), closest first. Rows without a vector are left out. */
+  search?(model: AnyModel, query: SearchQuery): Promise<{ row: DbRecord; distance: number }[]>;
   /** Create missing tables, columns and indexes. Returns the statements it ran (or would run). */
   sync(models: AnyModel[], options?: { dryRun?: boolean }): Promise<string[]>;
   /** Run fn inside a transaction, passing an adapter bound to it. */

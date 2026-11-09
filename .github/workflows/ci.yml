@@ -92,6 +92,46 @@ jobs:
         run: node -e "const {Client}=require('pg');const c=new Client({connectionString:process.env.INFERLO_TEST_DATABASE_URL});c.connect().then(()=>c.query('show server_version')).then(r=>{console.log('PostgreSQL',r.rows[0].server_version);return c.end()})"
       - run: npm test
 
+  pgvector:
+    name: pgvector ${{ matrix.pgvector }} on PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 0.5.0 is the first pgvector release with HNSW indexes, which t.vector(n).index() creates.
+          # pgvector has no long-term support releases; latest = its newest release tag.
+          - pgvector: "v0.5.0"
+            postgres: "14"
+          - pgvector: "latest"
+            postgres: "latest"
+    env:
+      INFERLO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/inferlo_test
+      INFERLO_TEST_PGVECTOR: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      # The official PostgreSQL image with pgvector built from its release tag, as pgvector's README describes.
+      - name: PostgreSQL with pgvector
+        run: |
+          docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=inferlo_test -p 5432:5432 postgres:${{ matrix.postgres }}
+          tag="${{ matrix.pgvector }}"
+          if [ "$tag" = "latest" ]; then tag=$(git ls-remote --tags --refs --sort=-v:refname https://github.com/pgvector/pgvector 'v*' | head -1 | sed 's#.*/##'); fi
+          echo "pgvector $tag"
+          docker exec pg bash -c "apt-get update -qq && apt-get install -y -qq build-essential git postgresql-server-dev-\$PG_MAJOR > /dev/null && git clone --quiet --branch $tag --depth 1 https://github.com/pgvector/pgvector.git /tmp/pgvector && cd /tmp/pgvector && make -s OPTFLAGS='' && make -s install"
+          for i in $(seq 1 60); do docker exec pg pg_isready -U postgres -h localhost && break; sleep 2; done
+          sleep 3
+          docker exec pg psql -U postgres -d inferlo_test -c "CREATE EXTENSION IF NOT EXISTS vector" -c "SELECT extversion FROM pg_extension WHERE extname = 'vector'" -c "SHOW server_version"
+      - run: node --test test/vector.test.ts
+
   redis:
     name: Redis ${{ matrix.redis }}, redis package ${{ matrix.client }}
     runs-on: ubuntu-latest

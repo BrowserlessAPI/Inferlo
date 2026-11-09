@@ -24,6 +24,7 @@ export type Kind =
   | "array"
   | "object"
   | "file"
+  | "vector"
   | "any";
 
 export interface Def {
@@ -36,6 +37,8 @@ export interface Def {
   max?: number;
   pattern?: RegExp;
   values?: readonly (string | number | boolean)[];
+  /** t.vector(): the number of dimensions. */
+  dimensions?: number;
   /** t.file(): accepted media types ("image/png", "image/*"); empty means any type. */
   fileTypes?: readonly string[];
   item?: AnySchema;
@@ -319,7 +322,24 @@ export const t = {
    * The handler gets a web File. maxBytes defaults to 10 MiB; types defaults to any type. Only in route bodies.
    */
   file: (options: FileOptions = {}) => new Schema<File>(fileDef(options)),
+  /**
+   * An embedding: a list of exactly `dimensions` numbers, such as what ai.embed returns. Stored as pgvector's
+   * vector(dimensions) on Postgres; search the closest rows with db.<table>.search({ vector, limit }).
+   */
+  vector: (dimensions: number) => new Schema<number[]>(vectorDef(dimensions)),
 };
+
+/** pgvector stores at most 16000 dimensions. */
+const MAX_DIMENSIONS = 16000;
+
+function vectorDef(dimensions: number): Def {
+  if (!Number.isInteger(dimensions) || dimensions < 1 || dimensions > MAX_DIMENSIONS) {
+    throw new InferloError("IL1005", `t.vector() takes a whole number of dimensions from 1 to ${MAX_DIMENSIONS}, got ${String(dimensions)}.`, {
+      fix: "Pass the length of your embedding model's vectors, e.g. t.vector(1536) for OpenAI's text-embedding-3-small.",
+    });
+  }
+  return base("vector", { dimensions });
+}
 
 /** Options of t.file(). */
 export interface FileOptions {
@@ -491,6 +511,13 @@ function check(schema: AnySchema, raw: unknown, path: (string | number)[], issue
       return value;
     }
 
+    case "vector": {
+      if (!Array.isArray(value)) return fail("invalid_type", `Expected a list of ${def.dimensions} numbers, got ${describeType(value)}.`);
+      if (value.length !== def.dimensions) return fail("invalid_dimensions", `Expected ${def.dimensions} numbers, got ${value.length}.`);
+      if (!value.every((n) => typeof n === "number" && Number.isFinite(n))) return fail("invalid_type", "Expected only finite numbers.");
+      return [...value];
+    }
+
     case "array": {
       if (!Array.isArray(value)) {
         if (options.coerce && typeof value === "string") value = value === "" ? [] : value.split(",");
@@ -585,6 +612,9 @@ export function toJSONSchema(schema: AnySchema): JSONSchema {
       out = { type: "array", items: toJSONSchema(def.item!) };
       if (def.min !== undefined) out.minItems = def.min;
       if (def.max !== undefined) out.maxItems = def.max;
+      break;
+    case "vector":
+      out = { type: "array", items: { type: "number" }, minItems: def.dimensions, maxItems: def.dimensions };
       break;
     case "object": {
       const properties: Record<string, JSONSchema> = {};

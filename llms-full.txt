@@ -397,6 +397,7 @@ type Signup = Infer<typeof Signup>;
 | `t.object({...})` | object | `jsonb` |
 | `t.json<T>()` | `T` | `jsonb` |
 | `t.any()` | `unknown` | `jsonb` |
+| `t.vector(1536)` | `number[]` (exactly that many numbers) | `vector(1536)` (pgvector; see [Vector search](database.md#vector-search)) |
 | `t.file({ maxBytes, types })` | `File` (route bodies only, sent as multipart/form-data; see [File uploads](routes.md#file-uploads)) | not stored |
 
 ## Modifiers
@@ -550,6 +551,35 @@ export const listTickets = route
 - `where`, `limit` (default 100, maximum 1000) and `include` work as in `findMany`. A page costs one query, or two after the first page when ordering by a field other than `id`, plus one per included relation.
 - **Cursors** are opaque strings. Pass them back unchanged with the same `orderBy`. A cursor that was changed, is not from `paginate`, or was made for another order raises IL4024 with status 400, so a bad `?cursor=` from a client is a 400 response. Cursors are not secret: they contain the last row's id and order value, and `where` still applies to every page.
 - For numbered pages ("page 3 of 12"), use `findMany({ limit, offset })` with `count(where)`.
+
+## Vector search
+
+Store embeddings in a `t.vector(dimensions)` field and find the rows closest to a question with `db.<table>.search`:
+
+```ts
+// src/models.ts
+export const Doc = model("docs", {
+  title: t.string().max(200),
+  body: t.text(),
+  ownerId: t.ref("users"),
+  embedding: t.vector(1536).optional().index(), // OpenAI text-embedding-3-small has 1536 dimensions
+});
+
+// Store the embedding with the row.
+const { embeddings } = await ai.embed({ model: "embed", input: body.body, for: user.id });
+await db.docs.insert({ ...body, ownerId: user.id, embedding: embeddings[0] });
+
+// The five rows closest to the question, closest first.
+const { embeddings: [question] } = await ai.embed({ model: "embed", input: query.q, for: user.id });
+const hits = await db.docs.search({ vector: question!, where: { ownerId: user.id }, limit: 5 });
+// [{ row: { id, title, body, ... }, distance: 0.12 }, ...]
+```
+
+- **Distance** is cosine distance (pgvector's `<=>`): 0 for the same direction, 1 for unrelated, 2 for the opposite. Each result is `{ row, distance }`, closest first. Rows whose vector is `null` are left out.
+- **Options.** `vector` (exactly the field's number of dimensions), `where` (as in `findMany`), `limit` (default 10, maximum 1000), and `field` when the model has more than one `t.vector()` field. A wrong field or vector raises IL4030. Tenant-scoped tables only search the tenant's rows.
+- **Validation.** Inserts and updates accept exactly `dimensions` finite numbers (IL1001 with `invalid_dimensions` otherwise). `t.vector()` takes 1 to 16000 dimensions (IL1005). Use the same embedding model for the stored rows and the question.
+- **Postgres** stores the field as pgvector's `vector(dimensions)` column. `inferlo db push` and `inferlo db migrate` run `CREATE EXTENSION IF NOT EXISTS vector` before the first vector column, so the server needs pgvector installed (managed Postgres such as Amazon RDS, Google Cloud SQL, Azure, Supabase and Neon include it) and the database user needs permission to create the extension (or create it once yourself). `.index()` adds an HNSW index for cosine distance, which keeps searches fast on large tables (at most 2000 dimensions for an index). Tested with pgvector 0.5.0 (the first release with HNSW indexes) and the latest release.
+- **memory()** searches by computing the distances in JavaScript, so tests need no database.
 
 ## Multi-tenancy
 
@@ -6386,6 +6416,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Deno | 2.9.0 and newer (Deno supports only its newest minor line) |
 | Other runtimes with Web APIs | Work through `app.fetch`; not tested in CI |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
+| pgvector (`t.vector(n)` fields and vector search) | 0.5.0 and newer |
 | Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |
 | TypeScript | 5.9 and newer |
 | Hono (`/hono`) | 4.0.0 and newer |
@@ -6470,13 +6501,16 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ## Validation (1xxx)
 
 ### IL1001
-**Invalid input (422).** A body, query string, path parameter, insert or update did not match its schema. `details` lists each problem with its `path` and an issue `code`: `required`, `invalid_type`, `too_short`, `too_long`, `too_small`, `too_big`, `invalid_enum`, `invalid_email`, `invalid_url`, `invalid_uuid`, `invalid_date`, `invalid_format`, `unknown_key`, `read_only`, and for uploaded files `file_too_large`, `file_too_small`, `file_type` and `file_content` (the file's bytes do not match its declared type). `unknown_key` and `invalid_enum` include a "Did you mean" hint.
+**Invalid input (422).** A body, query string, path parameter, insert or update did not match its schema. `details` lists each problem with its `path` and an issue `code`: `required`, `invalid_type`, `too_short`, `too_long`, `too_small`, `too_big`, `invalid_enum`, `invalid_email`, `invalid_url`, `invalid_uuid`, `invalid_date`, `invalid_format`, `unknown_key`, `read_only`, `invalid_dimensions` (a `t.vector()` value with the wrong number of numbers), and for uploaded files `file_too_large`, `file_too_small`, `file_type` and `file_content` (the file's bytes do not match its declared type). `unknown_key` and `invalid_enum` include a "Did you mean" hint.
 
 ### IL1003
 **pick() named a field that does not exist.** Check the spelling against the model.
 
 ### IL1004
 **Invalid file field.** `t.file({ maxBytes, types })` takes a whole number of bytes above 0 and a list of media types such as `"image/png"` or `"image/*"`. Files can only be top-level fields of a route body (`body: t.object({ avatar: t.file() })`), a list of files needs a limit (`t.array(t.file()).max(10)`), and a route with files cannot be an MCP or AI tool, because tools send JSON. Models cannot store files: store the file elsewhere and keep its key or URL in a `t.string()` field. See [File uploads](routes.md#file-uploads).
+
+### IL1005
+**Invalid t.vector() size.** `t.vector(dimensions)` takes a whole number from 1 to 16000 (pgvector's limit): the length of the vectors your embedding model returns, such as `t.vector(1536)` for OpenAI's text-embedding-3-small. See [Vector search](database.md#vector-search).
 
 ## Routing (2xxx)
 
@@ -6979,6 +7013,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL4029
 **`postgresJsPool(sql)` needs a postgres.js `sql` instance.** `postgresJsPool` from `@browserlessapi/inferlo/postgres-js` takes the `sql` function postgres.js creates (`import postgresJs from "postgres"; const sql = postgresJs(process.env.DATABASE_URL)`), version 3.4.0 or later (it uses `sql.unsafe` and `sql.reserve`). A connection URL, a `pg.Pool` or a transaction's `sql` cannot be used: pass the app's own instance, `postgres({ pool: postgresJsPool(sql) })`. See [postgres.js](integrations.md#postgresjs).
+
+### IL4030
+**Invalid vector search.** `db.<table>.search({ vector, field, where, limit })` needs a model with a `t.vector()` field (say which one with `field` when it has several), and `vector` must be a list of exactly that field's number of finite numbers: embed the question with the same model as the stored rows. The database adapter must support vector search (`postgres()` with pgvector, or `memory()`). See [Vector search](database.md#vector-search).
 
 ## CLI (8xxx)
 

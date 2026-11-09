@@ -50,6 +50,19 @@ function matches(row: DbRecord, conditions: Condition[]): boolean {
   });
 }
 
+/** 1 minus the cosine similarity, as pgvector's <=> operator: 0 for the same direction, 2 for the opposite. */
+function cosineDistance(a: number[], b: number[]): number {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    na += a[i]! * a[i]!;
+    nb += b[i]! * b[i]!;
+  }
+  return 1 - dot / Math.sqrt(na * nb);
+}
+
 function clone(row: DbRecord): DbRecord {
   return structuredClone(row);
 }
@@ -115,6 +128,14 @@ export function memory(): Adapter {
     },
     async count(model, where) {
       return rowsOf(model).filter((r) => matches(r, where)).length;
+    },
+    async search(model, query) {
+      const scored = rowsOf(model)
+        .filter((r) => Array.isArray(r[query.field]) && matches(r, query.where))
+        .map((row) => ({ row, distance: cosineDistance(row[query.field] as number[], query.vector) }));
+      // As in pgvector, NaN (a zero vector) sorts after every number.
+      scored.sort((a, b) => (Number.isNaN(a.distance) ? 1 : Number.isNaN(b.distance) ? -1 : a.distance - b.distance));
+      return scored.slice(0, query.limit).map(({ row, distance }) => ({ row: clone(row), distance }));
     },
     async sync(models) {
       for (const m of models) rowsOf(m);

@@ -15,7 +15,7 @@
 import { InferloError } from "../errors.ts";
 import { columnName, type AnyModel } from "../model.ts";
 import type { AnySchema } from "../schema.ts";
-import { columnDefinition, columnType, createTableSql, defaultSql, modelIndexes, sortByReferences, SYSTEM_COLUMNS } from "./postgres.ts";
+import { columnDefinition, columnType, createTableSql, defaultSql, modelIndexes, needsVectorExtension, sortByReferences, SYSTEM_COLUMNS, VECTOR_EXTENSION } from "./postgres.ts";
 import type { DbRecord } from "./types.ts";
 
 /** One column in migrations/snapshot.json. Compared field by field to find column changes. */
@@ -340,6 +340,8 @@ export function planMigration(
     }
     for (const [name, sql] of Object.entries(now.indexes)) if (!(name in old.indexes)) statements.push(sql);
   }
+  // pgvector is enabled before the first table or column that needs it.
+  if (needsVectorExtension(statements)) statements.unshift(VECTOR_EXTENSION);
   const droppedTables = Object.keys(before).filter((table) => !(table in snapshot.tables));
   if (droppedTables.length) {
     drops.push(...droppedTables.map((table) => `drop table ${table}`));
