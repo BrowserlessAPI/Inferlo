@@ -24,6 +24,21 @@ location / {
 
 Behind a proxy like this, set `createApp({ trustProxy: true })` so routes with `rateLimit: { by: "ip" }` see the client's address instead of the proxy's. With more than one instance, use `rateLimit: { store: "database" }` (or `"redis"`, see [Redis](redis.md)) so the counts are shared, and `jobQueue: { store: "database" }` (or `"redis"`) so background jobs are too (see [jobs](jobs.md)).
 
+## Response compression
+
+Nginx, load balancers and CDNs usually compress answers. When nothing in front of the app does, turn on Inferlo's compression:
+
+```ts
+createApp({ routes, compression: true }); // or { threshold: 2048, encodings: ["gzip"] }
+```
+
+- Answers are compressed with gzip or deflate (the Web `CompressionStream`, on Node.js, Bun, Deno and Workers), the first of `encodings` (default `["gzip", "deflate"]`) that the request's `Accept-Encoding` accepts. Without a match the answer is sent as it is.
+- Only text, JSON, JavaScript, XML and SVG answers of at least `threshold` bytes (default 1024) are compressed; answers whose size is unknown, such as streams, count as large enough. Images, archives and other binary answers are left alone.
+- Never compressed: Server-Sent Events (so AI streams stay live), HEAD requests, 204, 206 and 304 answers, answers that already have a `Content-Encoding`, and answers with `Cache-Control: no-transform`.
+- Compressible answers get `Vary: Accept-Encoding`, so caches keep the compressed and plain versions apart, and a strong `ETag` set by a handler becomes weak (`W/"..."`) on compressed answers. Route caching (`cache: { ttlMs }`) and its 304 answers work as before.
+- `describe().compression` shows the setup (`{ threshold, encodings }` or `false`). Invalid options raise IL6063.
+- Off by default. Compression costs CPU on every answer; leave it to the proxy when there is one. Do not compress answers that put a secret (such as a CSRF token) next to text an attacker can choose; see [Security](security.md#defaults).
+
 ## Health and readiness
 
 Load balancers, Kubernetes and other orchestrators ask two questions: is the process alive, and can it take traffic? `createApp({ health: true })` answers both:

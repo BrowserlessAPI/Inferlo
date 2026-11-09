@@ -467,6 +467,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6062
 **A winston logger was passed to `createApp({ logger })` directly.** Winston's methods take `(message, meta)`, so Inferlo's `(message, data, fields)` entries would lose the request id and the error. Wrap it: `createApp({ logger: winstonLogger(log) })` with `winstonLogger` from `@browserlessapi/inferlo/winston`. See [Winston](observability.md#winston).
 
+### IL6063
+**Invalid `compression` option.** `createApp({ compression })` takes `true`, `false` or `{ threshold, encodings }`: `threshold` is the smallest answer in bytes that is compressed (a whole number from 0 to 1073741824, default 1024) and `encodings` lists `"gzip"` and/or `"deflate"` once each, in order of preference. See [Response compression](deploy.md#response-compression).
+
 ## Environment (7xxx)
 
 ### IL7001

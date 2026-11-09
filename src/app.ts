@@ -42,6 +42,7 @@ import { registerRequestRunner } from "./request-runner.ts";
 import { versionDocPath, versionsOf } from "./api-version.ts";
 import { resolveModules, type AnyModule, type ModuleInfo, type ModuleModels } from "./module.ts";
 import { isPermissions, type Permissions } from "./permissions.ts";
+import { compressResponse, resolveCompression, type CompressionConfig } from "./compression.ts";
 import { applySecureHeaders, resolveSecureHeaders, type SecureHeadersConfig } from "./secure-headers.ts";
 
 export interface AuthConfig {
@@ -201,6 +202,13 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
    * { "X-Frame-Options": "SAMEORIGIN", "Content-Security-Policy": false }. false sends none. Default true.
    */
   secureHeaders?: boolean | SecureHeadersConfig;
+  /**
+   * Compress answers with gzip or deflate when the client accepts it (Accept-Encoding): text, JSON, JavaScript,
+   * XML and SVG answers of at least threshold bytes (default 1024). Server-Sent Events, HEAD requests and answers
+   * with a Content-Encoding or Cache-Control: no-transform are never compressed. true or { threshold, encodings }.
+   * Default false (most deployments compress at the proxy or CDN).
+   */
+  compression?: boolean | CompressionConfig;
   /**
    * Longest time in milliseconds a route may take (reading the body and running the handler) before it answers
    * 503 IL2007 and ctx.signal is aborted. Routes can set their own timeoutMs. false turns it off. Default 60000.
@@ -622,6 +630,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   const events = jobs.events;
   const maxBody = config.maxBodySize ?? 1024 * 1024;
   const secureHeaders = resolveSecureHeaders(config.secureHeaders);
+  const compression = resolveCompression(config.compression);
   const cors: CorsConfig | undefined = config.cors === true ? { origin: "*" } : config.cors || undefined;
 
   // Readiness: the database answers, every AI alias points to a configured provider, and the app's own checks pass.
@@ -1398,6 +1407,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
       const https = url.protocol === "https:" || (Boolean(config.trustProxy) && req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https");
       response = applySecureHeaders(response, secureHeaders, https);
     }
+    if (compression && !upgrades.has(req)) response = compressResponse(response, req, compression);
     if (pending.length) {
       const all = Promise.all(pending);
       const execution = platformWaitUntil(rest);
@@ -1538,6 +1548,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
         ready: health?.readyPath ?? false,
         metrics: metricsConfig?.path ?? false,
         secureHeaders: secureHeaders.map(([name]) => name),
+        compression: compression ? { threshold: compression.threshold, encodings: compression.encodings } : false,
         requestTimeoutMs,
         logging: { format: config.logger ? "custom" : logging.format, requests: logging.requests },
         description: config.description,

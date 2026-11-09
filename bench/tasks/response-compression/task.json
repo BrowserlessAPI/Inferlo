@@ -1,0 +1,4 @@
+{
+  "title": "Compress the app's answers",
+  "prompt": "This service runs without a proxy or CDN in front of it, and its JSON answers are large. Make the app compress its answers for clients that accept gzip, using Inferlo's built-in response compression. Small answers and streamed AI answers must not be compressed."
+}

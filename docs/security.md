@@ -17,6 +17,7 @@ Inferlo is secure by default: what you do not turn on stays closed. This page li
 - **Security headers** are sent on every response (below).
 - **Rate limits** are one option away: `rateLimit: { max, per, by }` on a route (see [routes](routes.md)).
 - **Retries do not repeat payments.** `idempotency: true` on a POST, PUT, PATCH or DELETE route runs a request with an `Idempotency-Key` header once and answers retries with the first answer; keys belong to one user and answers that set cookies are never replayed (see [Idempotency keys](routes.md#idempotency-keys)).
+- **Compression is off by default.** `createApp({ compression: true })` compresses answers when nothing in front of the app does; because compressed sizes can reveal a secret that sits next to attacker-chosen text in the same answer (BREACH), keep CSRF tokens and other secrets out of answers that echo request input, or leave compression to a proxy that skips them (see [Response compression](deploy.md#response-compression)).
 - **WebSockets only accept their own origin.** A `route.ws` socket may only be opened from the app's own origin or one listed in `cors.origin` (IL3006), because browsers send cookies with WebSocket upgrades from any page; each message is validated and limited like a request (see [WebSockets](websockets.md)).
 
 ## Security headers

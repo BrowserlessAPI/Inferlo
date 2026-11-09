@@ -36,6 +36,8 @@ export interface AppDescription {
   endpoints: { openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false };
   /** Security headers sent on responses (lowercase names; strict-transport-security only over HTTPS). */
   secureHeaders: string[];
+  /** createApp({ compression }): the threshold in bytes and the encodings offered, or false. */
+  compression: { threshold: number; encodings: string[] } | false;
   /** Default time limit for routes in milliseconds (createApp({ requestTimeoutMs })), or false. */
   requestTimeoutMs: number | false;
   /** The built-in logger's format and whether each request is logged (createApp({ logging })). "custom" when the app has its own logger. */
@@ -118,7 +120,7 @@ function field(name: string, schema: AnySchema): FieldDescription {
   return out;
 }
 
-export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string; modules: ModuleInfo; versions: AppDescription["versions"]; permissions: AppDescription["permissions"] }): AppDescription {
+export function describeApp(app: App<any>, options: { auth: boolean; openapi: string | false; mcp: string | false; health: string | false; ready: string | false; metrics: string | false; secureHeaders: string[]; compression: AppDescription["compression"]; requestTimeoutMs: number | false; logging: AppDescription["logging"]; description?: string; modules: ModuleInfo; versions: AppDescription["versions"]; permissions: AppDescription["permissions"] }): AppDescription {
   const info = options.modules;
   const graphql = graphqlInfo(app.routes);
   return {
@@ -130,6 +132,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
     auth: options.auth,
     endpoints: { openapi: options.openapi, mcp: options.mcp, health: options.health, ready: options.ready, metrics: options.metrics },
     secureHeaders: options.secureHeaders,
+    compression: options.compression,
     requestTimeoutMs: options.requestTimeoutMs,
     logging: options.logging,
     versions: options.versions,
