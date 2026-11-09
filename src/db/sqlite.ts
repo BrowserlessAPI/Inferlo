@@ -37,7 +37,7 @@ const q = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
 
 type Kind = "text" | "integer" | "real" | "boolean" | "date" | "json";
 
-function kindOf(schema: AnySchema): Kind {
+export function kindOf(schema: AnySchema): Kind {
   switch (schema.def.kind) {
     case "int":
       return "integer";
@@ -60,7 +60,7 @@ function kindOf(schema: AnySchema): Kind {
   }
 }
 
-const SQL_TYPE: Record<Kind, string> = { text: "TEXT", integer: "INTEGER", real: "REAL", boolean: "INTEGER", date: "TEXT", json: "TEXT" };
+export const SQL_TYPE: Record<Kind, string> = { text: "TEXT", integer: "INTEGER", real: "REAL", boolean: "INTEGER", date: "TEXT", json: "TEXT" };
 
 /** A JavaScript value as SQLite stores it. */
 function toSqlite(kind: Kind | undefined, value: unknown): unknown {
@@ -72,13 +72,13 @@ function toSqlite(kind: Kind | undefined, value: unknown): unknown {
   return value;
 }
 
-function literal(kind: Kind, value: unknown): string {
+export function literal(kind: Kind, value: unknown): string {
   const v = toSqlite(kind, value);
   if (typeof v === "number" && Number.isFinite(v)) return String(v);
   return `'${String(v).replace(/'/g, "''")}'`;
 }
 
-function columnDefinition(field: string, schema: AnySchema, forAlter = false): string {
+export function columnDefinition(field: string, schema: AnySchema, forAlter = false): string {
   const d = schema.def;
   const kind = kindOf(schema);
   const col = q(columnName(field));
@@ -93,27 +93,32 @@ function columnDefinition(field: string, schema: AnySchema, forAlter = false): s
   return sql;
 }
 
-function createTableSql(model: AnyModel): string {
+export function createTableSql(model: AnyModel): string {
   const cols = [`"id" TEXT PRIMARY KEY NOT NULL`, `"created_at" TEXT NOT NULL`, `"updated_at" TEXT NOT NULL`];
   for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) cols.push(columnDefinition(field, schema));
   return `CREATE TABLE IF NOT EXISTS ${q(model.name)} (\n  ${cols.join(",\n  ")}\n)`;
 }
 
 function indexSql(model: AnyModel): string[] {
-  const out: string[] = [];
+  return modelIndexes(model).map(([, sql]) => sql);
+}
+
+/** [index name, CREATE INDEX statement] for each unique, indexed and reference field. */
+export function modelIndexes(model: AnyModel): [string, string][] {
+  const out: [string, string][] = [];
   for (const [field, schema] of Object.entries(model.fields as Record<string, AnySchema>)) {
     const col = columnName(field);
     if (schema.def.unique) {
       const cols = model.tenant ? `${q("tenant_id")}, ${q(col)}` : q(col);
-      out.push(`CREATE UNIQUE INDEX IF NOT EXISTS ${q(`${model.name}_${col}_key`)} ON ${q(model.name)} (${cols})`);
+      out.push([`${model.name}_${col}_key`, `CREATE UNIQUE INDEX IF NOT EXISTS ${q(`${model.name}_${col}_key`)} ON ${q(model.name)} (${cols})`]);
     } else if ((schema.def.index || schema.def.kind === "ref") && schema.def.kind !== "vector") {
-      out.push(`CREATE INDEX IF NOT EXISTS ${q(`${model.name}_${col}_idx`)} ON ${q(model.name)} (${q(col)})`);
+      out.push([`${model.name}_${col}_idx`, `CREATE INDEX IF NOT EXISTS ${q(`${model.name}_${col}_idx`)} ON ${q(model.name)} (${q(col)})`]);
     }
   }
   return out;
 }
 
-function sortByReferences(models: AnyModel[]): AnyModel[] {
+export function sortByReferences(models: AnyModel[]): AnyModel[] {
   const byName = new Map(models.map((m) => [m.name, m]));
   const out: AnyModel[] = [];
   const seen = new Set<string>();

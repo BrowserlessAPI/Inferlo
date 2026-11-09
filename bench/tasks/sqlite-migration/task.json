@@ -1,0 +1,4 @@
+{
+  "title": "Rename a field with a SQLite migration",
+  "prompt": "The app keeps its data in SQLite and deploys with migrations (see migrations/). Rename the `color` field of notes to `colour`, keeping the data. Update the model, and add the migration file migrations/0002_colour.sql with exactly the SQL `inferlo db migrate colour --rename notes.color=notes.colour` would generate for this SQLite app, and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands."
+}

@@ -20,6 +20,7 @@ import type { AnySchema } from "../schema.ts";
 import { columnDefinition, columnType, createTableSql, defaultSql, modelIndexes, needsVectorExtension, sortByReferences, SYSTEM_COLUMNS, VECTOR_EXTENSION } from "./postgres.ts";
 import type { DbRecord } from "./types.ts";
 import { applyMysqlMigrations, planMysqlMigration } from "./migrate-mysql.ts";
+import { applySqliteMigrations, planSqliteMigration } from "./migrate-sqlite.ts";
 
 /** One column in migrations/snapshot.json. Compared field by field to find column changes. */
 export interface MigrationSnapshotColumn {
@@ -40,8 +41,8 @@ export interface MigrationSnapshotColumn {
 /** The models as of the last generated migration. Stored as migrations/snapshot.json. */
 export interface MigrationSnapshot {
   inferlo: 2;
-  /** The database the SQL is written for: "mysql", or absent for PostgreSQL. */
-  dialect?: "mysql";
+  /** The database the SQL is written for: "mysql" or "sqlite", or absent for PostgreSQL. */
+  dialect?: "mysql" | "sqlite";
   tables: Record<string, { columns: Record<string, MigrationSnapshotColumn>; indexes: Record<string, string> }>;
 }
 
@@ -86,11 +87,12 @@ export interface PlanMigrationOptions {
    */
   renames?: Readonly<Record<string, string>>;
   /**
-   * The database to write SQL for: "postgres" (default) or "mysql". MySQL gets the same changes, except type changes
+   * The database to write SQL for: "postgres" (default), "mysql" or "sqlite". On SQLite, column changes need a table
+   * rebuild and raise IL4013. MySQL gets the same changes, except type changes
    * that MySQL would convert silently or differently (to or from boolean, date and JSON columns, and number to
    * integer), which raise IL4013. The snapshot records the database, and a snapshot of the other one raises IL4037.
    */
-  dialect?: "postgres" | "mysql";
+  dialect?: "postgres" | "mysql" | "sqlite";
 }
 
 export interface Migration {
@@ -468,9 +470,12 @@ export function planMigration(
   options: PlanMigrationOptions = {},
 ): MigrationPlan {
   if (options.dialect === "mysql") return planMysqlMigration(models, previous, options);
-  if ((previous as { dialect?: unknown } | undefined)?.dialect === "mysql") {
-    throw new InferloError("IL4037", "migrations/snapshot.json and the migration files were written for MySQL, and this app uses PostgreSQL.", {
-      fix: "Migration files are written for one database. Keep the MySQL migrations folder with the MySQL app; for PostgreSQL, move the old folder away and run inferlo db migrate to start a new one, or create the tables with inferlo db push.",
+  if (options.dialect === "sqlite") return planSqliteMigration(models, previous, options);
+  const previousDialect = (previous as { dialect?: unknown } | undefined)?.dialect;
+  if (previousDialect === "mysql" || previousDialect === "sqlite") {
+    const other = previousDialect === "mysql" ? "MySQL" : "SQLite";
+    throw new InferloError("IL4037", `migrations/snapshot.json and the migration files were written for ${other}, and this app uses PostgreSQL.`, {
+      fix: `Migration files are written for one database. Keep the ${other} migrations folder with the ${other} app; for PostgreSQL, move the old folder away and run inferlo db migrate to start a new one, or create the tables with inferlo db push.`,
       expose: true,
     });
   }
@@ -597,7 +602,7 @@ const MIGRATION_NAME = /^[A-Za-z0-9_-]{1,200}$/;
 const LOCK_KEY = 4_812_330_227;
 
 interface SqlDb {
-  /** The database adapter: migration files are PostgreSQL or MySQL SQL, so SQLite is refused (IL4035). */
+  /** The database adapter: its dialect picks how migration files are applied (PostgreSQL, MySQL or SQLite). */
   readonly $adapter?: { readonly dialect: string };
   $sql(text: string, params?: unknown[]): Promise<DbRecord[]>;
   $transaction<T>(fn: (tx: SqlDb) => Promise<T>): Promise<T>;
@@ -715,12 +720,6 @@ function conversionError(error: unknown, migration: string, sql: string): Inferl
  */
 export async function applyMigrations(db: SqlDb, migrations: readonly Migration[], options: ApplyMigrationsOptions = {}): Promise<string[]> {
   const dialect = db.$adapter?.dialect;
-  if (dialect === "sqlite") {
-    throw new InferloError("IL4035", "Migration files are PostgreSQL or MySQL SQL, and this app uses SQLite.", {
-      fix: "With sqlite(), create and extend tables with inferlo db push (or db.$sync()). Use postgres() or mysql() for migration files.",
-      expose: true,
-    });
-  }
   const seen = new Set<string>();
   for (const m of migrations) {
     if (!MIGRATION_NAME.test(m.name) || seen.has(m.name)) {
@@ -731,10 +730,10 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
     }
     seen.add(m.name);
   }
-  if (dialect === "mysql") {
+  if (dialect === "mysql" || dialect === "sqlite") {
     const sorted = [...migrations].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const sums = new Map(await Promise.all(sorted.map(async (m) => [m.name, await checksum(m.sql)] as const)));
-    return applyMysqlMigrations(db, sorted, sums, options.onEdited);
+    return (dialect === "mysql" ? applyMysqlMigrations : applySqliteMigrations)(db, sorted, sums, options.onEdited);
   }
   // Databases migrated before the rename from Kairo keep their history: rename the old table once.
   const legacy = await db.$sql(

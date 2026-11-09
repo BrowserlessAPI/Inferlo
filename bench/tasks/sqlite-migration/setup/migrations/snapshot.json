@@ -1,0 +1,122 @@
+{
+  "inferlo": 2,
+  "dialect": "sqlite",
+  "tables": {
+    "users": {
+      "columns": {
+        "id": {
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "updated_at": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "email": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "name": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "role": {
+          "type": "TEXT",
+          "notNull": true,
+          "default": "'member'",
+          "enum": [
+            "member",
+            "admin"
+          ]
+        }
+      },
+      "indexes": {
+        "users_email_key": "CREATE UNIQUE INDEX IF NOT EXISTS \"users_email_key\" ON \"users\" (\"email\")"
+      }
+    },
+    "api_keys": {
+      "columns": {
+        "id": {
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "updated_at": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "user_id": {
+          "type": "TEXT",
+          "notNull": true,
+          "references": {
+            "table": "users",
+            "onDelete": "cascade"
+          }
+        },
+        "hash": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "label": {
+          "type": "TEXT",
+          "notNull": true,
+          "default": "'default'"
+        }
+      },
+      "indexes": {
+        "api_keys_user_id_idx": "CREATE INDEX IF NOT EXISTS \"api_keys_user_id_idx\" ON \"api_keys\" (\"user_id\")",
+        "api_keys_hash_key": "CREATE UNIQUE INDEX IF NOT EXISTS \"api_keys_hash_key\" ON \"api_keys\" (\"hash\")"
+      }
+    },
+    "notes": {
+      "columns": {
+        "id": {
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "updated_at": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "title": {
+          "type": "TEXT",
+          "notNull": true
+        },
+        "body": {
+          "type": "TEXT",
+          "notNull": true,
+          "default": "''"
+        },
+        "color": {
+          "type": "TEXT",
+          "notNull": false
+        },
+        "owner_id": {
+          "type": "TEXT",
+          "notNull": true,
+          "references": {
+            "table": "users",
+            "onDelete": "cascade"
+          }
+        }
+      },
+      "indexes": {
+        "notes_owner_id_idx": "CREATE INDEX IF NOT EXISTS \"notes_owner_id_idx\" ON \"notes\" (\"owner_id\")"
+      }
+    }
+  }
+}

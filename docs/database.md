@@ -228,13 +228,13 @@ createApp({ db: sqlite() });   // a database in memory, gone when the process en
 ```
 
 - Options: `path` (default `":memory:"`; the file is created when missing, its directory must exist), `busyTimeoutMs` (default 5000: how long to wait when another process is writing the file) and `debug`. Unknown options are IL4033.
-- Models, queries, relations, pagination, multi-tenancy, audit logs, `$transaction`, `$sync` (`inferlo db push`) and `$sql` work as on Postgres. Tables are created with `inferlo db push` (or `await db.$sync()` at startup); migration files are PostgreSQL or MySQL SQL, so `inferlo db migrate` refuses SQLite with IL4035.
+- Models, queries, relations, pagination, multi-tenancy, audit logs, `$transaction`, `$sync` (`inferlo db push`) and `$sql` work as on Postgres. Tables are created with `inferlo db push` (or `await db.$sync()` at startup), or with migration files: see [Migrations on SQLite](#migrations-on-sqlite).
 - Values: strings, ids, enums and dates are text (dates as ISO 8601 in UTC, so they sort in time order), `t.int()` and booleans are integers, `t.number()` is a real number, and JSON, arrays, objects and vectors are JSON text. Rows come back with the same types as on Postgres (`Date`, `boolean`, parsed JSON).
 - Foreign keys are enforced (`PRAGMA foreign_keys = ON`), files use write-ahead logging, and unique, foreign key and missing-table errors are IL4004, IL4011 and IL4012, as on Postgres.
 - `like` is case-sensitive, as on Postgres; `ilike` ignores case for ASCII letters only.
 - `db.<table>.search()` compares vectors in JavaScript (SQLite has no vector index), which is fine for thousands of rows, not millions.
 - SQLite has one connection. A `$transaction` holds it until it ends, and queries from outside the transaction wait for it: inside `$transaction`, always use `tx`, never the outer `db`, or the query waits for the transaction that waits for it.
-- Postgres-only features say so at startup: `jobQueue`, `cache` and `rateLimit` stores `"database"` (use `"memory"` or Redis), `db.$pgClient()` (IL4028) and migration files (IL4035).
+- Postgres-only features say so at startup: `jobQueue`, `cache` and `rateLimit` stores `"database"` (use `"memory"` or Redis), and `db.$pgClient()` (IL4028).
 - `$sql` uses `?` placeholders: `await db.$sql("select count(*) as n from tickets where owner_id = ?", [user.id])`.
 
 ## Schema changes
@@ -302,6 +302,15 @@ With `mysql()` as the database, `inferlo db migrate` writes MySQL SQL and `--app
 - MySQL names a column's CHECK constraint itself (`<table>_chk_<n>`), so the statements that drop an enum's CHECK look it up in `information_schema` and run the `ALTER TABLE ... DROP CHECK` as a prepared statement (`SET @inferlo_sql = ...`, `PREPARE`, `EXECUTE`, `DEALLOCATE PREPARE`). A data problem (a value that does not convert or is too long, NULL left in a column made required, rows still using a removed enum value, ids the new referenced table does not have) fails that statement with IL4038.
 - MySQL commits every schema change (`CREATE`, `ALTER`, `DROP`) as it runs, so a migration file cannot be rolled back as a whole. `--apply` runs a file statement by statement (split at the semicolons outside strings, quoted names and comments) and records it once every statement ran. If one fails, IL4038 names the file, the statement and MySQL's message; the statements before it stay applied and the file is not recorded, so remove the ones that ran, fix the rest and apply again.
 - A named lock (`GET_LOCK`) lets one instance apply at a time, so running `--apply` on every deploy from several instances is safe. Applied files are recorded in the `inferlo_migrations` table with a SHA-256 checksum, and edited files are reported with IL4018, as on Postgres.
+
+### Migrations on SQLite
+
+With `sqlite()` as the database, `inferlo db migrate` writes SQLite SQL and `--apply` runs it on the app's SQLite file. The snapshot records the database (`"dialect": "sqlite"`), so a migrations folder written for PostgreSQL or MySQL is refused with IL4037.
+
+- Generated: new tables (with their `REFERENCES` and `CHECK` clauses), new columns (a fixed `.default()` for a new required column, IL4014), new indexes (a reference field gets one, as with `db push`), and with `--allow-drop` drops of indexes, columns (their indexes first, since SQLite refuses to drop an indexed column) and tables (one `DROP TABLE` each, tables that reference others first). Without `--allow-drop`, drops raise IL4017.
+- With `--rename old=new`, renames: `ALTER TABLE ... RENAME TO` and `RENAME COLUMN`, which keep the data and which SQLite carries into the `CHECK` and `REFERENCES` clauses of the table and of the tables that reference it. SQLite cannot rename an index, so the indexes named after a renamed table or column are dropped and created again under their new names.
+- Column changes (type, default, required/optional, enum values, references) are refused with IL4013: SQLite cannot change a column in place and needs the table rebuilt, which `inferlo db migrate` does not generate yet. Write the rebuild yourself in a new migration file (create the new table, copy the rows, drop the old table, rename the new one), or undo the change.
+- SQLite runs schema changes in transactions, so `--apply` runs each file in one transaction (`BEGIN IMMEDIATE`, which also keeps two processes apart) together with its record in `inferlo_migrations`, with a SHA-256 checksum (IL4018 for edited files). If a statement fails, IL4039 names the file, the statement and SQLite's message, and the whole file is rolled back.
 
 ## Transactions and raw SQL
 

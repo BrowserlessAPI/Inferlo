@@ -60,8 +60,9 @@ export function readMysqlSnapshot(input: unknown): MigrationSnapshot["tables"] {
     });
   }
   if (s.dialect !== "mysql") {
-    throw new InferloError("IL4037", "migrations/snapshot.json and the migration files were written for PostgreSQL, and this app uses MySQL.", {
-      fix: "Migration files are written for one database. Keep the PostgreSQL migrations folder with the PostgreSQL app; for MySQL, move the old folder away and run inferlo db migrate to start a new one, or create the tables with inferlo db push.",
+    const other = s.dialect === "sqlite" ? "SQLite" : "PostgreSQL";
+    throw new InferloError("IL4037", `migrations/snapshot.json and the migration files were written for ${other}, and this app uses MySQL.`, {
+      fix: `Migration files are written for one database. Keep the ${other} migrations folder with the ${other} app; for MySQL, move the old folder away and run inferlo db migrate to start a new one, or create the tables with inferlo db push.`,
       expose: true,
     });
   }
@@ -262,28 +263,29 @@ export function planMysqlMigration(models: readonly AnyModel[], previous: unknow
 
 /**
  * Split a migration file into statements at semicolons outside strings, quoted names and comments.
- * Comments are kept with the statement that follows them; empty statements are dropped.
+ * Comments are kept with the statement that follows them; empty statements are dropped. MySQL also has # comments
+ * and backslash escapes in strings; SQLite (`{ mysql: false }`) has neither.
  */
-export function splitStatements(sql: string): string[] {
+export function splitStatements(sql: string, { mysql = true }: { mysql?: boolean } = {}): string[] {
   const out: string[] = [];
   let start = 0;
   let i = 0;
   const push = (end: number) => {
     const text = sql.slice(start, end).trim();
-    if (text.replace(/--[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\//g, "").trim()) out.push(text);
+    if (text.replace(mysql ? /--[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\//g : /--[^\n]*|\/\*[\s\S]*?\*\//g, "").trim()) out.push(text);
   };
   while (i < sql.length) {
     const c = sql[i]!;
     if (c === "'" || c === '"' || c === "`") {
       i++;
       while (i < sql.length) {
-        if (sql[i] === "\\" && c !== "`") i += 2;
+        if (mysql && sql[i] === "\\" && c !== "`") i += 2;
         else if (sql[i] === c && sql[i + 1] === c) i += 2;
         else if (sql[i] === c) break;
         else i++;
       }
       i++;
-    } else if ((c === "-" && sql[i + 1] === "-") || c === "#") {
+    } else if ((c === "-" && sql[i + 1] === "-") || (mysql && c === "#")) {
       while (i < sql.length && sql[i] !== "\n") i++;
     } else if (c === "/" && sql[i + 1] === "*") {
       const end = sql.indexOf("*/", i + 2);

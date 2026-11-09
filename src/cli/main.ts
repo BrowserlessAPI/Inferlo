@@ -193,12 +193,6 @@ async function cmdMigrate(args: Args) {
   const app = await loadApp(args);
   try {
     const dialect = app.db.$adapter.dialect;
-    if (dialect === "sqlite") {
-      throw new InferloError("IL4035", "Migration files are PostgreSQL or MySQL SQL, and this app uses SQLite.", {
-        fix: "With sqlite(), create and extend tables with inferlo db push. Use postgres() or mysql() for migration files.",
-        expose: true,
-      });
-    }
     if (args.flags.apply) {
       const files = await migrationFiles(dir);
       const migrations = await Promise.all(files.map(async (f) => ({ name: f.slice(0, -4), sql: await readFile(path.join(dir, f), "utf8") })));
@@ -233,7 +227,7 @@ async function cmdMigrate(args: Args) {
       }
       renames[rename.slice(0, at)] = rename.slice(at + 1);
     }
-    const plan = planMigration(app.models, previous as never, { allowDrop: Boolean(args.flags["allow-drop"]), allowChange: Boolean(args.flags["allow-change"]), renames, dialect: dialect === "mysql" ? "mysql" : "postgres" });
+    const plan = planMigration(app.models, previous as never, { allowDrop: Boolean(args.flags["allow-drop"]), allowChange: Boolean(args.flags["allow-change"]), renames, dialect: dialect === "mysql" || dialect === "sqlite" ? dialect : "postgres" });
     const dryRun = Boolean(args.flags["dry-run"]);
     const dropNote =
       (plan.renames.length ? `\n\nThis migration renames: ${plan.renames.join(", ")}.` : "") +

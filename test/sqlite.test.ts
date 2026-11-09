@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
-import { applyMigrations, createApp, createDb, InferloError, model, route, t } from "../src/index.ts";
+import { createApp, createDb, InferloError, model, route, t } from "../src/index.ts";
 import { likeToGlob, sqlite } from "../src/db/sqlite.ts";
 
 const isCode = (code: string) => (e: unknown) => e instanceof InferloError && e.code === code;
@@ -141,11 +141,10 @@ describe("sqlite()", () => {
     assert.throws(() => sqlite({ busyTimeoutMs: -1 }), isCode("IL4033"));
   });
 
-  test("Postgres-only features say so: database job queue, cache and rate limits, migration files, $pgClient", async () => {
+  test("Postgres-only features say so: database job queue, cache and rate limits, $pgClient", async () => {
     assert.throws(() => createApp({ db: sqlite(), jobQueue: { store: "database" }, logger: quiet }), isCode("IL6012"));
     assert.throws(() => createApp({ db: sqlite(), cache: { store: "database" }, logger: quiet }), (e: unknown) => e instanceof InferloError && /Postgres/.test(e.message));
     const db = createDb([Team], sqlite());
-    await assert.rejects(applyMigrations(db, [{ name: "0001_init", sql: "SELECT 1" }]), isCode("IL4035"));
     await assert.rejects(db.$pgClient(), isCode("IL4028"));
     await db.$close();
   });
