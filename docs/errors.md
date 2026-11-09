@@ -458,6 +458,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6060
 **Invalid `graphqlContext()` arguments.** `graphqlContext(app, request)` from `@browserlessapi/inferlo/graphql` needs the app from `createApp()` and the request your GraphQL server passes to its context function: a Web `Request` (GraphQL Yoga's `request`) or a Node.js request (Apollo Server's `req`). Use `createYoga({ schema: graphqlSchema({ ... }), context: ({ request }) => graphqlContext(app, request) })` or, with Apollo Server, `context: async ({ req }) => graphqlContext(app, req)`. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).
 
+### IL6061
+**Invalid `winstonLogger()` argument.** `winstonLogger(log)` from `@browserlessapi/inferlo/winston` needs a winston logger (`winston.createLogger({ ... })`, a child logger from `log.child({ ... })`, or the logger nest-winston provides). See [Winston](observability.md#winston).
+
+### IL6062
+**A winston logger was passed to `createApp({ logger })` directly.** Winston's methods take `(message, meta)`, so Inferlo's `(message, data, fields)` entries would lose the request id and the error. Wrap it: `createApp({ logger: winstonLogger(log) })` with `winstonLogger` from `@browserlessapi/inferlo/winston`. See [Winston](observability.md#winston).
+
 ## Environment (7xxx)
 
 ### IL7001

@@ -4487,6 +4487,17 @@ const app = createApp({ routes, logger: pinoLogger(fastify.log), logging: { requ
 
 Request ids, trace ids and the other fields are top-level properties of each entry, errors are `err`, and secrets are redacted before pino sees them. See [Pino](observability.md#pino); tested with pino 9.14.0 and the latest pino.
 
+## Winston
+
+Apps that log with [winston](https://github.com/winstonjs/winston) (common in Express apps, and in NestJS with `nest-winston`) send Inferlo's request, error, job and readiness logs to the same logger with `winstonLogger` from `@browserlessapi/inferlo/winston`:
+
+```ts
+import { winstonLogger } from "@browserlessapi/inferlo/winston";
+const app = createApp({ routes, logger: winstonLogger(log), logging: { requests: true } }); // log = winston.createLogger({ ... })
+```
+
+Request ids, trace ids and the other fields are top-level properties of each entry, errors are `error` as plain JSON, and secrets are redacted before winston sees them. See [Winston](observability.md#winston); tested with winston 3.18.0 and the latest winston.
+
 ## Sentry
 
 Apps that report errors to Sentry pass `onError: sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry` to `createApp`, so 5xx answers, failed WebSocket messages and failed job attempts are captured with the route, job, request id, tenant and user id as tags, after secret redaction:
@@ -5775,7 +5786,7 @@ createApp({ logging: { format: settings.LOG_FORMAT, requests: true } });
 
 ## Your own logger
 
-Pass `logger` to send entries to winston, a log library of your company or anything else. Each method gets the message, optional data (an error or a value) and optional `fields` with structured values such as `requestId`:
+Pass `logger` to send entries to a log library of your company or anything else (for pino and winston, use [`pinoLogger`](#pino) and [`winstonLogger`](#winston)). Each method gets the message, optional data (an error or a value) and optional `fields` with structured values such as `requestId`:
 
 ```ts
 createApp({
@@ -5817,6 +5828,39 @@ export const app = createApp({
 - Inside Fastify, `pinoLogger(fastify.log)` writes to Fastify's logger. In NestJS with `nestjs-pino`, pass the same pino instance you give `LoggerModule`.
 - Passing a pino logger to `logger` without `pinoLogger` raises IL6053, because pino reads `(object, message)` and the request id and error would be lost. `pinoLogger` of anything that is not a logger raises IL6052.
 - pino is not a dependency of Inferlo; pino 9.14 and later work (tested on 9.14.0 and the latest release).
+
+### Winston
+
+Apps that log with [winston](https://github.com/winstonjs/winston) (common in Express apps, and in NestJS with `nest-winston`) wrap it with `winstonLogger` from `@browserlessapi/inferlo/winston`, so Inferlo's request, error, job and readiness logs go through the app's formats and transports:
+
+```ts
+import winston from "winston";
+import { createApp } from "@browserlessapi/inferlo";
+import { winstonLogger } from "@browserlessapi/inferlo/winston";
+
+export const log = winston.createLogger({
+  format: winston.format.json(),
+  defaultMeta: { service: "helpdesk" },
+  transports: [new winston.transports.Console()],
+});
+
+export const app = createApp({
+  routes: [tickets],
+  logger: winstonLogger(log),
+  logging: { requests: true },
+});
+```
+
+```json
+{"durationMs":4.2,"level":"info","message":"GET /tickets 200 4.2ms","method":"GET","path":"/tickets","requestId":"0b7f8a52-3c1e-4d0a-9a51-8f2f0e6c1d44","service":"helpdesk","status":200}
+{"error":{"message":"connect ECONNREFUSED 10.0.0.5:5432","name":"Error","stack":"..."},"level":"error","message":"POST /tickets failed","requestId":"6d1c...","service":"helpdesk"}
+```
+
+- Each entry is written with `log.info(message, meta)` or `log.error(message, meta)`: fields such as `requestId`, `traceId` and `spanId` (with [tracing](#tracing-opentelemetry)), `method`, `path`, `status` and `durationMs` are top-level properties, an error is `error` as plain JSON (name, message, code, status, stack and cause, the same shape as the built-in JSON logger, because winston's `json` format writes an `Error` object as `{}`), and other data is under `data`.
+- Inferlo's [secret redaction](security.md#secrets-in-logs) runs first, and winston's own options (`level`, `defaultMeta`, formats, transports and child loggers such as `log.child({ component: "api" })`) still apply.
+- In NestJS with `nest-winston`, pass the logger you get from `WINSTON_MODULE_PROVIDER`, or the instance you give `WinstonModule`.
+- Passing a winston logger to `logger` without `winstonLogger` raises IL6062, because winston reads `(message, meta)` and the request id and error would be lost. `winstonLogger` of anything that is not a logger raises IL6061.
+- winston is not a dependency of Inferlo; winston 3.18 and later work (tested on 3.18.0 and the latest release).
 
 `describe().logging` shows the setup (`{ format: "text" | "json" | "custom", requests }`), and `inferlo describe` prints it.
 
@@ -6383,6 +6427,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Passport.js (`@browserlessapi/inferlo/passport`, with Express 4 or 5) | `passport` 0.6.0 and newer |
 | Pino (`@browserlessapi/inferlo/pino`) | `pino` 9.14.0 (newest 9.x) and newer |
 | Sentry (`@browserlessapi/inferlo/sentry`: `sentryOnError`) | `@sentry/node` 9.0.0 and newer (and the other Sentry SDKs of the same versions) |
+| Winston (`@browserlessapi/inferlo/winston`) | `winston` 3.18.0 and newer 3.x |
 | Sequelize (next to Inferlo on one Postgres database) | `sequelize` 6.36.0 and newer 6.x |
 | OpenID Connect providers (`oidc()`) | any provider that publishes an OpenID configuration and signs ID tokens with RS, PS, ES or EdDSA; tested against `oidc-provider` 9.0.0 and the latest |
 | OpenTelemetry API (`createApp({ tracing })`) | 1.3.0 and newer |
@@ -6863,6 +6908,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6060
 **Invalid `graphqlContext()` arguments.** `graphqlContext(app, request)` from `@browserlessapi/inferlo/graphql` needs the app from `createApp()` and the request your GraphQL server passes to its context function: a Web `Request` (GraphQL Yoga's `request`) or a Node.js request (Apollo Server's `req`). Use `createYoga({ schema: graphqlSchema({ ... }), context: ({ request }) => graphqlContext(app, request) })` or, with Apollo Server, `context: async ({ req }) => graphqlContext(app, req)`. See [GraphQL Yoga and other GraphQL servers](graphql.md#graphql-yoga-and-other-graphql-servers).
+
+### IL6061
+**Invalid `winstonLogger()` argument.** `winstonLogger(log)` from `@browserlessapi/inferlo/winston` needs a winston logger (`winston.createLogger({ ... })`, a child logger from `log.child({ ... })`, or the logger nest-winston provides). See [Winston](observability.md#winston).
+
+### IL6062
+**A winston logger was passed to `createApp({ logger })` directly.** Winston's methods take `(message, meta)`, so Inferlo's `(message, data, fields)` entries would lose the request id and the error. Wrap it: `createApp({ logger: winstonLogger(log) })` with `winstonLogger` from `@browserlessapi/inferlo/winston`. See [Winston](observability.md#winston).
 
 ## Environment (7xxx)
 

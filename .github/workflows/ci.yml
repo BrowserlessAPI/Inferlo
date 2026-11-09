@@ -1330,6 +1330,31 @@ jobs:
       - run: npx tsc --noEmit
       - run: node --test --test-reporter=spec test/sentry.test.ts test/on-error.test.ts
 
+  winston:
+    name: Winston ${{ matrix.winston }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.18.0 = oldest supported (winston 3 is the only maintained major and fixes only its newest release;
+        # 3.18.0, September 2025, starts the minor line before the current one), latest = newest release.
+        winston: ["3.18.0", "latest"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save winston@${{ matrix.winston }}
+      - run: node -p "'winston ' + require('./node_modules/winston/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/winston.test.ts
+
   oidc:
     name: OpenID Connect (oidc-provider ${{ matrix.oidc }})
     runs-on: ubuntu-latest

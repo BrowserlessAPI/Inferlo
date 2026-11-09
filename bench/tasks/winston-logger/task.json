@@ -1,0 +1,5 @@
+{
+  "title": "Inferlo logs through the company's winston logger",
+  "prompt": "The company's services log with winston: src/log.ts exports the shared winston logger `log`. Make the Inferlo app write all of its logs, including the request logs, through that logger, with the request id as a field of each entry, using Inferlo's winston integration. Do not change src/log.ts.",
+  "packages": ["winston"]
+}

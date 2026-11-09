@@ -127,6 +127,10 @@
       "types": "./dist/pino.d.ts",
       "default": "./dist/pino.js"
     },
+    "./winston": {
+      "types": "./dist/winston.d.ts",
+      "default": "./dist/winston.js"
+    },
     "./passport": {
       "types": "./dist/passport.d.ts",
       "default": "./dist/passport.js"
@@ -324,6 +328,7 @@
     "typeorm": "^1.1.2",
     "typescript": "^5.9.3",
     "valibot": "^1.5.0",
+    "winston": "^3.19.0",
     "zod": "^4.6.7"
   },
   "publishConfig": {

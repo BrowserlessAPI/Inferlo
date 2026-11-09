@@ -86,10 +86,19 @@ export function checkLogger(logger: unknown): void {
   if (!logger || typeof logger !== "object") return;
   const l = logger as Record<string, unknown>;
   const pino = typeof l.version === "string" && typeof l.bindings === "function" && typeof l.child === "function" && typeof l.isLevelEnabled === "function";
-  if (!pino) return;
-  throw new InferloError("IL6053", "createApp({ logger }) was given a pino logger directly; pino reads (object, message), so request ids and errors would be lost.", {
-    fix: 'Wrap it: import { pinoLogger } from "@browserlessapi/inferlo/pino"; createApp({ logger: pinoLogger(log) }).',
-  });
+  if (pino) {
+    throw new InferloError("IL6053", "createApp({ logger }) was given a pino logger directly; pino reads (object, message), so request ids and errors would be lost.", {
+      fix: 'Wrap it: import { pinoLogger } from "@browserlessapi/inferlo/pino"; createApp({ logger: pinoLogger(log) }).',
+    });
+  }
+  // A winston logger: (message, meta) with the rest as splat arguments, so Inferlo's fields would be dropped and an
+  // error would be merged into the message.
+  const winston = typeof l.configure === "function" && typeof l.add === "function" && typeof l.log === "function" && typeof l.child === "function" && !!l.levels && typeof l.levels === "object";
+  if (winston) {
+    throw new InferloError("IL6062", "createApp({ logger }) was given a winston logger directly; winston reads (message, meta), so request ids and errors would be lost.", {
+      fix: 'Wrap it: import { winstonLogger } from "@browserlessapi/inferlo/winston"; createApp({ logger: winstonLogger(log) }).',
+    });
+  }
 }
 
 /** The built-in logger: "[inferlo] message" lines, or one JSON object per line. */

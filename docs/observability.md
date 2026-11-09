@@ -51,7 +51,7 @@ createApp({ logging: { format: settings.LOG_FORMAT, requests: true } });
 
 ## Your own logger
 
-Pass `logger` to send entries to winston, a log library of your company or anything else. Each method gets the message, optional data (an error or a value) and optional `fields` with structured values such as `requestId`:
+Pass `logger` to send entries to a log library of your company or anything else (for pino and winston, use [`pinoLogger`](#pino) and [`winstonLogger`](#winston)). Each method gets the message, optional data (an error or a value) and optional `fields` with structured values such as `requestId`:
 
 ```ts
 createApp({
@@ -93,6 +93,39 @@ export const app = createApp({
 - Inside Fastify, `pinoLogger(fastify.log)` writes to Fastify's logger. In NestJS with `nestjs-pino`, pass the same pino instance you give `LoggerModule`.
 - Passing a pino logger to `logger` without `pinoLogger` raises IL6053, because pino reads `(object, message)` and the request id and error would be lost. `pinoLogger` of anything that is not a logger raises IL6052.
 - pino is not a dependency of Inferlo; pino 9.14 and later work (tested on 9.14.0 and the latest release).
+
+### Winston
+
+Apps that log with [winston](https://github.com/winstonjs/winston) (common in Express apps, and in NestJS with `nest-winston`) wrap it with `winstonLogger` from `@browserlessapi/inferlo/winston`, so Inferlo's request, error, job and readiness logs go through the app's formats and transports:
+
+```ts
+import winston from "winston";
+import { createApp } from "@browserlessapi/inferlo";
+import { winstonLogger } from "@browserlessapi/inferlo/winston";
+
+export const log = winston.createLogger({
+  format: winston.format.json(),
+  defaultMeta: { service: "helpdesk" },
+  transports: [new winston.transports.Console()],
+});
+
+export const app = createApp({
+  routes: [tickets],
+  logger: winstonLogger(log),
+  logging: { requests: true },
+});
+```
+
+```json
+{"durationMs":4.2,"level":"info","message":"GET /tickets 200 4.2ms","method":"GET","path":"/tickets","requestId":"0b7f8a52-3c1e-4d0a-9a51-8f2f0e6c1d44","service":"helpdesk","status":200}
+{"error":{"message":"connect ECONNREFUSED 10.0.0.5:5432","name":"Error","stack":"..."},"level":"error","message":"POST /tickets failed","requestId":"6d1c...","service":"helpdesk"}
+```
+
+- Each entry is written with `log.info(message, meta)` or `log.error(message, meta)`: fields such as `requestId`, `traceId` and `spanId` (with [tracing](#tracing-opentelemetry)), `method`, `path`, `status` and `durationMs` are top-level properties, an error is `error` as plain JSON (name, message, code, status, stack and cause, the same shape as the built-in JSON logger, because winston's `json` format writes an `Error` object as `{}`), and other data is under `data`.
+- Inferlo's [secret redaction](security.md#secrets-in-logs) runs first, and winston's own options (`level`, `defaultMeta`, formats, transports and child loggers such as `log.child({ component: "api" })`) still apply.
+- In NestJS with `nest-winston`, pass the logger you get from `WINSTON_MODULE_PROVIDER`, or the instance you give `WinstonModule`.
+- Passing a winston logger to `logger` without `winstonLogger` raises IL6062, because winston reads `(message, meta)` and the request id and error would be lost. `winstonLogger` of anything that is not a logger raises IL6061.
+- winston is not a dependency of Inferlo; winston 3.18 and later work (tested on 3.18.0 and the latest release).
 
 `describe().logging` shows the setup (`{ format: "text" | "json" | "custom", requests }`), and `inferlo describe` prints it.
 

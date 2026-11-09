@@ -1562,6 +1562,17 @@ const app = createApp({ routes, logger: pinoLogger(fastify.log), logging: { requ
 
 Request ids, trace ids and the other fields are top-level properties of each entry, errors are `err`, and secrets are redacted before pino sees them. See [Pino](observability.md#pino); tested with pino 9.14.0 and the latest pino.
 
+## Winston
+
+Apps that log with [winston](https://github.com/winstonjs/winston) (common in Express apps, and in NestJS with `nest-winston`) send Inferlo's request, error, job and readiness logs to the same logger with `winstonLogger` from `@browserlessapi/inferlo/winston`:
+
+```ts
+import { winstonLogger } from "@browserlessapi/inferlo/winston";
+const app = createApp({ routes, logger: winstonLogger(log), logging: { requests: true } }); // log = winston.createLogger({ ... })
+```
+
+Request ids, trace ids and the other fields are top-level properties of each entry, errors are `error` as plain JSON, and secrets are redacted before winston sees them. See [Winston](observability.md#winston); tested with winston 3.18.0 and the latest winston.
+
 ## Sentry
 
 Apps that report errors to Sentry pass `onError: sentryOnError(Sentry)` from `@browserlessapi/inferlo/sentry` to `createApp`, so 5xx answers, failed WebSocket messages and failed job attempts are captured with the route, job, request id, tenant and user id as tags, after secret redaction:

@@ -220,7 +220,7 @@ export interface AppConfig<Models extends readonly AnyModel[], Modules extends r
   redact?: readonly (string | object | undefined | null)[];
   /** Include error messages of unexpected (500) errors in responses. Default false. */
   exposeErrors?: boolean;
-  /** Your own logger: { info(message, data, fields), error(message, data, fields) }. For pino, use pinoLogger(pino()) from "@browserlessapi/inferlo/pino". */
+  /** Your own logger: { info(message, data, fields), error(message, data, fields) }. For pino, use pinoLogger(pino()) from "@browserlessapi/inferlo/pino"; for winston, winstonLogger(log) from "@browserlessapi/inferlo/winston". */
   logger?: Logger;
   /**
    * The built-in logger's format ("text" or "json", one object per line) and request logs (requests: true logs
