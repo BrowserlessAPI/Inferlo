@@ -27,6 +27,10 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)
 - [ ] SQLite adapter for small apps and tests (tested on the oldest supported and latest versions)
 
+- [ ] Drizzle and Prisma part 2b: Prisma Migrate next to `inferlo db migrate` in development (now possible: binaries.prisma.sh is allowed)
+- [ ] Microservices part 4c: Kafka event transport as a separate entry point, tested against a real broker (Docker Hub and Apache downloads are now allowed)
+- [ ] File uploads part 2b-2: `s3Storage()` tested against real S3-compatible servers such as MinIO on their oldest supported and latest versions (dl.min.io and GitHub release downloads are now allowed)
+
 ### Enterprise readiness (top priority, alongside integrations)
 
 Inferlo must be a production-grade, general-purpose framework at the level of NestJS and Fastify, not only an AI tool. These items come first together with the framework integrations below.
@@ -206,5 +210,8 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 
 ## Blocked
 
-- Drizzle and Prisma part 2b (Prisma Migrate next to `inferlo db migrate`), 2026-11-07: needs Prisma's schema engine, which `prisma` downloads from binaries.prisma.sh, and the scheduled maintainer's environment cannot reach that host (403 from its egress proxy), so `prisma migrate dev` cannot run locally and the item's checks cannot pass before a push (the same block makes the existing `examples/with-prisma` fail locally; CI is unaffected). Not started. Needs the owner to allow binaries.prisma.sh for the maintainer's environment, or the item to be done where Prisma's engines can be downloaded.
-- Microservices part 4c (Kafka event transport) and File uploads part 2b-2 (`s3Storage()` against real S3-compatible servers), 2026-11-08: not started, because neither can be tested in the scheduled maintainer's environment before a push. Docker Hub, downloads.apache.org and Maven Central answer 403 through its egress proxy (no Kafka or Redpanda broker), and GitHub release downloads outside the attached repository do too (no MinIO, Garage, SeaweedFS or RustFS binaries). CI could run them as services, but the checks must pass locally first. Needs the owner to allow one of those hosts for the maintainer's environment, or the items to be done where a broker and an S3 server can be started.
+(none)
+
+## Unblocked on 2026-11-09
+
+The owner allowed these hosts for the maintainer's environment: binaries.prisma.sh, Docker Hub (registry-1.docker.io, auth.docker.io, production.cloudflare.docker.com), downloads.apache.org, archive.apache.org, repo1.maven.org, objects.githubusercontent.com, release-assets.githubusercontent.com and dl.min.io. The items blocked earlier were moved back to "Next up". If one of them still cannot reach what it needs, record the exact host that failed under "Blocked".
