@@ -1,0 +1,119 @@
+{
+  "inferlo": 2,
+  "dialect": "mysql",
+  "tables": {
+    "users": {
+      "columns": {
+        "id": {
+          "type": "CHAR(36)",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "DATETIME(3)",
+          "notNull": true
+        },
+        "updated_at": {
+          "type": "DATETIME(3)",
+          "notNull": true
+        },
+        "email": {
+          "type": "VARCHAR(320)",
+          "notNull": true
+        },
+        "name": {
+          "type": "VARCHAR(80)",
+          "notNull": true
+        },
+        "role": {
+          "type": "VARCHAR(255)",
+          "notNull": true,
+          "default": "'member'",
+          "enum": [
+            "member",
+            "admin"
+          ]
+        }
+      },
+      "indexes": {
+        "users_email_key": "CREATE UNIQUE INDEX `users_email_key` ON `users` (`email`)"
+      }
+    },
+    "api_keys": {
+      "columns": {
+        "id": {
+          "type": "CHAR(36)",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "DATETIME(3)",
+          "notNull": true
+        },
+        "updated_at": {
+          "type": "DATETIME(3)",
+          "notNull": true
+        },
+        "user_id": {
+          "type": "CHAR(36)",
+          "notNull": true,
+          "references": {
+            "table": "users",
+            "onDelete": "cascade"
+          }
+        },
+        "hash": {
+          "type": "VARCHAR(64)",
+          "notNull": true
+        },
+        "label": {
+          "type": "VARCHAR(80)",
+          "notNull": true,
+          "default": "'default'"
+        }
+      },
+      "indexes": {
+        "api_keys_hash_key": "CREATE UNIQUE INDEX `api_keys_hash_key` ON `api_keys` (`hash`)"
+      }
+    },
+    "notes": {
+      "columns": {
+        "id": {
+          "type": "CHAR(36)",
+          "notNull": true,
+          "primaryKey": true
+        },
+        "created_at": {
+          "type": "DATETIME(3)",
+          "notNull": true
+        },
+        "updated_at": {
+          "type": "DATETIME(3)",
+          "notNull": true
+        },
+        "title": {
+          "type": "VARCHAR(200)",
+          "notNull": true
+        },
+        "body": {
+          "type": "MEDIUMTEXT",
+          "notNull": true,
+          "default": "('')"
+        },
+        "color": {
+          "type": "VARCHAR(20)",
+          "notNull": false
+        },
+        "owner_id": {
+          "type": "CHAR(36)",
+          "notNull": true,
+          "references": {
+            "table": "users",
+            "onDelete": "cascade"
+          }
+        }
+      },
+      "indexes": {}
+    }
+  }
+}

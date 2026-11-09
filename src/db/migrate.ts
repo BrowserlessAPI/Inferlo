@@ -86,9 +86,9 @@ export interface PlanMigrationOptions {
    */
   renames?: Readonly<Record<string, string>>;
   /**
-   * The database to write SQL for: "postgres" (default) or "mysql". On MySQL, new tables, columns and indexes are
-   * generated so far; drops, column changes and renames raise IL4013. The snapshot records the database, and a
-   * snapshot of the other one raises IL4037.
+   * The database to write SQL for: "postgres" (default) or "mysql". MySQL gets the same changes, except type changes
+   * that MySQL would convert silently or differently (to or from boolean, date and JSON columns, and number to
+   * integer), which raise IL4013. The snapshot records the database, and a snapshot of the other one raises IL4037.
    */
   dialect?: "postgres" | "mysql";
 }
@@ -207,7 +207,7 @@ function readSnapshot(input: unknown): MigrationSnapshot {
 }
 
 /** Plain descriptions of what differs between two versions of a column, e.g. "type text -> varchar(80)". */
-function columnChanges(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): string[] {
+export function columnChanges(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): string[] {
   const out: string[] = [];
   const ref = (r: MigrationSnapshotColumn["references"]) => (r ? `${r.table} on delete ${r.onDelete}` : "none");
   const values = (v: string[] | undefined) => (v ? v.map((x) => `'${x.replace(/'/g, "''")}'`).join(", ") : "none");
@@ -221,7 +221,7 @@ function columnChanges(before: MigrationSnapshotColumn, now: MigrationSnapshotCo
 }
 
 /** Changes planMigration can generate with allowChange: only the type, default, required/optional, enum values and reference differ. */
-function isAlterable(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): boolean {
+export function isAlterable(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): boolean {
   return columnChanges({ ...before, type: now.type, notNull: now.notNull, default: now.default, enum: now.enum, references: now.references }, now).length === 0;
 }
 
@@ -321,21 +321,36 @@ function invalidRename(problem: string): never {
   });
 }
 
+/** One step of a rename, in order: tables, then columns, then the foreign keys and indexes named after them. */
+export type RenameStep =
+  | { kind: "table"; from: string; to: string }
+  | { kind: "column"; table: string; from: string; to: string; column: MigrationSnapshotColumn }
+  | { kind: "constraint"; suffix: "check" | "fkey"; table: string; column: string; oldTable: string; oldColumn: string; definition: MigrationSnapshotColumn }
+  | { kind: "index"; table: string; from: string; to: string };
+
+/** How a database names and quotes things, for renameSnapshot. */
+export interface RenameDialect {
+  quote(identifier: string): string;
+  /** The name of the unique ("key") or plain ("idx") index of a column. */
+  indexName(table: string, column: string, suffix: "key" | "idx"): string;
+}
+
 /**
  * Applies the renames to the previous snapshot's tables, so the rest of the plan compares like with
- * like, and returns the RENAME statements: tables, then columns, then the indexes and constraints
- * Postgres named after them (which keep their old names otherwise).
+ * like, and returns the steps the database needs: tables, then columns, then the indexes and
+ * constraints named after them (which keep their old names otherwise). Invalid renames raise IL4032.
  */
-function applyRenames(
+export function renameSnapshot(
   before: MigrationSnapshot["tables"],
   models: readonly AnyModel[],
   renames: Readonly<Record<string, string>>,
-): { tables: MigrationSnapshot["tables"]; statements: string[]; descriptions: string[] } {
+  dialect: RenameDialect,
+): { tables: MigrationSnapshot["tables"]; steps: RenameStep[]; descriptions: string[] } {
   const entries = Object.entries(renames);
-  if (!entries.length) return { tables: before, statements: [], descriptions: [] };
+  if (!entries.length) return { tables: before, steps: [], descriptions: [] };
   const now = new Map(models.map((m) => [m.name, new Set(Object.keys(tableSnapshot(m).columns))]));
   const tables: MigrationSnapshot["tables"] = structuredClone(before);
-  const statements: string[] = [];
+  const steps: RenameStep[] = [];
   const descriptions: string[] = [];
   const tableRenames = new Map<string, string>();
   const columnRenames: { table: string; from: string; to: string }[] = [];
@@ -361,10 +376,10 @@ function applyRenames(
   for (const [from, to] of tableRenames) {
     tables[to] = tables[from]!;
     delete tables[from];
-    statements.push(`ALTER TABLE ${q(from)} RENAME TO ${q(to)}`);
+    steps.push({ kind: "table", from, to });
     descriptions.push(`rename table ${from} -> ${to}`);
   }
-  // Foreign keys follow a renamed table in Postgres; the snapshot has to say so too.
+  // Foreign keys follow a renamed table in the database; the snapshot has to say so too.
   for (const table of Object.values(tables)) {
     for (const column of Object.values(table.columns)) {
       if (column.references && tableRenames.has(column.references.table)) column.references = { ...column.references, table: tableRenames.get(column.references.table)! };
@@ -392,34 +407,55 @@ function applyRenames(
     renamedColumns.add(`${current}.${from}`);
     columns[toColumn] = columns[from]!;
     delete columns[from];
-    statements.push(`ALTER TABLE ${q(current)} RENAME COLUMN ${q(from)} TO ${q(toColumn)}`);
+    steps.push({ kind: "column", table: current, from, to: toColumn, column: columns[toColumn]! });
     descriptions.push(`rename column ${table}.${from} -> ${current}.${toColumn}`);
     remember(current, toColumn, [oldNames.get(current)?.get(from)?.[0] ?? table, from]);
     oldNames.get(current)?.delete(from);
   }
   // Indexes and the CHECK and foreign key constraints are named after the table and column; give them the names Inferlo now expects.
+  const q = dialect.quote;
   for (const [table, columns] of oldNames) {
     const snapshot = tables[table]!;
     for (const [column, [oldTable, oldColumn]] of columns) {
       if (oldTable === table && oldColumn === column) continue;
       const definition = snapshot.columns[column]!;
       for (const [present, suffix] of [[definition.enum, "check"], [definition.references, "fkey"]] as const) {
-        if (!present) continue;
-        const from = constraintName(oldTable, oldColumn, suffix);
-        const to = constraintName(table, column, suffix);
-        if (from !== to) statements.push(`ALTER TABLE ${q(table)} RENAME CONSTRAINT ${q(from)} TO ${q(to)}`);
+        if (present) steps.push({ kind: "constraint", suffix, table, column, oldTable, oldColumn, definition });
       }
-      for (const suffix of ["key", "idx"]) {
-        const from = `${oldTable}_${oldColumn}_${suffix}`;
+      for (const suffix of ["key", "idx"] as const) {
+        const from = dialect.indexName(oldTable, oldColumn, suffix);
         const sql = snapshot.indexes[from];
         if (sql === undefined) continue;
-        const to = `${table}_${column}_${suffix}`;
+        const to = dialect.indexName(table, column, suffix);
         const on = sql.indexOf(` ON ${q(oldTable)} `);
         if (on === -1) continue;
         delete snapshot.indexes[from];
         snapshot.indexes[to] = sql.slice(0, on).replace(q(from), q(to)) + ` ON ${q(table)} ` + sql.slice(on + ` ON ${q(oldTable)} `.length).replaceAll(q(oldColumn), q(column));
-        statements.push(`ALTER INDEX ${q(from)} RENAME TO ${q(to)}`);
+        steps.push({ kind: "index", table, from, to });
       }
+    }
+  }
+  return { tables, steps, descriptions };
+}
+
+const POSTGRES_RENAMES: RenameDialect = { quote: q, indexName: (table, column, suffix) => `${table}_${column}_${suffix}` };
+
+/** renameSnapshot with the ALTER statements Postgres needs. */
+function applyRenames(
+  before: MigrationSnapshot["tables"],
+  models: readonly AnyModel[],
+  renames: Readonly<Record<string, string>>,
+): { tables: MigrationSnapshot["tables"]; statements: string[]; descriptions: string[] } {
+  const { tables, steps, descriptions } = renameSnapshot(before, models, renames, POSTGRES_RENAMES);
+  const statements: string[] = [];
+  for (const step of steps) {
+    if (step.kind === "table") statements.push(`ALTER TABLE ${q(step.from)} RENAME TO ${q(step.to)}`);
+    else if (step.kind === "column") statements.push(`ALTER TABLE ${q(step.table)} RENAME COLUMN ${q(step.from)} TO ${q(step.to)}`);
+    else if (step.kind === "index") statements.push(`ALTER INDEX ${q(step.from)} RENAME TO ${q(step.to)}`);
+    else {
+      const from = constraintName(step.oldTable, step.oldColumn, step.suffix);
+      const to = constraintName(step.table, step.column, step.suffix);
+      if (from !== to) statements.push(`ALTER TABLE ${q(step.table)} RENAME CONSTRAINT ${q(from)} TO ${q(to)}`);
     }
   }
   return { tables, statements, descriptions };
@@ -541,7 +577,7 @@ export function planMigration(
 }
 
 /** "notes.color=notes.colour" (or "notes=memos") when a table lost one column and gained one, the likely rename; otherwise undefined. */
-function renameHint(before: MigrationSnapshot["tables"], models: readonly AnyModel[]): string | undefined {
+export function renameHint(before: MigrationSnapshot["tables"], models: readonly AnyModel[]): string | undefined {
   const names = new Set(models.map((m) => m.name));
   for (const model of models) {
     const old = before[model.name];

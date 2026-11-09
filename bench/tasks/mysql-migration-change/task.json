@@ -1,0 +1,5 @@
+{
+  "title": "Rename a field and change a column with a MySQL migration",
+  "prompt": "The app runs on MySQL and deploys with migrations (see migrations/). Rename the `color` field of notes to `colour` (keeping the data) and let note titles be up to 400 characters instead of 200. Update the model, and add the migration file migrations/0002_colour_longer_titles.sql with exactly the SQL `inferlo db migrate colour_longer_titles --rename notes.color=notes.colour --allow-change` would generate for this MySQL app, and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands.",
+  "packages": ["mysql2"]
+}
