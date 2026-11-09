@@ -1000,7 +1000,7 @@ Code that uses the AI SDK's `generateText`, `streamText`, `generateObject` or `T
 
 ## Vercel AI SDK providers
 
-Any AI SDK provider package (`@ai-sdk/amazon-bedrock`, `@ai-sdk/google-vertex`, `@ai-sdk/xai` and the others) works as an Inferlo provider with `aiSdk(provider)`. See [Any Vercel AI SDK provider](ai.md#any-vercel-ai-sdk-provider).
+Any AI SDK provider package (`@ai-sdk/amazon-bedrock`, `@ai-sdk/groq`, `@ai-sdk/xai` and the others) works as an Inferlo provider with `aiSdk(provider)`. See [Any Vercel AI SDK provider](ai.md#any-vercel-ai-sdk-provider).
 
 ## LangChain.js
 

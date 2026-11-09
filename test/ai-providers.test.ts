@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { azureOpenAI, createAI, InferloError, mistral, ProviderError, t, tool } from "../src/index.ts";
+import { azureOpenAI, createAI, InferloError, mistral, ProviderError, t, tool, vertexAI } from "../src/index.ts";
 import { secretsOf } from "../src/redact.ts";
-import { azureOpenAI as azureFromEntry, mistral as mistralFromEntry } from "../src/ai/public.ts";
+import { azureOpenAI as azureFromEntry, mistral as mistralFromEntry, vertexAI as vertexFromEntry } from "../src/ai/public.ts";
 
 // Mistral and Azure OpenAI adapters: both speak the Chat Completions API, with their own endpoints, authentication
 // and structured output. Every request is checked as the provider receives it.
@@ -199,5 +199,70 @@ describe("azureOpenAI()", () => {
   test("both adapters are exported from the AI entry point", () => {
     assert.equal(azureFromEntry, azureOpenAI);
     assert.equal(mistralFromEntry, mistral);
+    assert.equal(vertexFromEntry, vertexAI);
+  });
+});
+
+describe("vertexAI()", () => {
+  test("calls the global OpenAI-compatible endpoint of the project with a fresh access token per request", async () => {
+    const { calls, fetch } = recorder(() => chat("Hallo"));
+    let n = 0;
+    const vertex = vertexAI({ project: "acme-prod-42", token: async () => `ya29.token-${++n}`, fetch });
+    const ai = createAI({ providers: { vertex }, models: { fast: "vertex:google/gemini-2.5-flash" } });
+    assert.equal((await ai.generate({ model: "fast", prompt: "Hi" })).text, "Hallo");
+    await ai.generate({ model: "fast", prompt: "Again" });
+    assert.equal(calls[0]!.url, "https://aiplatform.googleapis.com/v1/projects/acme-prod-42/locations/global/endpoints/openapi/chat/completions");
+    assert.equal(calls[0]!.body.model, "google/gemini-2.5-flash");
+    assert.equal(calls[0]!.headers.authorization, "Bearer ya29.token-1");
+    assert.equal(calls[1]!.headers.authorization, "Bearer ya29.token-2");
+  });
+
+  test("a region keeps requests on that region's host; structured output and streaming with tools", async () => {
+    const { calls, fetch } = recorder((call) =>
+      call.body.stream && call.body.messages.at(-1).role === "tool"
+        ? sse([{ choices: [{ delta: { content: "Cold in Oslo" } }] }, "[DONE]"])
+        : call.body.stream
+        ? sse([
+            { choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", function: { name: "weather", arguments: '{"city":"Oslo"}' } }] } }] },
+            { choices: [], usage: { prompt_tokens: 8, completion_tokens: 2 } },
+            "[DONE]",
+          ])
+        : chat(JSON.stringify({ ok: true })),
+    );
+    const vertex = vertexAI({ project: "acme-prod-42", location: "europe-west4", token: () => "tok", fetch });
+    const ai = createAI({ providers: { vertex }, models: { fast: "vertex:google/gemini-2.5-flash" } });
+    const { object } = await ai.generate({ model: "fast", prompt: "ok?", output: t.object({ ok: t.boolean() }) });
+    assert.deepEqual(object, { ok: true });
+    assert.equal(calls[0]!.url, "https://europe-west4-aiplatform.googleapis.com/v1/projects/acme-prod-42/locations/europe-west4/endpoints/openapi/chat/completions");
+    assert.equal(calls[0]!.body.response_format.type, "json_schema");
+    const weather = tool("weather", { description: "Weather", input: t.object({ city: t.string() }) }).handle(({ input }) => ({ city: input.city }));
+    const stream = ai.stream({ model: "fast", prompt: "Weather?", tools: [weather] });
+    let text = "";
+    for await (const chunk of stream) text += chunk;
+    assert.equal(text, "Cold in Oslo");
+    assert.equal((await stream.steps())[0]!.toolCalls[0]!.name, "weather");
+    assert.equal(calls[1]!.body.tools[0].function.name, "weather");
+  });
+
+  test("a failing token is IL5006 without a request; invalid options are IL5041", async () => {
+    const { calls, fetch } = recorder(() => chat("x"));
+    const ai = createAI({ providers: { vertex: vertexAI({ project: "acme-prod-42", token: () => { throw new Error("no credentials"); }, fetch }) }, models: { fast: "vertex:google/gemini-2.5-flash" } });
+    const error = await ai.generate({ model: "fast", prompt: "Hi" }).catch((e: unknown) => e);
+    assert.ok(error instanceof ProviderError);
+    assert.equal(error.code, "IL5006");
+    assert.match(error.message, /no credentials/);
+    assert.equal(calls.length, 0);
+    const invalid = [
+      { token: () => "t" },
+      { project: "", token: () => "t" },
+      { project: "Acme_Prod", token: () => "t" },
+      { project: "acme-prod-42", location: "europe west4", token: () => "t" },
+      { project: "acme-prod-42", location: "evil.example.com/x", token: () => "t" },
+      { project: "acme-prod-42" },
+      { project: "acme-prod-42", token: "ya29.static" },
+    ];
+    for (const options of invalid) {
+      assert.throws(() => vertexAI(options as Parameters<typeof vertexAI>[0]), (e: unknown) => e instanceof InferloError && e.code === "IL5041", JSON.stringify(options));
+    }
   });
 });

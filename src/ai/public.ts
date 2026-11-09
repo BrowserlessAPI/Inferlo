@@ -18,7 +18,7 @@ export { uiChatBody, fromUIMessages } from "./ui.ts";
 export type { UIChatMessage } from "./ui.ts";
 export type { ToolDef, FunctionToolOptions, ToolContext } from "./tool.ts";
 export type { StandardSchema } from "./standard-schema.ts";
-export { openai, openaiCompatible, anthropic, gemini, mistral, azureOpenAI, ollama, mockProvider, ProviderError } from "./providers.ts";
+export { openai, openaiCompatible, anthropic, gemini, mistral, azureOpenAI, vertexAI, ollama, mockProvider, ProviderError } from "./providers.ts";
 export type { TracingConfig, OtelApi, OtelSpan } from "../tracing.ts";
 export type { AI, AIConfig, AICache, GenerateOptions, GenerateResult, StreamResult, StreamResponseInit, StreamEvent, StreamOptions, Usage, Pricing, Step, ToolCallResult } from "./index.ts";
 export type { Provider, ProviderRequest, ProviderResponse, ProviderUsage, Image, ImageMediaType, Message, MockReply, ToolCall, ToolSpec, OpenAICompatibleOptions, AccessToken } from "./providers.ts";

@@ -45,7 +45,7 @@ export type {
   PlanMigrationOptions,
 } from "./db/migrate.ts";
 
-export { createAI, cosineSimilarity, extractJson, openai, openaiCompatible, anthropic, gemini, mistral, azureOpenAI, ollama, mockProvider, ProviderError, uiChatBody, fromUIMessages } from "./ai/index.ts";
+export { createAI, cosineSimilarity, extractJson, openai, openaiCompatible, anthropic, gemini, mistral, azureOpenAI, vertexAI, ollama, mockProvider, ProviderError, uiChatBody, fromUIMessages } from "./ai/index.ts";
 export { tool, isTool, ToolBuilder } from "./ai/tool.ts";
 export { aiSdk } from "./ai/ai-sdk.ts";
 export { toAISdkModel, toAISdkTools, InferloAISdkModel } from "./ai/ai-sdk-model.ts";

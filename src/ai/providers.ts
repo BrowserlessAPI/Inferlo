@@ -500,6 +500,43 @@ export function azureOpenAI(options: {
   );
 }
 
+/**
+ * Google Vertex AI through its OpenAI-compatible endpoint: Gemini and the partner and open models Vertex AI serves
+ * there, with model ids such as "vertex:google/gemini-2.5-flash". token returns an OAuth access token for the scope
+ * https://www.googleapis.com/auth/cloud-platform, for example from google-auth-library's GoogleAuth (service
+ * accounts, workload identity and gcloud application-default credentials).
+ */
+export function vertexAI(options: {
+  /** The Google Cloud project id. */
+  project: string;
+  /** "global" (default) or a region such as "europe-west4", which keeps requests in that region. */
+  location?: string;
+  token: AccessToken;
+  /** Send response_format json_schema (structured output) for ai.generate({ output }) (default true). */
+  nativeStructuredOutput?: boolean;
+  fetch?: FetchLike;
+}): Provider {
+  checkProviderOptions("vertexAI", { project: options.project }, ["project"]);
+  if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(options.project)) {
+    throw invalidProvider("vertexAI", `project must be a Google Cloud project id (6 to 30 lowercase letters, digits and dashes), got ${JSON.stringify(options.project)}.`);
+  }
+  const location = options.location ?? "global";
+  if (typeof location !== "string" || !/^[a-z]+(-[a-z]+[0-9]+)?$/.test(location)) {
+    throw invalidProvider("vertexAI", `location must be "global" or a region such as "us-central1", got ${JSON.stringify(location)}.`);
+  }
+  if (typeof options.token !== "function") throw invalidProvider("vertexAI", "needs token, a function that returns an OAuth access token.");
+  const host = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
+  return chatCompletions(
+    {
+      name: "vertex",
+      baseURL: `https://${host}/v1/projects/${options.project}/locations/${location}/endpoints/openapi`,
+      nativeStructuredOutput: options.nativeStructuredOutput ?? true,
+      fetch: options.fetch,
+    },
+    { auth: bearer("vertex", options.token) },
+  );
+}
+
 /** Authorization header from a token function; a failing or empty token is a provider error that is not retried. */
 function bearer(provider: string, token: AccessToken): () => Promise<Record<string, string>> {
   return async () => {

@@ -1,0 +1,4 @@
+{
+  "title": "Gemini on Vertex AI in the EU",
+  "prompt": "Create src/lib/translate.ts for use outside the Inferlo app. Without createApp, use Inferlo's standalone AI module to create an AI client and export it as `ai`. Its only provider, named \"vertex\", is Google Vertex AI in the Google Cloud project from the GCP_PROJECT environment variable, in the region europe-west4 so requests stay in the EU. There is no API key: export `async function getAccessToken(): Promise<string>` (it may simply return the GCP_ACCESS_TOKEN environment variable) and use it for authentication. The \"fast\" alias is gemini-2.5-flash. Also export `async function translate(text: string, language: string, userId: string)` that returns `{ translation: string }` as structured output from the \"fast\" model, tracking usage for userId."
+}

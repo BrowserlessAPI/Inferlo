@@ -19,7 +19,7 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] Response caching for identical AI calls (opt in, TTL)
 - [x] Native structured output for Anthropic and Gemini when available
 - [x] More providers part 1: Mistral and Azure OpenAI adapters (`mistral()`, `azureOpenAI()` with API keys or Microsoft Entra ID tokens)
-- [ ] More providers part 2: Google Vertex AI adapter (`vertexAI({ project, location, token })` on Vertex AI's OpenAI-compatible endpoint, Gemini and partner models)
+- [x] More providers part 2: Google Vertex AI adapter (`vertexAI({ project, location, token })` on Vertex AI's OpenAI-compatible endpoint, Gemini and partner models)
 - [ ] More providers part 3: AWS Bedrock adapter on the Converse API (`bedrock({ region, credentials | apiKey })`, SigV4 signing with Web Crypto, streaming through Bedrock's event stream, Titan and Cohere embeddings)
 - [ ] Guardrails: optional input and output checks (max tokens, PII redaction, blocked terms) per AI call or per alias
 - [ ] `inferlo db migrate` part 4e: reference changes behind `--allow-change` (`onDelete` and target table: replace the foreign key constraint)

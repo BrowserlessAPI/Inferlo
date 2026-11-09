@@ -30,13 +30,16 @@ createApp({
 });
 ```
 
-### Mistral and Azure OpenAI
+### Mistral, Azure OpenAI and Vertex AI
 
-Both have adapters of their own, with chat, vision, tools, streaming, native structured output and embeddings:
+Each has an adapter of its own, with chat, vision, tools, streaming and native structured output (and embeddings on Mistral and Azure OpenAI):
 
 ```ts
-import { azureOpenAI, createApp, mistral } from "@browserlessapi/inferlo";
+import { azureOpenAI, createApp, mistral, vertexAI } from "@browserlessapi/inferlo";
 import { DefaultAzureCredential, getBearerTokenProvider } from "@azure/identity";
+import { GoogleAuth } from "google-auth-library";
+
+const google = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
 
 createApp({
   ai: {
@@ -46,9 +49,11 @@ createApp({
       azure: azureOpenAI({ resource: "contoso-eu", apiKey: settings.AZURE_OPENAI_API_KEY }),
       // Or Microsoft Entra ID (managed identity, workload identity, az login) instead of a key:
       // azure: azureOpenAI({ resource: "contoso-eu", token: getBearerTokenProvider(new DefaultAzureCredential(), "https://ai.azure.com/.default") }),
+      // Vertex AI: Google Cloud credentials (service account, workload identity, gcloud), no API key.
+      vertex: vertexAI({ project: "acme-prod", location: "europe-west4", token: async () => (await google.getAccessToken())! }),
     },
     models: {
-      fast: ["azure:gpt-5-mini-prod", "mistral:mistral-small-latest"],
+      fast: ["azure:gpt-5-mini-prod", "vertex:google/gemini-2.5-flash", "mistral:mistral-small-latest"],
       embed: "mistral:mistral-embed",
     },
   },
@@ -56,13 +61,14 @@ createApp({
 ```
 
 - `mistral({ apiKey, baseURL })` calls `https://api.mistral.ai/v1`; `baseURL` points it at another endpoint with the same API, such as a self-deployed Mistral model.
-- `azureOpenAI({ resource })` calls `https://<resource>.openai.azure.com/openai/v1`, Azure's v1 API (no `api-version`); `baseURL` takes the full v1 endpoint instead, such as `https://<name>.services.ai.azure.com/openai/v1` for Azure AI Foundry. Authenticate with `apiKey` (sent as the `api-key` header) or `token`, a function that returns a Microsoft Entra ID bearer token for the scope `https://ai.azure.com/.default`. Inferlo calls `token` before every request and does not keep tokens itself, so use a function that caches them until they expire, such as `getBearerTokenProvider` from `@azure/identity`. A `token` function that fails or returns nothing is IL5006 (status 401, not retried); give the identity the "Cognitive Services OpenAI User" role.
-- Both send `response_format` with `json_schema` for `ai.generate({ output })`; `nativeStructuredOutput: false` sends `json_object` instead. Inferlo validates every answer either way.
-- Missing or invalid options (no `apiKey`, both or neither of `resource` and `baseURL`, both or neither of `apiKey` and `token`) raise IL5041 at startup. API keys are redacted from logs like every provider key.
+- `azureOpenAI({ resource })` calls `https://<resource>.openai.azure.com/openai/v1`, Azure's v1 API (no `api-version`); `baseURL` takes the full v1 endpoint instead, such as `https://<name>.services.ai.azure.com/openai/v1` for Azure AI Foundry. Authenticate with `apiKey` (sent as the `api-key` header) or `token`, a function that returns a Microsoft Entra ID bearer token for the scope `https://ai.azure.com/.default`. Inferlo calls `token` before every request and does not keep tokens itself, so use a function that caches them until they expire, such as `getBearerTokenProvider` from `@azure/identity`. A `token` function that fails or returns nothing is IL5006 (status 401, not retried, on every adapter that takes `token`); give the identity the "Cognitive Services OpenAI User" role.
+- `vertexAI({ project, location, token })` calls Vertex AI's OpenAI-compatible endpoint, `https://aiplatform.googleapis.com/v1/projects/<project>/locations/global/endpoints/openapi` for the default `location: "global"`, or the region's own host (`https://europe-west4-aiplatform.googleapis.com/...`) for a region, which keeps requests and data in that region. Model ids are Vertex AI's publisher ids: `"vertex:google/gemini-2.5-flash"`, and the partner and open models Vertex AI serves on that endpoint. `token` returns an OAuth access token for the scope `https://www.googleapis.com/auth/cloud-platform`; `GoogleAuth` from `google-auth-library` caches and refreshes them. Give the service account the "Vertex AI User" role.
+- All three send `response_format` with `json_schema` for `ai.generate({ output })`; `nativeStructuredOutput: false` sends `json_object` instead. Inferlo validates every answer either way.
+- Missing or invalid options (no `apiKey`, both or neither of `resource` and `baseURL`, both or neither of `apiKey` and `token`, a `project` or `location` that is not a Google Cloud id) raise IL5041 at startup. API keys are redacted from logs like every provider key.
 
 ### Any Vercel AI SDK provider
 
-`aiSdk(provider)` turns any [Vercel AI SDK](https://ai-sdk.dev) provider into an Inferlo provider, so the providers Inferlo has no adapter of its own for (Amazon Bedrock, Google Vertex AI, Groq, xAI, Cohere, the AI Gateway and the others) work with aliases, fallback, structured output, tools, streaming, embeddings, usage tracking, budgets and tracing:
+`aiSdk(provider)` turns any [Vercel AI SDK](https://ai-sdk.dev) provider into an Inferlo provider, so the providers Inferlo has no adapter of its own for (Amazon Bedrock, Groq, xAI, Cohere, the AI Gateway and the others) work with aliases, fallback, structured output, tools, streaming, embeddings, usage tracking, budgets and tracing:
 
 ```ts
 import { aiSdk, createApp } from "@browserlessapi/inferlo";
