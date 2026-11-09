@@ -518,7 +518,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Invalid config options.** `config()` needs `schema: t.object({ ... })` with one non-object field per variable, `secrets` that are fields of the schema, and `environments` whose values are objects of schema fields: `environments: { test: { PORT: "3001" } }`.
 
 ### IL4013
-**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and type, default, required and enum value changes with `--allow-change` (IL4019). Your models change an existing column's reference, or an index. `details.changes` lists them, and `details.columns` says what changed in each column (for example `reference authors on delete cascade -> authors on delete restrict`). Undo the model change, or write the SQL yourself in a new migration file.
+**Migration change not supported yet.** `inferlo db migrate` generates new tables, columns and indexes, drops with `--allow-drop`, and type, default, required and enum value changes with `--allow-change` (IL4019), including reference changes. Your models change an index in place (same name, other definition), or a column in a way that cannot be generated. `details.changes` lists them, and `details.columns` says what changed in each column. Undo the model change, or write the SQL yourself in a new migration file.
 
 ### IL4014
 **New required column needs a value.** A required field was added to a table that already exists, so existing rows would have no value. Add a fixed `.default(value)` or `.optional()` to the field.
@@ -536,7 +536,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Applied migration file was edited** (warning, not an error). `inferlo db migrate --apply` records a checksum of each file it applies. This file was applied earlier and its SQL has changed since, so the change was not run (and never will be). `--apply` still runs the pending files and exits 0; `--json` lists the names in `edited`, and `applyMigrations` passes them to `onEdited`. Restore the applied SQL (for example `git checkout migrations/0001_init.sql`) and put the change in a new migration with `inferlo db migrate <name>`.
 
 ### IL4019
-**Migration changes columns.** Your models change the type or default of an existing column, make it required or optional, or change an enum's values. `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `inferlo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
+**Migration changes columns.** Your models change the type or default of an existing column, make it required or optional, change an enum's values, or change a reference (its `onDelete`, the table it points at, or whether the field is a reference at all, for example `reference authors on delete cascade -> authors on delete restrict`). `details.changes` lists them, for example `change column notes.body (optional -> required, default none -> '')`, and `details.columns` lists `{ table, column, changes }`. If you mean it, run `inferlo db migrate --allow-change` (or pass `{ allowChange: true }` to `planMigration`) and review the file. Otherwise undo the model change.
 
 ### IL4020
 **Migration makes a column required, but rows have NULL in it.** `inferlo db migrate --apply` ran `SET NOT NULL` (or another statement that needs a value) and the column still has NULL rows. The migration was rolled back and not recorded. `details` has `migration`, `table` and `column`. If the file has not been applied anywhere, add `UPDATE "table" SET "column" = <value> WHERE "column" IS NULL;` before the `SET NOT NULL`, or give the field a fixed `.default(value)` and generate the migration again. Or keep the field optional.
@@ -570,6 +570,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL4030
 **Invalid vector search.** `db.<table>.search({ vector, field, where, limit })` needs a model with a `t.vector()` field (say which one with `field` when it has several), and `vector` must be a list of exactly that field's number of finite numbers: embed the question with the same model as the stored rows. The database adapter must support vector search (`postgres()` with pgvector, or `memory()`). See [Vector search](database.md#vector-search).
+
+### IL4031
+**Migration adds a foreign key, but rows point at missing ids.** `inferlo db migrate --apply` replaced a reference's foreign key constraint (generated with `--allow-change`, usually because the reference now points at another table) and rows hold ids the referenced table does not have. The migration was rolled back and not recorded. `details` has `migration`, `table`, `constraint` and Postgres's `reason` (the first id that is missing). If the file has not been applied anywhere, add an `UPDATE` that sets those references to existing ids or `NULL` (for an optional field), or a `DELETE` of those rows, before the `ADD CONSTRAINT` statement. Or keep the old reference in the model. See [Migrations](database.md#migrations).
 
 ## CLI (8xxx)
 

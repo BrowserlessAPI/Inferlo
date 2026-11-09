@@ -8,8 +8,8 @@
  * generated migration) and returns the SQL for the difference. Additive changes are generated
  * directly. Drops of tables, columns and indexes delete data, so they are refused with IL4017
  * unless you pass { allowDrop: true } (inferlo db migrate --allow-drop). Type, default, required and
- * enum value changes are refused with IL4019 unless you pass { allowChange: true } (--allow-change).
- * Renames and reference changes are refused with IL4013, so nothing is lost silently. Snapshots in the
+ * enum value and reference changes are refused with IL4019 unless you pass { allowChange: true }
+ * (--allow-change). Renames and index changes are refused with IL4013, so nothing is lost silently. Snapshots in the
  * 0.2.0 format (inferlo: 1) are read and upgraded; plans always return the current format (inferlo: 2).
  */
 import { InferloError } from "../errors.ts";
@@ -61,9 +61,10 @@ export interface PlanMigrationOptions {
   /** Generate DROP statements for removed tables, columns and indexes. These delete data. Default false. */
   allowDrop?: boolean;
   /**
-   * Generate type, default, required/optional and enum value changes of existing columns (ALTER
-   * COLUMN ... TYPE, SET DEFAULT, DROP DEFAULT, SET NOT NULL, DROP NOT NULL, and replacing the enum's
-   * CHECK constraint). Changing the type fails at apply time (IL4022) if an existing value does not
+   * Generate type, default, required/optional, enum value and reference changes of existing columns
+   * (ALTER COLUMN ... TYPE, SET DEFAULT, DROP DEFAULT, SET NOT NULL, DROP NOT NULL, and replacing the
+   * enum's CHECK constraint or the reference's foreign key constraint). Changing a reference's table
+   * fails at apply time (IL4031) if rows point at ids the new table does not have. Changing the type fails at apply time (IL4022) if an existing value does not
    * convert. Making a column required fails at apply time (IL4020) if rows still have NULL in it,
    * unless the field has a fixed default, which fills them. Removing an enum value fails at apply
    * time (IL4021) if rows still use it. Default false.
@@ -198,9 +199,9 @@ function columnChanges(before: MigrationSnapshotColumn, now: MigrationSnapshotCo
   return out;
 }
 
-/** Changes planMigration can generate with allowChange: only the type, default, required/optional and enum values differ. */
+/** Changes planMigration can generate with allowChange: only the type, default, required/optional, enum values and reference differ. */
 function isAlterable(before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): boolean {
-  return columnChanges({ ...before, type: now.type, notNull: now.notNull, default: now.default, enum: now.enum }, now).length === 0;
+  return columnChanges({ ...before, type: now.type, notNull: now.notNull, default: now.default, enum: now.enum, references: now.references }, now).length === 0;
 }
 
 const isString = (type: string) => type === "text" || type.startsWith("varchar(");
@@ -228,17 +229,18 @@ function usingSql(column: string, from: string, to: string): string {
 }
 
 /**
- * The name Postgres gives the CHECK constraint of an enum column (written inline in the column
- * definition): "<table>_<column>_check", with table and column shortened so it fits in 63 bytes,
- * the same way Postgres shortens it (makeObjectName: trim the longer part one byte at a time).
+ * The name Postgres gives a constraint written inline in a column definition: "<table>_<column>_check"
+ * for an enum's CHECK and "<table>_<column>_fkey" for a reference's foreign key, with table and column
+ * shortened so it fits in 63 bytes, the same way Postgres shortens it (makeObjectName: trim the longer
+ * part one byte at a time).
  */
-function checkConstraintName(table: string, column: string): string {
+function constraintName(table: string, column: string, suffix: "check" | "fkey"): string {
   const encoder = new TextEncoder();
   const a = encoder.encode(table);
   const b = encoder.encode(column);
   let n1 = a.length;
   let n2 = b.length;
-  const available = 63 - "_".length - "_check".length;
+  const available = 63 - "_".length - `_${suffix}`.length;
   while (n1 + n2 > available) {
     if (n1 > n2) n1--;
     else n2--;
@@ -248,18 +250,22 @@ function checkConstraintName(table: string, column: string): string {
     while (n > 0 && n < bytes.length && (bytes[n]! & 0xc0) === 0x80) n--;
     return new TextDecoder().decode(bytes.subarray(0, n));
   };
-  return `${clip(a, n1)}_${clip(b, n2)}_check`;
+  return `${clip(a, n1)}_${clip(b, n2)}_${suffix}`;
 }
 
-/** ALTER statements for a type, default, required/optional and enum value change (see isAlterable). */
+/** ALTER statements for a type, default, required/optional, enum value and reference change (see isAlterable). */
 function alterColumnSql(table: string, column: string, before: MigrationSnapshotColumn, now: MigrationSnapshotColumn): string[] {
   const alter = `ALTER TABLE ${q(table)} ALTER COLUMN ${q(column)}`;
   const out: string[] = [];
   const enumChanged = JSON.stringify(before.enum) !== JSON.stringify(now.enum);
   const typeChanged = before.type !== now.type;
-  const check = q(checkConstraintName(table, column));
-  // The old constraint goes first, so filling NULL rows with a new enum default is allowed.
-  // No IF EXISTS: if the constraint has another name, the migration fails instead of keeping it.
+  const check = q(constraintName(table, column, "check"));
+  const referenceChanged = JSON.stringify(before.references) !== JSON.stringify(now.references);
+  const foreignKey = q(constraintName(table, column, "fkey"));
+  // The old constraints go first, so filling NULL rows with a new enum default is allowed and a type
+  // change does not have to match the old referenced column. No IF EXISTS: if a constraint has another
+  // name, the migration fails instead of keeping it.
+  if (referenceChanged && before.references) out.push(`ALTER TABLE ${q(table)} DROP CONSTRAINT ${foreignKey}`);
   if (enumChanged && before.enum) out.push(`ALTER TABLE ${q(table)} DROP CONSTRAINT ${check}`);
   if (before.notNull && !now.notNull) out.push(`${alter} DROP NOT NULL`);
   if (typeChanged) {
@@ -277,6 +283,12 @@ function alterColumnSql(table: string, column: string, before: MigrationSnapshot
   if (enumChanged && now.enum) {
     const values = now.enum.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");
     out.push(`ALTER TABLE ${q(table)} ADD CONSTRAINT ${check} CHECK (${q(column)} IN (${values}))`);
+  }
+  if (referenceChanged && now.references) {
+    // The same constraint as a column definition with REFERENCES ("<table>_<column>_fkey"), checked against every existing row.
+    out.push(
+      `ALTER TABLE ${q(table)} ADD CONSTRAINT ${foreignKey} FOREIGN KEY (${q(column)}) REFERENCES ${q(now.references.table)}("id") ON DELETE ${now.references.onDelete.toUpperCase()}`,
+    );
   }
   return out;
 }
@@ -356,7 +368,7 @@ export function planMigration(
       return column ? `${change} (${column.changes.join(", ")})` : change;
     });
     throw new InferloError("IL4013", `inferlo db migrate cannot generate these changes yet: ${explained.join(", ")}.`, {
-      fix: "New tables, columns and indexes, drops with --allow-drop, and type, default, required and enum value changes with --allow-change are generated. Renames, reference and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
+      fix: "New tables, columns and indexes, drops with --allow-drop, and type, default, required, enum value and reference changes with --allow-change are generated. Renames and index changes are not yet: undo these model changes, or write the SQL yourself in a new migration file.",
       details: { changes: refused, columns: changedColumns },
       expose: true,
     });
@@ -371,7 +383,7 @@ export function planMigration(
   const changes = alterable.map((c) => `change column ${c.table}.${c.column} (${c.changes.join(", ")})`);
   if (changes.length && !options.allowChange) {
     throw new InferloError("IL4019", `Your model changes change existing columns: ${changes.join(", ")}.`, {
-      fix: "If you mean to change these columns, run inferlo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Changing the type fails if an existing value does not convert. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Removing an enum value fails if rows still use it. Otherwise undo the model changes.",
+      fix: "If you mean to change these columns, run inferlo db migrate --allow-change (or planMigration(models, snapshot, { allowChange: true })) and review the file. Changing the type fails if an existing value does not convert. Making a column required fails if rows still have NULL in it, unless the field has a fixed .default(value). Removing an enum value fails if rows still use it. Pointing a reference at another table fails if rows hold ids that table does not have. Otherwise undo the model changes.",
       details: { changes, columns: alterable },
       expose: true,
     });
@@ -443,6 +455,28 @@ function checkViolationError(error: unknown, migration: string): InferloError | 
     fix: `Change those rows to an allowed value first: if ${migration} has not been applied anywhere, add UPDATE ${table ? q(table) : "<table>"} SET <column> = '<new value>' WHERE <column> = '<removed value>'; before the ADD CONSTRAINT statement. Or keep the removed enum value in the model.`,
     details: { migration, table, constraint },
     cause: error,
+    expose: true,
+  });
+}
+
+/**
+ * IL4031 for a Postgres foreign key violation (23503) while a migration adds a foreign key
+ * constraint, for example when a reference now points at another table that does not have every id
+ * the rows hold. Undefined for any other error, or when the migration adds no foreign key.
+ */
+function foreignKeyError(error: unknown, migration: string, sql: string): InferloError | undefined {
+  // The Postgres adapter reports a foreign key violation as IL4011, with the driver's error as its cause.
+  const original = error instanceof InferloError && error.code === "IL4011" ? error.cause : error;
+  const e = original as { code?: string; table?: string; constraint?: string; detail?: string; message?: string } | null;
+  if (!e || e.code !== "23503" || !/ADD CONSTRAINT .* FOREIGN KEY /.test(sql)) return undefined;
+  const match = /table "((?:[^"]|"")+)" violates foreign key constraint "((?:[^"]|"")+)"/.exec(e.message ?? "");
+  const table = e.table ?? match?.[1];
+  const constraint = e.constraint ?? match?.[2];
+  const where = table ? `rows in ${table}` : "rows";
+  return new InferloError("IL4031", `Migration ${migration} failed: ${where} point at ids that the referenced table does not have${constraint ? ` (foreign key ${constraint})` : ""}.`, {
+    fix: `Change or clear those references first: if ${migration} has not been applied anywhere, add an UPDATE (for example UPDATE ${table ? q(table) : "<table>"} SET <column> = NULL WHERE <column> NOT IN (SELECT "id" FROM <new table>);) or a DELETE before the ADD CONSTRAINT statement. Or keep the old reference in the model.`,
+    details: { migration, table, constraint, reason: e.detail },
+    cause: original,
     expose: true,
   });
 }
@@ -525,7 +559,7 @@ export async function applyMigrations(db: SqlDb, migrations: readonly Migration[
       try {
         await tx.$sql(m.sql);
       } catch (error) {
-        throw nullRowsError(error, m.name) ?? checkViolationError(error, m.name) ?? conversionError(error, m.name, m.sql) ?? error;
+        throw nullRowsError(error, m.name) ?? checkViolationError(error, m.name) ?? conversionError(error, m.name, m.sql) ?? foreignKeyError(error, m.name, m.sql) ?? error;
       }
       await tx.$sql(`INSERT INTO "inferlo_migrations" ("name", "checksum") VALUES ($1, $2)`, [m.name, sums.get(m.name)]);
       return true;

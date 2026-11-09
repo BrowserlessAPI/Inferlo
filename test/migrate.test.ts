@@ -64,19 +64,67 @@ describe("planMigration", () => {
     );
   });
 
-  test("reference changes are refused and listed (IL4013), even with allowDrop and allowChange", () => {
+  test("reference changes need allowChange (IL4019) and replace the foreign key constraint", () => {
     const first = planMigration(models);
-    const Post2 = model("posts", { title: t.string().max(120), authorId: t.ref("authors") });
-    for (const options of [undefined, { allowDrop: true }, { allowDrop: true, allowChange: true }]) {
+    const Post2 = model("posts", { ...Post.fields, authorId: t.ref("authors") });
+    for (const options of [undefined, { allowDrop: true }]) {
       assert.throws(
         () => planMigration([Author, Post2], first.snapshot, options),
         (e: unknown) => {
-          if (!(e instanceof InferloError) || e.code !== "IL4013") return false;
-          const changes = (e.details as { changes: string[] }).changes;
-          return changes.includes("change column posts.author_id") && !changes.some((c) => c.startsWith("drop"));
+          if (!(e instanceof InferloError) || e.code !== "IL4019") return false;
+          assert.deepEqual((e.details as { changes: string[] }).changes, ["change column posts.author_id (reference authors on delete cascade -> authors on delete restrict)"]);
+          assert.match(e.fix ?? "", /reference at another table/);
+          return true;
         },
       );
     }
+    const plan = planMigration([Author, Post2], first.snapshot, { allowChange: true });
+    assert.deepEqual(plan.statements, [
+      'ALTER TABLE "posts" DROP CONSTRAINT "posts_author_id_fkey"',
+      'ALTER TABLE "posts" ADD CONSTRAINT "posts_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "authors"("id") ON DELETE RESTRICT',
+    ]);
+    assert.deepEqual(plan.changes, ["change column posts.author_id (reference authors on delete cascade -> authors on delete restrict)"]);
+    assert.deepEqual(plan.snapshot.tables.posts!.columns.author_id!.references, { table: "authors", onDelete: "restrict" });
+    assert.deepEqual(planMigration([Author, Post2], plan.snapshot).statements, []);
+  });
+
+  test("a reference to another table, a new table, set null, and a field that gains or loses its reference", () => {
+    const Team = model("teams", { name: t.string().max(80) });
+    const first = planMigration([Author, Team, Post]);
+    // A new table the reference points at is created before the constraint that needs it.
+    const Org = model("orgs", { name: t.string().max(80) });
+    const Post2 = model("posts", { ...Post.fields, authorId: t.ref("orgs", { onDelete: "set null" }).optional() });
+    const plan = planMigration([Author, Team, Org, Post2], first.snapshot, { allowChange: true });
+    const create = plan.statements.findIndex((s) => s.startsWith('CREATE TABLE IF NOT EXISTS "orgs"'));
+    const add = plan.statements.findIndex((s) => s.includes("ADD CONSTRAINT"));
+    assert.ok(create !== -1 && create < add);
+    assert.deepEqual(plan.statements.filter((s) => s.startsWith('ALTER TABLE "posts"')), [
+      'ALTER TABLE "posts" DROP CONSTRAINT "posts_author_id_fkey"',
+      'ALTER TABLE "posts" ALTER COLUMN "author_id" DROP NOT NULL',
+      'ALTER TABLE "posts" ADD CONSTRAINT "posts_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "orgs"("id") ON DELETE SET NULL',
+    ]);
+    assert.match(plan.changes[0]!, /reference authors on delete cascade -> orgs on delete set null/);
+    // A plain uuid field that becomes a reference gets the constraint; a reference that becomes a plain field loses it.
+    const Note = model("notes", { teamId: t.uuid(), ownerId: t.ref("authors") });
+    const notes = planMigration([Author, Team, Note]);
+    const Note2 = model("notes", { teamId: t.ref("teams"), ownerId: t.uuid().index() });
+    const swap = planMigration([Author, Team, Note2], notes.snapshot, { allowChange: true });
+    assert.deepEqual(swap.statements.filter((s) => s.includes("CONSTRAINT")), [
+      'ALTER TABLE "notes" ADD CONSTRAINT "notes_team_id_fkey" FOREIGN KEY ("team_id") REFERENCES "teams"("id") ON DELETE RESTRICT',
+      'ALTER TABLE "notes" DROP CONSTRAINT "notes_owner_id_fkey"',
+    ]);
+  });
+
+  test("foreign key names are shortened like Postgres shortens them", () => {
+    const long = "mig_items_with_a_rather_long_table_name_here";
+    const Owner = model("owners", { name: t.string().max(80) });
+    const Item = model(long, { ownerAccountReferenceIdentifier: t.ref("owners") });
+    const first = planMigration([Owner, Item]);
+    const Item2 = model(long, { ownerAccountReferenceIdentifier: t.ref("owners", { onDelete: "cascade" }) });
+    const plan = planMigration([Owner, Item2], first.snapshot, { allowChange: true });
+    const name = /DROP CONSTRAINT "([^"]+)"/.exec(plan.statements[0]!)![1]!;
+    assert.equal(name, "mig_items_with_a_rather_long__owner_account_reference_iden_fkey");
+    assert.ok(new TextEncoder().encode(name).length <= 63);
   });
 
   test("drops need allowDrop and are refused otherwise (IL4017)", () => {
@@ -191,29 +239,27 @@ describe("migration snapshot format (inferlo: 2)", () => {
     assert.throws(() => planMigration([Author2], v1Snapshot(models)), (e: unknown) => e instanceof InferloError && e.code === "IL4017");
   });
 
-  test("IL4013 says what changed in each column, for inferlo: 1 and inferlo: 2 snapshots", () => {
+  test("IL4019 says what changed in each column, for inferlo: 1 and inferlo: 2 snapshots", () => {
     const Post2 = model("posts", {
       ...Post.fields,
       title: t.string().min(1).max(200).default("Untitled"),
       authorId: t.ref("authors"),
     });
     for (const previous of [planMigration(models).snapshot, v1Snapshot(models)]) {
-      for (const options of [undefined, { allowChange: true }]) {
-        assert.throws(
-          () => planMigration([Author, Post2], previous, options),
-          (e: unknown) => {
-            if (!(e instanceof InferloError) || e.code !== "IL4013") return false;
-            const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
-            // posts.title (a type change) can be generated with allowChange; only the reference is refused.
-            assert.deepEqual(details.changes, ["change column posts.author_id"]);
-            assert.deepEqual(details.columns, [
-              { table: "posts", column: "author_id", changes: ["reference authors on delete cascade -> authors on delete restrict"] },
-            ]);
-            assert.match(e.message, /posts\.author_id \(reference authors on delete cascade -> authors on delete restrict\)/);
-            return true;
-          },
-        );
-      }
+      assert.throws(
+        () => planMigration([Author, Post2], previous),
+        (e: unknown) => {
+          if (!(e instanceof InferloError) || e.code !== "IL4019") return false;
+          const details = e.details as { changes: string[]; columns: { table: string; column: string; changes: string[] }[] };
+          assert.deepEqual(details.columns, [
+            { table: "posts", column: "title", changes: ["type varchar(120) -> varchar(200)", "default none -> 'Untitled'"] },
+            { table: "posts", column: "author_id", changes: ["reference authors on delete cascade -> authors on delete restrict"] },
+          ]);
+          assert.match(e.message, /posts\.author_id \(reference authors on delete cascade -> authors on delete restrict\)/);
+          return true;
+        },
+      );
+      assert.equal(planMigration([Author, Post2], previous, { allowChange: true }).changes.length, 2);
     }
   });
 });
@@ -433,7 +479,7 @@ if (PG_URL) {
     const MigUser = model("mig_users", { email: t.email().unique() });
     const MigTag = model("mig_tags", { label: t.string().max(30), userId: t.ref("mig_users") });
     const db = createDb([MigUser, MigTag], postgres({ url: PG_URL }));
-    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "mig_types", "mig_items", "mig_items_with_a_rather_long_table_name_here", "half_done", "inferlo_migrations" CASCADE');
+    const reset = () => db.$sql('DROP TABLE IF EXISTS "mig_tags", "mig_users", "mig_docs", "mig_types", "mig_items", "mig_items_with_a_rather_long_table_name_here", "mig_refs_with_a_rather_long_table_name_here", "mig_owners", "mig_teams", "half_done", "inferlo_migrations" CASCADE');
     before(reset);
     after(async () => {
       await reset();
@@ -568,6 +614,54 @@ if (PG_URL) {
       const third = planMigration([Item3], plan.snapshot, { allowChange: true });
       assert.deepEqual(await applyMigrations(db, [{ name: "0042_states", sql: third.statements.join(";\n\n") + ";\n" }]), ["0042_states"]);
       await db.$sql(`INSERT INTO "mig_items" ("id", "state", "label") VALUES ('${crypto.randomUUID()}', 'done', 'green')`);
+    });
+
+    test("an allowChange migration replaces a reference, and rows the new table does not have block it (IL4031)", async () => {
+      const long = "mig_refs_with_a_rather_long_table_name_here";
+      const Owner = model("mig_owners", { email: t.email().unique() });
+      const Team = model("mig_teams", { label: t.string().max(30) });
+      const Item = model(long, { ownerAccountReferenceIdentifier: t.ref("mig_owners") });
+      await db.$sql(`DROP TABLE IF EXISTS "${long}", "mig_teams", "mig_owners" CASCADE`);
+      const first = planMigration([Owner, Team, Item]);
+      await applyMigrations(db, [{ name: "0070_refs", sql: first.statements.join(";\n\n") + ";\n" }]);
+      const owner = crypto.randomUUID();
+      await db.$sql(`INSERT INTO "mig_owners" ("id", "email") VALUES ('${owner}', 'o@example.com')`);
+      await db.$sql(`INSERT INTO "${long}" ("id", "owner_account_reference_identifier") VALUES ('${crypto.randomUUID()}', '${owner}')`);
+      // The name the plan uses is the one Postgres gave the inline constraint.
+      const names = await db.$sql(`SELECT conname FROM pg_constraint WHERE contype = 'f' AND conrelid = '"${long}"'::regclass`);
+      const Item2 = model(long, { ownerAccountReferenceIdentifier: t.ref("mig_owners", { onDelete: "cascade" }) });
+      const cascade = planMigration([Owner, Team, Item2], first.snapshot, { allowChange: true });
+      assert.equal(cascade.statements[0], `ALTER TABLE "${long}" DROP CONSTRAINT "${names[0]!.conname}"`);
+      assert.deepEqual(await applyMigrations(db, [{ name: "0071_cascade", sql: cascade.statements.join(";\n\n") + ";\n" }]), ["0071_cascade"]);
+      await db.$sql(`DELETE FROM "mig_owners" WHERE "id" = '${owner}'`);
+      assert.equal((await db.$sql(`SELECT 1 FROM "${long}"`)).length, 0, "on delete cascade removed the item");
+
+      // Pointing the reference at another table fails while rows hold ids that table does not have.
+      const user = crypto.randomUUID();
+      await db.$sql(`INSERT INTO "mig_owners" ("id", "email") VALUES ('${user}', 'u@example.com')`);
+      await db.$sql(`INSERT INTO "${long}" ("id", "owner_account_reference_identifier") VALUES ('${crypto.randomUUID()}', '${user}')`);
+      const Item3 = model(long, { ownerAccountReferenceIdentifier: t.ref("mig_teams", { onDelete: "set null" }).optional() });
+      const moved = planMigration([Owner, Team, Item3], cascade.snapshot, { allowChange: true });
+      await assert.rejects(applyMigrations(db, [{ name: "0072_teams", sql: moved.statements.join(";\n\n") + ";\n" }]), (e: unknown) => {
+        if (!(e instanceof InferloError) || e.code !== "IL4031") return false;
+        assert.equal((e.details as { table: string }).table, long);
+        assert.equal((e.details as { migration: string }).migration, "0072_teams");
+        assert.match(e.message, /point at ids/);
+        assert.match(e.fix ?? "", /UPDATE/);
+        return true;
+      });
+      assert.equal((await db.$sql(`SELECT 1 FROM "inferlo_migrations" WHERE "name" = '0072_teams'`)).length, 0);
+      // The fix from IL4031: clear the references in the (not yet applied) file, before ADD CONSTRAINT.
+      const add = moved.statements.findIndex((s) => s.includes("ADD CONSTRAINT"));
+      const statements = [...moved.statements.slice(0, add), `UPDATE "${long}" SET "owner_account_reference_identifier" = NULL WHERE "owner_account_reference_identifier" NOT IN (SELECT "id" FROM "mig_teams")`, ...moved.statements.slice(add)];
+      assert.deepEqual(await applyMigrations(db, [{ name: "0072_teams", sql: statements.join(";\n\n") + ";\n" }]), ["0072_teams"]);
+      const team = crypto.randomUUID();
+      await db.$sql(`INSERT INTO "mig_teams" ("id", "label") VALUES ('${team}', 'core')`);
+      await db.$sql(`INSERT INTO "${long}" ("id", "owner_account_reference_identifier") VALUES ('${crypto.randomUUID()}', '${team}')`);
+      await assert.rejects(db.$sql(`INSERT INTO "${long}" ("id", "owner_account_reference_identifier") VALUES ('${crypto.randomUUID()}', '${user}')`), (e: unknown) => e instanceof InferloError && e.code === "IL4011");
+      await db.$sql(`DELETE FROM "mig_teams" WHERE "id" = '${team}'`);
+      assert.deepEqual(await db.$sql(`SELECT "owner_account_reference_identifier" AS ref FROM "${long}" WHERE "owner_account_reference_identifier" IS NOT NULL`), [], "on delete set null");
+      await db.$sql(`DROP TABLE IF EXISTS "${long}", "mig_teams", "mig_owners" CASCADE`);
     });
 
     test("an allowChange migration changes column types, and values that do not convert block it (IL4022)", async () => {

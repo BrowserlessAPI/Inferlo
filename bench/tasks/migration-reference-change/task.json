@@ -1,0 +1,4 @@
+{
+  "title": "Change a reference's onDelete with a migration",
+  "prompt": "Deleting a user must no longer delete their notes: a user who still has notes cannot be deleted (notes.ownerId must restrict deletes instead of cascading). API keys keep cascading. This project deploys with migrations: add the migration file migrations/0002_restrict_note_owner.sql with exactly the SQL `inferlo db migrate restrict_note_owner --allow-change` would generate, so the database enforces it, and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands."
+}
