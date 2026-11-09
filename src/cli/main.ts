@@ -18,7 +18,7 @@ const HELP = `inferlo ${INFERLO_VERSION}
 Usage: inferlo <command> [options]
 
 Commands:
-  new <dir>                Create a new Inferlo project
+  new <dir> [--db postgres|mysql|sqlite]   Create a new Inferlo project (default PostgreSQL)
   dev                      Run the server and restart on changes (src/server.ts)
   worker                   Run background jobs from the database queue until SIGTERM or Ctrl+C
   describe                 Print the app map: routes, models, auth, AI
@@ -57,7 +57,7 @@ function parseArgs(argv: string[]): Args {
     } else if (a.startsWith("--")) {
       const [k, v] = a.slice(2).split("=", 2) as [string, string | undefined];
       if (v !== undefined) out.flags[k] = v;
-      else if (argv[i + 1] && !argv[i + 1]!.startsWith("--") && ["entry", "out"].includes(k)) out.flags[k] = argv[++i]!;
+      else if (argv[i + 1] && !argv[i + 1]!.startsWith("--") && ["entry", "out", "db"].includes(k)) out.flags[k] = argv[++i]!;
       else out.flags[k] = true;
     } else out._.push(a);
   }
@@ -409,16 +409,69 @@ async function copyTemplate(from: string, to: string, vars: Record<string, strin
   }
 }
 
+const DATABASES = ["postgres", "mysql", "sqlite"] as const;
+type NewDatabase = (typeof DATABASES)[number];
+
+/** Edit a created project for --db mysql or --db sqlite (the template is written for PostgreSQL). */
+async function useDatabase(target: string, db: NewDatabase) {
+  if (db === "postgres") return;
+  const edit = async (file: string, pairs: [string, string][]) => {
+    const full = path.join(target, file);
+    let text = await readFile(full, "utf8");
+    for (const [from, to] of pairs) {
+      if (!text.includes(from)) throw new Error(`Template file ${file} has no ${JSON.stringify(from)}.`);
+      text = text.replace(from, to);
+    }
+    await writeFile(full, text);
+  };
+  if (db === "mysql") {
+    await edit("src/app.ts", [
+      ['import { postgres } from "@browserlessapi/inferlo/postgres";', 'import { mysql } from "@browserlessapi/inferlo/mysql";'],
+      ["db: settings.DATABASE_URL ? postgres({ url: settings.DATABASE_URL }) : memory(),", "db: settings.DATABASE_URL ? mysql({ url: settings.DATABASE_URL }) : memory(),"],
+    ]);
+    await edit("package.json", [['"pg": "^8.16.0"', '"mysql2": "^3.0.0"']]);
+    await edit(".env.example", [["# Leave DATABASE_URL empty to use the in-memory database (data resets on restart).", "# MySQL 8.4 or newer: mysql://user:pass@localhost:3306/app. Leave empty to use the in-memory database (data resets on restart)."]]);
+    await edit("README.md", [["Set `DATABASE_URL` in `.env` to use PostgreSQL, then run `npx inferlo db push`.", "Set `DATABASE_URL` in `.env` to use MySQL (`mysql://user:pass@localhost:3306/app`), then run `npx inferlo db push`."], ["(needs PostgreSQL)", "(needs MySQL)"]]);
+    return;
+  }
+  await edit("src/app.ts", [
+    ['import { postgres } from "@browserlessapi/inferlo/postgres";', 'import { sqlite } from "@browserlessapi/inferlo/sqlite";'],
+    ["import { anthropic, bearer, createApp, hashToken, memory, openai }", "import { anthropic, bearer, createApp, hashToken, openai }"],
+    ["db: settings.DATABASE_URL ? postgres({ url: settings.DATABASE_URL }) : memory(),", "// One SQLite file on this server, using the runtime's built-in SQLite. Create the tables with: npx inferlo db push\n  db: sqlite({ path: settings.SQLITE_PATH }),"],
+  ]);
+  await edit("src/config.ts", [
+    ["    // Leave empty to use the in-memory database (data resets on restart).\n    DATABASE_URL: t.string().optional(),", '    // The SQLite database file. Its folder must exist.\n    SQLITE_PATH: t.string().default("data/app.db"),'],
+    ['secrets: ["DATABASE_URL", ', "secrets: ["],
+  ]);
+  await edit("package.json", [[',\n    "pg": "^8.16.0"', ""]]);
+  await edit(".env.example", [["# Leave DATABASE_URL empty to use the in-memory database (data resets on restart).\nDATABASE_URL=", "# The SQLite database file (its folder must exist).\nSQLITE_PATH=data/app.db"]]);
+  await edit(".gitignore", [["dist", "dist\ndata/*.db\ndata/*.db-*"]]);
+  await edit("README.md", [
+    ["Set `DATABASE_URL` in `.env` to use PostgreSQL, then run `npx inferlo db push`.", "Data is kept in the SQLite file `data/app.db` (`SQLITE_PATH` in `.env`). Create and update its tables with `npx inferlo db push`."],
+    ['To run them in separate processes too, set `jobQueue: { store: "database" }` in `src/app.ts` (needs PostgreSQL) and start workers with `npm run worker`.', "SQLite suits one server; for several instances and separate job workers, move to PostgreSQL or MySQL."],
+  ]);
+  await mkdir(path.join(target, "data"), { recursive: true });
+  await writeFile(path.join(target, "data", ".gitkeep"), "");
+}
+
 async function cmdNew(args: Args) {
   const dir = args._[1];
   if (!dir) throw new InferloError("IL8004", "Missing project directory.", { fix: "Use: inferlo new my-app" });
+  const db = args.flags.db === undefined ? "postgres" : args.flags.db;
+  if (!DATABASES.includes(db as NewDatabase)) {
+    throw new InferloError("IL8010", `Unknown database ${JSON.stringify(db === true ? "" : db)} for inferlo new.`, {
+      fix: "Use --db postgres (the default), --db mysql or --db sqlite, e.g. inferlo new my-app --db sqlite",
+    });
+  }
   const target = path.resolve(cwd, dir);
   if (existsSync(target) && (await readdir(target)).length) throw new InferloError("IL8005", `${dir} already exists and is not empty.`);
   const name = path.basename(target).toLowerCase().replace(/[^a-z0-9-]/g, "-");
   const created: string[] = [];
   await copyTemplate(path.join(templatesDir, "app"), target, { name, inferloVersion: INFERLO_VERSION, inferloDependency: `^${INFERLO_VERSION}` }, created);
-  print({ ok: true, dir, files: created.map((f) => path.relative(cwd, f)) }, Boolean(args.flags.json), () =>
-    [`Created ${dir}`, "", "Next:", `  cd ${dir}`, "  npm install", "  npm run dev", "", "AGENTS.md explains the conventions to AI coding agents."].join("\n"),
+  await useDatabase(target, db as NewDatabase);
+  if (db === "sqlite") created.push(path.join(target, "data", ".gitkeep"));
+  print({ ok: true, dir, database: db, files: created.map((f) => path.relative(cwd, f)) }, Boolean(args.flags.json), () =>
+    [`Created ${dir}`, "", "Next:", `  cd ${dir}`, "  npm install", ...(db === "sqlite" ? ["  npx inferlo db push"] : []), "  npm run dev", "", "AGENTS.md explains the conventions to AI coding agents."].join("\n"),
   );
 }
 

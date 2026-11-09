@@ -1,0 +1,4 @@
+{
+  "title": "SQLite-only project",
+  "prompt": "This project will only ever run on one small server, so make it a SQLite project like the one `inferlo new --db sqlite` creates: the app always keeps its data in a SQLite file with Inferlo's built-in SQLite support, at the path in a SQLITE_PATH setting that defaults to data/app.db (create the data folder with an empty data/.gitkeep file). Remove the DATABASE_URL setting and the in-memory and Postgres database choice from the app. Do not add any npm packages."
+}

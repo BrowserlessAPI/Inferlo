@@ -31,7 +31,8 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] MySQL adapter part 2b-1: migration files for MySQL: `inferlo db migrate` writes new tables, columns, foreign keys and indexes as MySQL SQL, and `--apply` runs them statement by statement under a named lock
 - [ ] MySQL adapter part 2b-2: drops (`--allow-drop`), column changes (`--allow-change`) and renames (`--rename`) in MySQL migration files
 - [x] SQLite adapter part 1: `sqlite({ path })` from `@browserlessapi/inferlo/sqlite` on the runtime's built-in SQLite (`node:sqlite`, `bun:sqlite`), with `db push`, transactions, raw SQL and vector search, tested on Node.js 22.18 to current, Bun 1.3.0 to latest and Deno
-- [ ] SQLite adapter part 2: migration files for SQLite (`inferlo db migrate` writing SQLite SQL, with table rebuilds for the changes SQLite cannot `ALTER`), and `inferlo new --db sqlite`
+- [x] SQLite adapter part 2a: `inferlo new --db sqlite` (and `--db mysql`)
+- [ ] SQLite adapter part 2b: migration files for SQLite (`inferlo db migrate` writing SQLite SQL, with table rebuilds for the changes SQLite cannot `ALTER`)
 
 - [ ] Drizzle and Prisma part 2b: Prisma Migrate next to `inferlo db migrate` in development (`prisma migrate dev` drift checks and Inferlo's tables, `tables.external` in prisma.config.ts), tested in CI with the Prisma schema engine on the oldest supported and latest Prisma
 - [ ] Microservices part 4c: Kafka event transport as a separate entry point (`kafkajs` or `@confluentinc/kafka-javascript` peer dependency, a consumer group per service), tested on the oldest supported and latest Kafka

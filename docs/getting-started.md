@@ -11,6 +11,8 @@ npm install
 npm run dev
 ```
 
+The project is set up for PostgreSQL. For MySQL, create it with `--db mysql`; for one SQLite file on a single server (no database server or package), with `--db sqlite` and run `npx inferlo db push` once before `npm run dev` (see [CLI](cli.md#inferlo-new---db)).
+
 `npm run dev` starts the server on http://localhost:3000 with an in-memory database and prints a dev API key:
 
 ```bash

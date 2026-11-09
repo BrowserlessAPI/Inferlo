@@ -642,6 +642,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL8009
 **src/prompts/index.ts is out of date.** `inferlo prompts --check` found that the generated module does not match the prompt files in `src/prompts/*.md`. Run `inferlo prompts` and commit `src/prompts/index.ts`. See [Prompt files](ai.md#prompt-files).
 
+### IL8010
+**Unknown database for `inferlo new`.** `--db` takes `postgres` (the default), `mysql` or `sqlite`: `inferlo new my-app --db sqlite`. See [CLI](cli.md#inferlo-new---db).
+
 ## Internal (9xxx)
 
 ### IL9000

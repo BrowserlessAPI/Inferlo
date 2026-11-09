@@ -1,7 +1,7 @@
 # CLI
 
 ```
-inferlo new <dir>              Create a project
+inferlo new <dir> [--db name]  Create a project for postgres (default), mysql or sqlite
 inferlo dev                    Run src/server.ts and restart on changes
 inferlo worker                 Run background jobs from the database queue until SIGTERM or Ctrl+C
 inferlo describe [--json]      App map: models, routes, auth, AI
@@ -22,6 +22,10 @@ Every command accepts `--json` and exits non-zero on failure. With `--json`, err
 ```
 
 The CLI always includes the real `message` and the `fix` (and `details` when there are any), also for errors with a 500 status that an HTTP response would hide.
+
+## inferlo new --db
+
+`inferlo new my-app` creates a project for PostgreSQL (`postgres()` when `DATABASE_URL` is set, the in-memory database otherwise, with `pg` as a dependency). `--db mysql` uses `mysql()` from `@browserlessapi/inferlo/mysql` with `mysql2` instead; `--db sqlite` keeps the data in the SQLite file `data/app.db` (`SQLITE_PATH`) with `sqlite()` from `@browserlessapi/inferlo/sqlite`, needs no database package, and ignores `data/*.db` in git. Run `npx inferlo db push` once to create the tables. Any other value is IL8010. With `--json`, the output has `database`.
 
 The app entry is `src/app.ts` by default. Change it with `"inferlo": { "entry": "...", "server": "..." }` in package.json or `--entry <file>`.
 
