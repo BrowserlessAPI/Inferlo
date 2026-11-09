@@ -341,6 +341,9 @@
   "overrides": {
     "@apollo/server": {
       "graphql": "$graphql"
+    },
+    "typeorm": {
+      "ioredis": "$ioredis"
     }
   }
 }
