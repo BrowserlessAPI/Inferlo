@@ -1,0 +1,4 @@
+{
+  "title": "Accept signed Stripe webhooks",
+  "prompt": "Stripe will send events to POST /webhooks/stripe. Add that route: it must accept only requests signed by Stripe with the webhook signing secret from the new environment variable STRIPE_WEBHOOK_SECRET (read it through the app's settings and keep it secret), validate that the event has a string `id` and a string `type` (events also carry many other fields, which must not make the route refuse them), and answer { \"received\": true }. Unsigned or wrongly signed requests must be refused before the handler runs. Use Inferlo's built-in webhook signature checks."
+}

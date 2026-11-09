@@ -17,6 +17,7 @@ import type { AnyModel } from "./model.ts";
 import type { Audit } from "./audit.ts";
 import type { Cache, RouteCache } from "./cache.ts";
 import type { RouteIdempotency } from "./idempotency.ts";
+import type { RouteWebhook } from "./webhook.ts";
 import type { Storage } from "./storage.ts";
 import type { PermissionInput, Permissions } from "./permissions.ts";
 import type { RateLimit } from "./rate-limit.ts";
@@ -105,6 +106,12 @@ export interface RouteOptions<B extends AnySchema | undefined, Q extends ObjectS
    * one with a different body 422 IL2019; with required: true, requests without a key answer 400 IL2017.
    */
   idempotency?: true | RouteIdempotency;
+  /**
+   * Incoming webhook: check the sender's HMAC signature over the raw body before the body is parsed and the handler
+   * runs, { scheme: "standard" | "stripe" | "github", secret, toleranceMs }. Needs auth: "public". Unsigned or
+   * wrongly signed requests, and replays outside toleranceMs (default 5 minutes), answer 401 IL3012.
+   */
+  webhook?: RouteWebhook;
 }
 
 type PathParams<P extends string> = P extends `${string}:${infer Param}/${infer Rest}`

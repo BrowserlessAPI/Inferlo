@@ -8,6 +8,7 @@ import { createAudit } from "./audit.ts";
 import { readEnv } from "./env.ts";
 import { checkStorageStore, createStorage, type Storage, type StorageStore } from "./storage.ts";
 import { beginIdempotency, checkRouteIdempotency, IDEMPOTENCY_HEADER } from "./idempotency.ts";
+import { checkRouteWebhook, verifyWebhook } from "./webhook.ts";
 import { checkRouteCache, createCache, databaseCacheStore, etagFor, etagMatches, memoryCacheStore, resolveCacheConfig, routeCacheKey, type Cache, type CacheConfig, type CachedResponse } from "./cache.ts";
 import { bindDb, checkTenantId, createDb, guardAdapter, type Db, type TenantScope } from "./db/table.ts";
 import type { Adapter } from "./db/types.ts";
@@ -528,6 +529,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
   }
   for (const r of routes) if (r.options.cache !== undefined) checkRouteCache(r.options.cache, r.method, `${r.method} ${r.path}`);
   for (const r of routes) if (r.options.idempotency !== undefined) checkRouteIdempotency(r.options.idempotency, r.method, `${r.method} ${r.path}`);
+  for (const r of routes) if (r.options.webhook !== undefined) checkRouteWebhook(r.options.webhook, r, `${r.method} ${r.path}`, fileBudgets.has(r));
   const requestTimeoutMs = config.requestTimeoutMs === undefined ? 60_000 : checkTimeout(config.requestTimeoutMs, "createApp({ requestTimeoutMs })");
   const validateResponses = resolveValidateResponses(config.validateResponses);
   const warnedResponses = new Set<RouteDef>();
@@ -1120,8 +1122,14 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           const issues = await checkFileContents(opts.body, body as Record<string, unknown>);
           if (issues.length) throw new ValidationError(issues, "request body");
         }
+        else if (opts.webhook && !opts.body) {
+          // Webhook routes without a body schema still have their signature checked over the raw body.
+          await verifyWebhook(opts.webhook, req.headers, await readBody(req, maxBody, timeout.signal));
+        }
         else if (opts.body) {
           const text = method === "GET" || method === "HEAD" ? "" : await readBody(req, maxBody, timeout.signal);
+          // The signature covers the exact bytes sent, so it is checked before the body is parsed.
+          if (opts.webhook) await verifyWebhook(opts.webhook, req.headers, text);
           const type = contentType;
           let raw: unknown = undefined;
           if (text) {

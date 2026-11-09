@@ -131,6 +131,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL3011
 **Account may not sign in (403).** The identity provider signed the user in, but `oidc({ userId })` returned `null` for them (an unknown or unverified email, a user who is not allowed in), so no session was started. Give the user access in the app, or change `userId`. See [Single sign-on](auth.md#single-sign-on-with-openid-connect).
 
+### IL3012
+**Webhook signature missing or invalid.** A route with `webhook: { scheme, secret }` got a request without a valid signature for its scheme (Standard Webhooks headers, `Stripe-Signature` or `X-Hub-Signature-256`), with a body changed after signing, or with a signed timestamp more than `toleranceMs` (default 5 minutes) from now. Status 401; the handler did not run. Check that the sender uses the secret the route is configured with and that the server clock is right. See [Webhooks](routes.md#webhooks).
+
 ## Database (4xxx)
 
 ### IL4001
@@ -481,6 +484,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ### IL6065
 **An ioredis connection was passed to Inferlo directly.** ioredis's own `sendCommand` takes a `Command` object and its `subscribe` takes a callback, not Inferlo's arguments, so `createApp({ redis })` and `sockets: { subscriber }` would fail on the first command. Wrap the connections: `createApp({ redis: ioredisClient(connection), sockets: { transport: "redis", subscriber: ioredisSubscriber(connection.duplicate()) } })` with both from `@browserlessapi/inferlo/ioredis`. See [ioredis](redis.md#ioredis).
+
+### IL6066
+**Invalid `webhook` route option.** `webhook` takes `{ scheme, secret, toleranceMs }`: `scheme` is `"standard"`, `"stripe"` or `"github"`, `secret` is the provider's signing secret (a non-empty string, `whsec_` and base64 for `"standard"`) or a list of them, and `toleranceMs` (not for `"github"`) is 1000 to 3600000. The route must be a POST, PUT or PATCH route with `auth: "public"`, and cannot be an AI tool or take `t.file()` uploads. An unset environment variable as the secret raises this at startup. See [Webhooks](routes.md#webhooks).
 
 ## Environment (7xxx)
 

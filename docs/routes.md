@@ -33,6 +33,7 @@ Methods: `route.get`, `route.post`, `route.put`, `route.patch`, `route.delete`. 
 | `deprecated` | `true`, or `{ since, sunset, link }` to send deprecation headers (see below) |
 | `cache` | `{ ttlMs, by: "user" \| "public", tags }` to cache a GET route's JSON responses (see [Caching](caching.md#caching-route-responses)) |
 | `idempotency` | `true`, or `{ ttlMs, required }`, so a POST, PUT, PATCH or DELETE request retried with the same `Idempotency-Key` header runs once (see [Idempotency keys](#idempotency-keys)) |
+| `webhook` | `{ scheme: "standard" \| "stripe" \| "github", secret, toleranceMs }` to accept only requests signed by a webhook sender (see [Webhooks](#webhooks)) |
 | `timeoutMs` | Time limit in milliseconds for this route, or `false` for none. Default: `createApp({ requestTimeoutMs })`, 60000. Slower requests answer 503 IL2007 (see [request timeouts](security.md#request-timeouts)) |
 
 Paths support `:param` segments and a final `*` wildcard (`params["*"]`).
@@ -115,6 +116,38 @@ await fetch("/orders", { method: "POST", headers: { "Idempotency-Key": key, "Con
 - Without the header the request runs as usual; with `required: true` it answers **400** IL2017. Keys are 1 to 255 visible ASCII characters (send a UUID).
 - Keys are kept in the app cache (`createApp({ cache: { store } })`), claimed atomically, so with the database or Redis store a key runs once across every instance. Keys of requests without a user are shared by everyone, so clients must send random keys.
 - The check runs after auth, permissions, rate limits and input validation, so repeats are counted by the rate limit and invalid requests never claim a key. OpenAPI lists the `Idempotency-Key` header. Only POST, PUT, PATCH and DELETE routes take the option; anything else raises IL6058 when the app starts.
+
+## Webhooks
+
+Payment providers, identity providers and code hosts call your app with webhooks. Anyone can send a request to a public URL, so a webhook route checks the sender's signature before it trusts the body:
+
+```ts
+export const stripeEvents = route
+  .post("/webhooks/stripe", {
+    auth: "public",
+    webhook: { scheme: "stripe", secret: settings.STRIPE_WEBHOOK_SECRET },
+    // Senders add fields to their events over time: strip() drops the ones not listed instead of refusing them.
+    body: t.object({ id: t.string(), type: t.string() }).strip(),
+  })
+  .handle(async ({ body, jobs }) => {
+    if (body.type === "invoice.paid") await jobs.enqueue(markPaid, { eventId: body.id });
+    return { received: true };
+  });
+```
+
+| `scheme` | Senders | Headers |
+|---|---|---|
+| `"standard"` | [Standard Webhooks](https://www.standardwebhooks.com) senders: Svix, Clerk, Resend, Supabase, OpenAI and others; secrets look like `whsec_...` | `webhook-id`, `webhook-timestamp`, `webhook-signature` |
+| `"stripe"` | Stripe | `Stripe-Signature` |
+| `"github"` | GitHub (and Gitea and Forgejo, which send the same header) | `X-Hub-Signature-256` |
+
+- The HMAC-SHA256 signature is checked over the exact bytes of the request body, before the body is parsed or validated and before the handler runs. Comparisons use Web Crypto (constant time).
+- Unsigned requests, wrong signatures, bodies changed after signing and, for `"standard"` and `"stripe"`, timestamps more than `toleranceMs` (default 300000, 5 minutes) from now answer `401` with IL3012, without saying which check failed. The timestamp is part of the signature, so a captured request cannot be replayed later.
+- `secret` can be a list during a rotation: `secret: [settings.WEBHOOK_SECRET, settings.WEBHOOK_SECRET_PREVIOUS]`; any one may match. Keep secrets in `config({ secrets })` so they never reach the logs.
+- Webhook routes need `auth: "public"` (the sender proves itself with the signature) and are POST, PUT or PATCH routes; they cannot be AI tools or take file uploads. A missing secret (an unset environment variable), an unknown scheme or another invalid option raises IL6066 at startup.
+- Give the body schema `.strip()` (on nested objects too): providers add fields to their events, and a schema that refuses unknown fields would answer 422 to them.
+- Senders retry deliveries, so do slow work in a [background job](jobs.md) and answer quickly. GitHub signatures have no timestamp; skip deliveries you have seen by their `X-GitHub-Delivery` id when a repeat would matter.
+- `describe()` and `inferlo describe` show `webhook: "stripe"` (the scheme, never the secret) for each webhook route.
 
 ## Deprecating routes
 

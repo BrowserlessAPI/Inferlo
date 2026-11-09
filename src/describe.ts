@@ -67,6 +67,8 @@ export interface AppDescription {
     permission?: string;
     summary?: string;
     tool?: string;
+    /** Incoming webhook route: the signature scheme it checks (route option webhook). */
+    webhook?: "standard" | "stripe" | "github";
     rateLimit?: { max: number; per: string; by: string };
     /** The route's own timeoutMs, when it sets one (otherwise requestTimeoutMs applies). */
     timeoutMs?: number | false;
@@ -172,6 +174,7 @@ export function describeApp(app: App<any>, options: { auth: boolean; openapi: st
       if (o.permission) out.permission = o.permission;
       if (o.summary) out.summary = o.summary;
       if (o.tool) out.tool = toolName(r);
+      if (o.webhook) out.webhook = o.webhook.scheme;
       if (o.rateLimit) out.rateLimit = { max: o.rateLimit.max, per: o.rateLimit.per, by: o.rateLimit.by ?? "user" };
       if (o.timeoutMs !== undefined) out.timeoutMs = o.timeoutMs;
       if (o.cache) out.cache = { ttlMs: o.cache.ttlMs, by: o.cache.by ?? "user", tags: [...(o.cache.tags ?? [])] };
