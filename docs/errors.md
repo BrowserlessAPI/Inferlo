@@ -187,7 +187,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **AI usage blocked (402).** `ai.allow` returned false for this `for` id, for example because credits ran out.
 
 ### IL5005
-**Provider does not support this operation** (streaming or embeddings).
+**Provider does not support this operation** (streaming or embeddings). `bedrock()` embeds only with Amazon Titan and Cohere embedding models; use one of those for `ai.embed`.
 
 ### IL5006
 **Provider HTTP error.** 401/403 means a bad API key. Timeouts, 429 and 5xx are retried on the next fallback model.
@@ -208,7 +208,7 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Tool is not a route of this app.** A route passed to `ai.generate({ tools })` is not registered in `createApp({ routes })`. Register it, or pass a route that is.
 
 ### IL5012
-**Invalid image.** An image passed to `ai.generate` or `ai.stream` (with `images` next to `prompt`, or on a message) is not usable. Each image is `{ url }` with an `https://`, `http://` or `data:` URL, or `{ base64, mediaType }` with base64 data (no `data:` prefix, no line breaks) and a media type of `image/png`, `image/jpeg`, `image/gif` or `image/webp`. Only user messages can have images, and `images` needs a `prompt`. The call is rejected before any model is called.
+**Invalid image.** An image passed to `ai.generate` or `ai.stream` (with `images` next to `prompt`, or on a message) is not usable. Each image is `{ url }` with an `https://`, `http://` or `data:` URL, or `{ base64, mediaType }` with base64 data (no `data:` prefix, no line breaks) and a media type of `image/png`, `image/jpeg`, `image/gif` or `image/webp`. Only user messages can have images, and `images` needs a `prompt`. The call is rejected before any model is called. `bedrock()` also raises it for an image given as a URL, because Bedrock does not download images: pass `{ base64, mediaType }` or a `data:` URL.
 
 ### IL5013
 **Invalid tool.** A `tool(name, { description, input }).handle(fn)` definition is not usable: the name must be letters, digits, `_` and `-`, starting with a letter, at most 64 characters (what providers accept); `description` must say what the tool does; `input` must be a `t.object({ ... })` schema, or an object schema from a Standard Schema library with JSON Schema support (`z.object({ ... })` from zod 4.2+, `type({ ... })` from arktype 2.1.28+, `toStandardJsonSchema(v.object({ ... }))` from `@valibot/to-json-schema`); `handle` needs a function. Also raised when two tools in one `ai.generate` call have the same name.
@@ -295,7 +295,8 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL5040
 **Invalid AI answer cache.** `ai.generate({ cache: { ttlMs, tags } })` takes `ttlMs`, a whole number of milliseconds from 1 to 365 days, and optional `tags` (non-empty strings, for `cache.invalidate(tag)`), nothing else. A call with `tools` cannot be cached, because a cached answer would skip the tool calls the model makes: leave out `cache` there, or cache what the tools return with `ctx.cache.getOrSet`. See [Caching answers](ai.md#caching-answers).
 ### IL5041
-**Invalid AI provider options.** A provider adapter got options it cannot work with: `mistral()` needs `apiKey`; `azureOpenAI()` needs either `resource` (the resource name, letters, digits and dashes) or `baseURL` (the full v1 endpoint, `https://...`), and either `apiKey` or `token` (a function that returns a Microsoft Entra ID token), never both of a pair; `vertexAI()` needs `project` (a Google Cloud project id: 6 to 30 lowercase letters, digits and dashes), a `location` of `"global"` or a region such as `"us-central1"`, and `token` (a function that returns an OAuth access token). Read keys with `env()` or `config()` so an unset variable is reported by name. See [Mistral, Azure OpenAI and Vertex AI](ai.md#mistral-azure-openai-and-vertex-ai).
+**Invalid AI provider options.** A provider adapter got options it cannot work with: `mistral()` needs `apiKey`; `azureOpenAI()` needs either `resource` (the resource name, letters, digits and dashes) or `baseURL` (the full v1 endpoint, `https://...`), and either `apiKey` or `token` (a function that returns a Microsoft Entra ID token), never both of a pair; `vertexAI()` needs `project` (a Google Cloud project id: 6 to 30 lowercase letters, digits and dashes), a `location` of `"global"` or a region such as `"us-central1"`, and `token` (a function that returns an OAuth access token); `bedrock()` needs `region` (an AWS region such as `"us-east-1"`) and either `credentials` (`{ accessKeyId, secretAccessKey, sessionToken }` or a function that returns them) or `apiKey` (an Amazon Bedrock API key), and `baseURL`, when given, must be an http(s) URL. Read keys with `env()` or `config()` so an unset variable is reported by name. See [Mistral, Azure OpenAI and Vertex AI](ai.md#mistral-azure-openai-and-vertex-ai) and [Amazon Bedrock](ai.md#amazon-bedrock).
+
 ### IL5042
 **Refused by a guardrail.** (422) The user input of an AI call is longer than the guardrail `maxInputChars`, or contains a word or phrase from `blockedTerms`. The message does not say which term matched. Send a shorter input or rephrase it; the limits are set in `createApp({ ai: { guardrails } })` or the call's `guardrails`. See [Guardrails](ai.md#guardrails).
 

@@ -260,7 +260,7 @@ function openaiMessage(m: Message): Record<string, unknown> {
 }
 
 /** Tool arguments arrive as a JSON string. Invalid JSON is passed on as the raw string, so the tool reports the problem to the model. */
-function parseArguments(text: string | undefined): unknown {
+export function parseArguments(text: string | undefined): unknown {
   if (!text) return {};
   try {
     return JSON.parse(text);
@@ -551,11 +551,11 @@ function bearer(provider: string, token: AccessToken): () => Promise<Record<stri
   };
 }
 
-function invalidProvider(factory: string, problem: string): InferloError {
+export function invalidProvider(factory: string, problem: string): InferloError {
   return new InferloError("IL5041", `${factory}() ${problem}`, { fix: "See the provider's options in docs/ai.md (\"Providers\")." });
 }
 
-function checkProviderOptions(factory: string, values: Record<string, unknown>, required: string[]): void {
+export function checkProviderOptions(factory: string, values: Record<string, unknown>, required: string[]): void {
   for (const key of required) {
     const value = values[key];
     if (typeof value !== "string" || !value.trim()) throw invalidProvider(factory, `needs ${key} (a non-empty string), got ${value === undefined ? "nothing" : typeof value === "string" ? "an empty string" : typeof value}.`);

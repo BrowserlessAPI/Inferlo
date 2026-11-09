@@ -16,6 +16,9 @@
  */
 import { InferloError } from "./errors.ts";
 import type { StorageStore } from "./storage.ts";
+import { ALGORITHM, amzDate, sha256Hex, signV4, uriEncode } from "./sigv4.ts";
+
+export { amzDate, signV4, uriEncode };
 
 export interface S3StorageOptions {
   /** The bucket name, for example "acme-uploads". */
@@ -42,13 +45,11 @@ export interface S3StorageOptions {
   timeoutMs?: number;
 }
 
-const ALGORITHM = "AWS4-HMAC-SHA256";
 const UNSIGNED = "UNSIGNED-PAYLOAD";
 const OPTION_KEYS = new Set(["bucket", "region", "accessKeyId", "secretAccessKey", "sessionToken", "endpoint", "pathStyle", "timeoutMs"]);
 /** S3 bucket names: 3 to 63 lowercase letters, digits, dots and dashes (R2 and MinIO follow the same rules). */
 const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 const REGION = /^[a-z0-9-]{1,40}$/;
-const encoder = new TextEncoder();
 
 function invalid(why: string): InferloError {
   return new InferloError("IL6048", `Invalid s3Storage() options: ${why}.`, {
@@ -58,89 +59,6 @@ function invalid(why: string): InferloError {
 
 function isLoopback(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname.endsWith(".localhost");
-}
-
-function hex(bytes: ArrayBuffer): string {
-  let out = "";
-  for (const byte of new Uint8Array(bytes)) out += byte.toString(16).padStart(2, "0");
-  return out;
-}
-
-async function sha256Hex(data: Uint8Array | string): Promise<string> {
-  const bytes = typeof data === "string" ? encoder.encode(data) : data;
-  return hex(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>));
-}
-
-async function hmac(key: Uint8Array | ArrayBuffer, data: string): Promise<ArrayBuffer> {
-  const cryptoKey = await crypto.subtle.importKey("raw", key as Uint8Array<ArrayBuffer>, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(data));
-}
-
-/** RFC 3986 encoding as SigV4 needs it: everything but A-Z a-z 0-9 - . _ ~ is percent-encoded. */
-export function uriEncode(value: string, keepSlash = false): string {
-  let out = "";
-  for (const byte of encoder.encode(value)) {
-    const c = String.fromCharCode(byte);
-    if (/[A-Za-z0-9\-._~]/.test(c) || (keepSlash && c === "/")) out += c;
-    else out += "%" + byte.toString(16).toUpperCase().padStart(2, "0");
-  }
-  return out;
-}
-
-/** "20261107T201500Z" and "20261107" for a date. */
-export function amzDate(date: Date): { stamp: string; day: string } {
-  const stamp = date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-  return { stamp, day: stamp.slice(0, 8) };
-}
-
-export interface SignInput {
-  method: string;
-  url: URL;
-  /** Headers to sign (lower-case names). host is added from the URL. */
-  headers: Record<string, string>;
-  /** Hex SHA-256 of the body, or "UNSIGNED-PAYLOAD". */
-  payloadHash: string;
-  date: Date;
-  region: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  service?: string;
-}
-
-function canonicalQuery(url: URL): string {
-  const pairs: [string, string][] = [];
-  for (const [k, v] of url.searchParams) pairs.push([uriEncode(k), uriEncode(v)]);
-  pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
-  return pairs.map(([k, v]) => `${k}=${v}`).join("&");
-}
-
-/**
- * AWS Signature Version 4 for one request. Returns the signature and the parts of the Authorization header. The
- * URL's path must already be encoded once (S3 does not encode it a second time).
- */
-export async function signV4(input: SignInput): Promise<{ signature: string; signedHeaders: string; scope: string; credential: string }> {
-  const service = input.service ?? "s3";
-  const { stamp, day } = amzDate(input.date);
-  const headers: Record<string, string> = { host: input.url.host };
-  for (const [name, value] of Object.entries(input.headers)) headers[name.toLowerCase()] = value.trim().replace(/\s+/g, " ");
-  const names = Object.keys(headers).sort();
-  const signedHeaders = names.join(";");
-  const canonicalRequest = [
-    input.method,
-    input.url.pathname || "/",
-    canonicalQuery(input.url),
-    names.map((n) => `${n}:${headers[n]}\n`).join(""),
-    signedHeaders,
-    input.payloadHash,
-  ].join("\n");
-  const scope = `${day}/${input.region}/${service}/aws4_request`;
-  const stringToSign = [ALGORITHM, stamp, scope, await sha256Hex(canonicalRequest)].join("\n");
-  const kDate = await hmac(encoder.encode(`AWS4${input.secretAccessKey}`), day);
-  const kRegion = await hmac(kDate, input.region);
-  const kService = await hmac(kRegion, service);
-  const kSigning = await hmac(kService, "aws4_request");
-  const signature = hex(await hmac(kSigning, stringToSign));
-  return { signature, signedHeaders, scope, credential: `${input.accessKeyId}/${scope}` };
 }
 
 /** S3's error code from an XML error body (<Code>AccessDenied</Code>), if there is one. */

@@ -66,24 +66,56 @@ createApp({
 - All three send `response_format` with `json_schema` for `ai.generate({ output })`; `nativeStructuredOutput: false` sends `json_object` instead. Inferlo validates every answer either way.
 - Missing or invalid options (no `apiKey`, both or neither of `resource` and `baseURL`, both or neither of `apiKey` and `token`, a `project` or `location` that is not a Google Cloud id) raise IL5041 at startup. API keys are redacted from logs like every provider key.
 
+### Amazon Bedrock
+
+`bedrock({ region, credentials })` calls Amazon Bedrock's Converse API, for Anthropic Claude, Amazon Nova, Meta Llama, Mistral and the other models Bedrock serves, with chat, vision, tools and streaming, and Amazon Titan and Cohere embeddings. There is no AWS SDK underneath: requests are signed with AWS Signature Version 4 on Web Crypto, so it runs on Node.js, Bun, Deno and edge runtimes.
+
+```ts
+import { bedrock, createApp } from "@browserlessapi/inferlo";
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+
+createApp({
+  ai: {
+    providers: {
+      // IAM roles (ECS, EKS, Lambda, EC2), SSO, profiles and environment variables, refreshed before they expire:
+      bedrock: bedrock({ region: "eu-central-1", credentials: fromNodeProviderChain() }),
+      // Or an Amazon Bedrock API key:
+      // bedrock: bedrock({ region: "us-east-1", apiKey: settings.AWS_BEARER_TOKEN_BEDROCK }),
+    },
+    models: {
+      fast: ["bedrock:eu.anthropic.claude-haiku-4-5-20251001-v1:0", "bedrock:eu.amazon.nova-lite-v1:0"],
+      embed: "bedrock:amazon.titan-embed-text-v2:0",
+    },
+  },
+});
+```
+
+- Model ids are Bedrock model ids or inference profile ids, after `bedrock:` (`"bedrock:us.anthropic.claude-sonnet-4-5-20250929-v1:0"`). Requests go to `https://bedrock-runtime.<region>.amazonaws.com`; `baseURL` takes another endpoint for the same API, such as a VPC interface endpoint, so traffic stays in your network.
+- `credentials` is `{ accessKeyId, secretAccessKey, sessionToken }` or a function that returns them, called before each request; use one that caches credentials until they expire, such as `fromNodeProviderChain()` from `@aws-sdk/credential-providers`. A credentials function that fails or returns nothing is IL5006 (status 401, not retried). `apiKey` takes an Amazon Bedrock API key instead (sent as a bearer token). Give the role `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the models it uses.
+- Streams arrive in AWS's binary event stream format; Inferlo checks each frame's checksums. A throttling or service error during a stream is a retryable IL5006, so a fallback model takes over when nothing was sent yet.
+- Images must be data (`{ base64, mediaType }` or a `data:` URL): the Converse API does not download image URLs, so an `{ url: "https://..." }` image is IL5012.
+- `ai.generate({ output })` asks for JSON in the system prompt and validates and repairs the answer, as for every provider.
+- `ai.embed` works with Amazon Titan text embeddings (`amazon.titan-embed-text-v2:0`, one call per text, up to 8 at a time) and Cohere embeddings (`cohere.embed-v4:0`, `cohere.embed-english-v3`, up to 96 texts per call, embedded as `search_document`). Other models raise IL5005.
+- Missing or invalid options (no `region` or not an AWS region, both or neither of `credentials` and `apiKey`, credentials without `accessKeyId` and `secretAccessKey`, a `baseURL` that is not an http(s) URL) raise IL5041 at startup. The secret access key, session token and API key are redacted from logs.
+
 ### Any Vercel AI SDK provider
 
-`aiSdk(provider)` turns any [Vercel AI SDK](https://ai-sdk.dev) provider into an Inferlo provider, so the providers Inferlo has no adapter of its own for (Amazon Bedrock, Groq, xAI, Cohere, the AI Gateway and the others) work with aliases, fallback, structured output, tools, streaming, embeddings, usage tracking, budgets and tracing:
+`aiSdk(provider)` turns any [Vercel AI SDK](https://ai-sdk.dev) provider into an Inferlo provider, so the providers Inferlo has no adapter of its own for (Groq, xAI, Cohere, the AI Gateway and the others) work with aliases, fallback, structured output, tools, streaming, embeddings, usage tracking, budgets and tracing:
 
 ```ts
 import { aiSdk, createApp } from "@browserlessapi/inferlo";
 import { createXai } from "@ai-sdk/xai";
-import { bedrock } from "@ai-sdk/amazon-bedrock";
+import { cohere } from "@ai-sdk/cohere";
 
 createApp({
   ai: {
     providers: {
       xai: aiSdk(createXai({ apiKey: settings.XAI_API_KEY })),
-      bedrock: aiSdk(bedrock),
+      cohere: aiSdk(cohere),
     },
     models: {
-      fast: ["xai:grok-4-fast", "bedrock:anthropic.claude-haiku-4-5-20251001-v1:0"],
-      embed: "bedrock:amazon.titan-embed-text-v2:0",
+      fast: ["xai:grok-4-fast", "cohere:command-a-03-2025"],
+      embed: "cohere:embed-v4.0",
     },
   },
 });
@@ -92,7 +124,7 @@ createApp({
 - Pass the **provider** (what `createXai()` returns, or the default `xai` instance), not a model: the part after the colon in `"xai:grok-4-fast"` is the model id Inferlo asks the provider for, as with every other provider. To use models you built yourself (for example with `wrapLanguageModel` middleware), group them with `customProvider({ languageModels: { ... }, embeddingModels: { ... } })` from `ai` and pass that.
 - Works with providers made for `ai` 5, 6 and 7 (`@ai-sdk/*` 2.0 and later: language model specifications v2, v3 and v4). Inferlo does not depend on the AI SDK; install the provider packages you use. An older provider, or anything that is not a provider, raises IL5029.
 - Errors of the AI SDK (`APICallError`) become IL5006 with the HTTP status, so 429, 5xx and network errors move on to the next model of an alias like any other provider. Embeddings are sent in batches of the model's `maxEmbeddingsPerCall`.
-- The provider name in errors and traces is the AI SDK's own (`xai`); `aiSdk(provider, { name: "eu-bedrock" })` sets another.
+- The provider name in errors and traces is the AI SDK's own (`xai`); `aiSdk(provider, { name: "xai-eu" })` sets another.
 - `ai.stream` streams text, and with `tools` it streams the tool calls too (see [Streaming with tools](#streaming-with-tools)).
 
 ## Use it without createApp

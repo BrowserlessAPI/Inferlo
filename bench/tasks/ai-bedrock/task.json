@@ -1,0 +1,4 @@
+{
+  "title": "Claude on Amazon Bedrock with AWS credentials",
+  "prompt": "Create src/lib/summarize.ts for use outside the Inferlo app. Without createApp, use Inferlo's standalone AI module to create an AI client and export it as `ai`. Its only provider, named \"bedrock\", is Amazon Bedrock in the region eu-central-1, authenticated with the AWS access key from the environment variables AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN (temporary credentials). The \"fast\" alias is the inference profile eu.anthropic.claude-haiku-4-5-20251001-v1:0 and the \"embed\" alias is amazon.titan-embed-text-v2:0. Export `async function summarize(text: string, userId: string)` that returns `{ summary: string; keywords: string[] }` as structured output from the \"fast\" model, tracking usage for userId, and `async function embedText(text: string)` that returns the embedding (number[]) from the \"embed\" model."
+}
