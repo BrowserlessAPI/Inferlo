@@ -4,6 +4,7 @@ import { createDb, InferloError, memory, model, t, type Adapter, type Row } from
 import { postgres } from "../src/db/postgres.ts";
 import { postgresJsAdapter } from "./postgres-js-adapter.ts";
 import { sqlite } from "../src/db/sqlite.ts";
+import { MYSQL_URL, mysqlAdapter } from "./mysql-adapter.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 
@@ -37,6 +38,7 @@ function counting(adapter: Adapter): Adapter & { selects: string[] } {
 }
 
 const adapters: [string, () => Adapter][] = [["memory", () => memory()], ["sqlite", () => sqlite()]];
+if (MYSQL_URL) adapters.push(["mysql", () => mysqlAdapter()]);
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
 if (PG_URL) adapters.push(["postgres.js", () => postgresJsAdapter(PG_URL)]);
 
@@ -46,7 +48,7 @@ for (const [name, make] of adapters) {
     const db = createDb(models, adapter);
 
     before(async () => {
-      if (name !== "memory" && name !== "sqlite") await db.$sql('DROP TABLE IF EXISTS "rel_tickets", "rel_teams", "rel_users", "rel_notes" CASCADE');
+      if (name.startsWith("postgres")) await db.$sql('DROP TABLE IF EXISTS "rel_tickets", "rel_teams", "rel_users", "rel_notes" CASCADE');
       await db.$sync();
     });
     after(async () => {

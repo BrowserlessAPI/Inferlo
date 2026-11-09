@@ -1,0 +1,5 @@
+{
+  "title": "Run on MySQL",
+  "prompt": "The company's databases are MySQL. Make the app use MySQL with Inferlo's built-in MySQL support when DATABASE_URL starts with mysql:// (for example mysql://app:secret@db:3306/app), Postgres for any other DATABASE_URL, and the in-memory database when it is not set. The mysql2 package is already installed.",
+  "packages": ["mysql2"]
+}

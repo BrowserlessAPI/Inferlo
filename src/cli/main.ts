@@ -192,9 +192,10 @@ async function cmdMigrate(args: Args) {
   const dir = path.join(cwd, MIGRATIONS_DIR);
   const app = await loadApp(args);
   try {
-    if (app.db.$adapter.dialect === "sqlite") {
-      throw new InferloError("IL4035", "Migration files are PostgreSQL SQL, and this app uses SQLite.", {
-        fix: "With sqlite(), create and extend tables with inferlo db push. Use postgres() for migration files.",
+    const dialect = app.db.$adapter.dialect;
+    if (dialect === "sqlite" || dialect === "mysql") {
+      throw new InferloError("IL4035", `Migration files are PostgreSQL SQL, and this app uses ${dialect === "mysql" ? "MySQL" : "SQLite"}.`, {
+        fix: "With sqlite() or mysql(), create and extend tables with inferlo db push. Use postgres() for migration files.",
         expose: true,
       });
     }

@@ -194,7 +194,26 @@ import { postgres } from "@browserlessapi/inferlo/postgres";
 createApp({ db: memory() });                                  // tests and prototypes
 createApp({ db: postgres({ url: env("DATABASE_URL") }) });    // production (npm install pg)
 createApp({ db: sqlite({ path: "./data/app.db" }) });         // one server, local tools (import from "@browserlessapi/inferlo/sqlite")
+createApp({ db: mysql({ url: env("DATABASE_URL") }) });       // MySQL (npm install mysql2; import from "@browserlessapi/inferlo/mysql")
 ```
+
+### MySQL
+
+`mysql({ url })` from `@browserlessapi/inferlo/mysql` stores the data in MySQL 8.4 or newer, through the `mysql2` driver (`npm install mysql2`, an optional peer dependency).
+
+```ts
+import { mysql } from "@browserlessapi/inferlo/mysql";
+
+createApp({ db: mysql({ url: settings.DATABASE_URL }) });   // mysql://user:pass@host:3306/app
+createApp({ db: mysql({ pool }) });                        // a mysql2/promise pool you created, with timezone: "Z"
+```
+
+- Options: `url` (`mysql://...`) or `pool`, `max` (pool size, default 10) and `debug`. Invalid options are IL4036; without `mysql2` installed, the first query is IL4010.
+- Models, queries, relations, pagination, multi-tenancy, audit logs, `$transaction`, `$sync` (`inferlo db push`), `$sql` (with `?` placeholders) and vector search (compared in JavaScript) work as on Postgres, with the same types coming back and the same errors (IL4004, IL4011, IL4012).
+- Tables are created with `utf8mb4` and the binary collation `utf8mb4_bin`, so `=`, unique values and `like` are case-sensitive, as on Postgres; `ilike` compares lower-cased values. Dates are `DATETIME(3)` in UTC (millisecond precision), booleans `BOOLEAN`, JSON fields MySQL's `JSON`, ids `CHAR(36)`.
+- Strings that are `.unique()` or `.index()` need a length in MySQL: their `.max()`, else `VARCHAR(255)`. Give them a `.max()` when values can be longer. Other strings without `.max()` are `TEXT`, `t.text()` is `MEDIUMTEXT`.
+- MySQL has no `RETURNING`: inserts and updates read the rows back by id (an update locks and reads the matching ids first, in a transaction).
+- Tables are created and extended with `inferlo db push`; migration files are PostgreSQL SQL, so `inferlo db migrate` refuses MySQL with IL4035. The `"database"` stores for `jobQueue`, `cache` and `rateLimit` need Postgres (use `"memory"` or Redis), and `db.$pgClient()` is IL4028.
 
 ### SQLite
 

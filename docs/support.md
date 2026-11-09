@@ -63,6 +63,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Deno | 2.9.0 and newer (Deno supports only its newest minor line) |
 | Other runtimes with Web APIs | Work through `app.fetch`; not tested in CI |
 | PostgreSQL | Every major version still supported upstream (14 until its end of life on 2026-11-12, then 15 and newer) |
+| MySQL (`mysql()` from `/mysql`) | MySQL 8.4 (the oldest line still supported upstream; 8.0 ended in April 2026) and newer, with `mysql2` 3.0.0 and newer |
 | SQLite (`sqlite()` from `/sqlite`) | The SQLite built into the runtime: `node:sqlite` on Node.js 22.18 and newer, Bun 1.3.0 and newer and Deno 2.9.0 and newer |
 | pgvector (`t.vector(n)` fields and vector search) | 0.5.0 and newer |
 | Redis (`createApp({ redis })`) | Redis 6.2 (supported upstream until 2027-04-01) and newer, with the `redis` package 5.0.0 and newer |

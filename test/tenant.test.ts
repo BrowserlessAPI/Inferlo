@@ -4,6 +4,7 @@ import { bearer, createApp, createDb, InferloError, memory, model, route, sessio
 import { modelIndexes, postgres } from "../src/db/postgres.ts";
 import { readJson } from "../src/testing.ts";
 import { sqlite } from "../src/db/sqlite.ts";
+import { MYSQL_URL, mysqlAdapter } from "./mysql-adapter.ts";
 
 const PG_URL = process.env.INFERLO_TEST_DATABASE_URL;
 
@@ -34,6 +35,7 @@ function routes() {
 }
 
 const adapters: [string, () => Adapter][] = [["memory", () => memory()], ["sqlite", () => sqlite()]];
+if (MYSQL_URL) adapters.push(["mysql", () => mysqlAdapter()]);
 if (PG_URL) adapters.push(["postgres", () => postgres({ url: PG_URL })]);
 
 for (const [name, make] of adapters) {

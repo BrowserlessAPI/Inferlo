@@ -92,6 +92,46 @@ jobs:
         run: node -e "const {Client}=require('pg');const c=new Client({connectionString:process.env.INFERLO_TEST_DATABASE_URL});c.connect().then(()=>c.query('show server_version')).then(r=>{console.log('PostgreSQL',r.rows[0].server_version);return c.end()})"
       - run: npm test
 
+  mysql:
+    name: MySQL ${{ matrix.mysql }} with mysql2 ${{ matrix.mysql2 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.4 = oldest MySQL still supported upstream (the 8.4 LTS line; 8.0 ended in April 2026),
+        # latest = newest release. mysql2 3.0.0 = first 3.x release (mysql2 has one release line).
+        include:
+          - mysql: "8.4"
+            mysql2: "3.0.0"
+          - mysql: "8.4"
+            mysql2: "latest"
+          - mysql: "latest"
+            mysql2: "latest"
+    services:
+      mysql:
+        image: mysql:${{ matrix.mysql }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: inferlo_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      INFERLO_TEST_MYSQL_URL: mysql://root:root@127.0.0.1:3306/inferlo_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save mysql2@${{ matrix.mysql2 }}
+      - name: Server and driver versions
+        run: node -e "import('mysql2/promise').then(async (m)=>{const c=await m.createConnection(process.env.INFERLO_TEST_MYSQL_URL);const [r]=await c.query('select version() as v');console.log('MySQL',r[0].v);await c.end()})" && grep '"version"' node_modules/mysql2/package.json
+      - run: node --test test/mysql.test.ts test/db.test.ts test/relations.test.ts test/paginate.test.ts test/tenant.test.ts test/audit.test.ts
+
   pgvector:
     name: pgvector ${{ matrix.pgvector }} on PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest

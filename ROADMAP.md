@@ -26,7 +26,8 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [x] Email: `mail({ smtp })` helper with templates, used by jobs
 - [x] OAuth login helpers: GitHub and Google, built on cookie sessions
-- [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)
+- [x] MySQL adapter part 1: `mysql({ url | pool })` from `@browserlessapi/inferlo/mysql` on `mysql2`, with `db push`, transactions, raw SQL and vector search, tested in CI on MySQL 8.4 and latest with mysql2 3.0.0 and latest
+- [ ] MySQL adapter part 2: migration files for MySQL (`inferlo db migrate` writing MySQL SQL) and the `"database"` stores for `jobQueue`, `cache` and `rateLimit` on MySQL
 - [x] SQLite adapter part 1: `sqlite({ path })` from `@browserlessapi/inferlo/sqlite` on the runtime's built-in SQLite (`node:sqlite`, `bun:sqlite`), with `db push`, transactions, raw SQL and vector search, tested on Node.js 22.18 to current, Bun 1.3.0 to latest and Deno
 - [ ] SQLite adapter part 2: migration files for SQLite (`inferlo db migrate` writing SQLite SQL, with table rebuilds for the changes SQLite cannot `ALTER`), and `inferlo new --db sqlite`
 

@@ -600,7 +600,10 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **No built-in SQLite.** `sqlite()` uses the runtime's `node:sqlite` module, which this runtime does not have. Use Node.js 22.13 or later, Bun 1.3 or later or Deno 2.2 or later, or `postgres()` from `@browserlessapi/inferlo/postgres`. See [SQLite](database.md#sqlite).
 
 ### IL4035
-**Migration files need PostgreSQL.** `inferlo db migrate` and `applyMigrations()` write and run PostgreSQL SQL, and this app uses `sqlite()`. With SQLite, create tables and add columns with `inferlo db push` (or `await db.$sync()`); use `postgres()` for migration files. See [SQLite](database.md#sqlite).
+**Migration files need PostgreSQL.** `inferlo db migrate` and `applyMigrations()` write and run PostgreSQL SQL, and this app uses `sqlite()` or `mysql()`. With SQLite or MySQL, create tables and add columns with `inferlo db push` (or `await db.$sync()`); use `postgres()` for migration files. See [SQLite](database.md#sqlite) and [MySQL](database.md#mysql).
+
+### IL4036
+**Invalid `mysql()` options.** `mysql({ url })` takes a `mysql://user:pass@host:3306/database` URL, or `mysql({ pool })` a `mysql2/promise` pool (not both), with an optional `max` (a positive whole number) and `debug`. Unknown options are refused. Example: `mysql({ url: settings.DATABASE_URL })`. See [MySQL](database.md#mysql).
 ## CLI (8xxx)
 
 ### IL8000

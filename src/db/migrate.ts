@@ -663,9 +663,9 @@ function conversionError(error: unknown, migration: string, sql: string): Inferl
  */
 export async function applyMigrations(db: SqlDb, migrations: readonly Migration[], options: ApplyMigrationsOptions = {}): Promise<string[]> {
   const dialect = db.$adapter?.dialect;
-  if (dialect === "sqlite") {
-    throw new InferloError("IL4035", "Migration files are PostgreSQL SQL, and this app uses SQLite.", {
-      fix: "With sqlite(), create and extend tables with inferlo db push (or db.$sync()). Use postgres() for migration files.",
+  if (dialect === "sqlite" || dialect === "mysql") {
+    throw new InferloError("IL4035", `Migration files are PostgreSQL SQL, and this app uses ${dialect === "mysql" ? "MySQL" : "SQLite"}.`, {
+      fix: "With sqlite() or mysql(), create and extend tables with inferlo db push (or db.$sync()). Use postgres() for migration files.",
       expose: true,
     });
   }
