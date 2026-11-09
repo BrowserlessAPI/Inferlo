@@ -4,6 +4,8 @@ All notable changes are listed here. Inferlo follows [semantic versioning](https
 
 ## Unreleased
 
+## 0.9.0 - 2026-11-09
+
 - GraphQL relations: `graphqlRoute({ query, relations: [{ model: Note, field: "owner", route: usersByIds, from: "ownerId" }] })` (and `graphqlSchema({ relations })` for GraphQL Yoga and Apollo Server) adds fields that link model rows to other rows, such as a note's `owner` or, with `many: true`, a user's `notes`. Each relation field runs an existing route as the caller (auth, permissions, validation, rate limits and tenant scope apply), once per list with every distinct value, so a list of 100 notes never runs one route call per note. Relations nest, count against `maxFields` (more answer the new IL2021), and are listed in `describe()` (`graphql.relations`) and OpenAPI. Invalid relations raise IL6059 when the app starts. See [Relations](docs/graphql.md#relations).
 
 - Apollo Server: `new ApolloServer({ schema: graphqlSchema({ query, mutation }) })` with `context: async ({ req }) => graphqlContext(app, req)` (from `@browserlessapi/inferlo/graphql`) serves the app's GraphQL fields from Apollo Server 5, in its standalone server and in Express with `expressMiddleware` from `@as-integrations/express5`. Each field runs its route as the caller of the request, with the route's auth, permissions, validation, rate limits (per-IP limits use the socket address), tenant scope and audit; errors keep the route's `code` and `status`. Tested with `@apollo/server` 5.0.0 and the latest release, with `graphql` 16. See [Apollo Server](docs/graphql.md#apollo-server).

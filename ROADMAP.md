@@ -8,6 +8,25 @@ Priority order: AI model support is Inferlo's core promise, so the "Now" section
 
 ## Now (highest priority)
 
+### Next up (do these first, in order)
+
+These can all be built and tested in the maintainer's environment. Work through them before the harder or blocked items further down.
+
+- [ ] Streaming with tool calls: `ai.stream({ tools })` streams text and tool-call events to the browser
+- [ ] Vector search on Postgres pgvector: `t.vector(1536)` field and `db.x.search({ vector, limit })`
+- [ ] RAG helper: chunk, embed and search documents in one call
+- [ ] Prompt files: versioned prompts in `src/prompts/*.md` with typed variables
+- [ ] Response caching for identical AI calls (opt in, TTL)
+- [ ] Native structured output for Anthropic and Gemini when available
+- [ ] More providers: Mistral, Azure OpenAI, AWS Bedrock and Vertex AI adapters (OpenAI-compatible where possible)
+- [ ] Guardrails: optional input and output checks (max tokens, PII redaction, blocked terms) per AI call or per alias
+- [ ] `inferlo db migrate` part 4e: reference changes behind `--allow-change` (`onDelete` and target table: replace the foreign key constraint)
+- [ ] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
+- [ ] Email: `mail({ smtp })` helper with templates, used by jobs
+- [ ] OAuth login helpers: GitHub and Google, built on cookie sessions
+- [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)
+- [ ] SQLite adapter for small apps and tests (tested on the oldest supported and latest versions)
+
 ### Enterprise readiness (top priority, alongside integrations)
 
 Inferlo must be a production-grade, general-purpose framework at the level of NestJS and Fastify, not only an AI tool. These items come first together with the framework integrations below.
@@ -151,28 +170,14 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 
 ## AI depth
 
-- [ ] Streaming with tool calls: `ai.stream({ tools })` streams text and tool-call events to the browser
-- [ ] Vector search on Postgres pgvector: `t.vector(1536)` field and `db.x.search({ vector, limit })`
-- [ ] RAG helper: chunk, embed and search documents in one call
 - [ ] Durable agents: `agent(...)` runs as a resumable workflow with pause for human approval
-- [ ] Prompt files: versioned prompts in `src/prompts/*.md` with typed variables
 - [ ] Evals: `inferlo test --evals` runs prompt test cases against real models and reports pass rate and cost
-- [ ] Response caching for identical AI calls (opt in, TTL)
-- [ ] Native structured output for Anthropic and Gemini when available
-- [ ] More providers: Mistral, Azure OpenAI, AWS Bedrock and Vertex AI adapters (OpenAI-compatible where possible)
-- [ ] Guardrails: optional input and output checks (max tokens, PII redaction, blocked terms) per AI call or per alias
 - [ ] Audio: speech-to-text and text-to-speech through providers that support it
 
 ## Production essentials
 
-- [ ] `inferlo db migrate` part 4e: reference changes behind `--allow-change` (`onDelete` and target table: replace the foreign key constraint)
-- [ ] `inferlo db migrate` part 5: renames of tables and columns with explicit confirmation (for example `--rename notes.color=notes.colour`), so a rename is never generated as a drop plus an add
 - [x] Response validation in development mode (warn when a handler returns data that does not match `response`)
-- [ ] Email: `mail({ smtp })` helper with templates, used by jobs
-- [ ] OAuth login helpers: GitHub and Google, built on cookie sessions
 - [x] OpenTelemetry tracing for requests, database queries and AI calls (observability parts 3 and 4a)
-- [ ] MySQL adapter (tested on the oldest supported and latest MySQL versions)
-- [ ] SQLite adapter for small apps and tests (tested on the oldest supported and latest versions)
 
 ## Developer experience for AI coding tools
 
