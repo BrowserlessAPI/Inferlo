@@ -1,0 +1,5 @@
+{
+  "title": "Share the cache through the company's ioredis connection",
+  "prompt": "The app runs on several instances, and src/redis.ts exports the company's shared ioredis connection `connection` (BullMQ uses it too). Make ctx.cache and app.cache keep their entries in that Redis, so every instance shares them, using Inferlo's ioredis integration. Do not change src/redis.ts.",
+  "packages": ["ioredis"]
+}

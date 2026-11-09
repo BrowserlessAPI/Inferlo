@@ -9,7 +9,7 @@ import type { RateLimitStore } from "./rate-limit.ts";
 
 /**
  * A connected Redis client: the client from createClient() of the `redis` package (await client.connect() first).
- * For ioredis, pass { sendCommand: (args) => ioredis.call(args[0], ...args.slice(1)) }.
+ * For ioredis, wrap the connection: ioredisClient(connection) from "@browserlessapi/inferlo/ioredis".
  */
 export interface RedisClient {
   sendCommand(args: string[]): Promise<unknown>;
@@ -23,7 +23,21 @@ export function checkRedisClient(client: unknown): RedisClient | undefined {
   if (typeof client !== "object" || client === null || typeof (client as RedisClient).sendCommand !== "function") {
     throw new InferloError("IL6031", "createApp({ redis }) needs a Redis client with a sendCommand method.", { fix });
   }
+  if (isIoredis(client)) throw ioredisDirect("createApp({ redis })", 'createApp({ redis: ioredisClient(connection) })');
   return client as RedisClient;
+}
+
+/** True for an ioredis connection (new Redis()), whose sendCommand takes a Command object, not an array. */
+export function isIoredis(value: unknown): boolean {
+  const v = value as Record<string, unknown>;
+  return typeof v.call === "function" && typeof v.duplicate === "function" && typeof v.status === "string" && !!v.options && typeof v.options === "object";
+}
+
+/** IL6065: an ioredis connection passed where Inferlo's wrappers from @browserlessapi/inferlo/ioredis belong. */
+export function ioredisDirect(where: string, use: string): InferloError {
+  return new InferloError("IL6065", `${where} was given an ioredis connection directly; ioredis's sendCommand and subscribe take other arguments than Inferlo's Redis client.`, {
+    fix: `Wrap it: import { ioredisClient, ioredisSubscriber } from "@browserlessapi/inferlo/ioredis"; ${use}.`,
+  });
 }
 
 /** IL6031 for a store "redis" without createApp({ redis }). */

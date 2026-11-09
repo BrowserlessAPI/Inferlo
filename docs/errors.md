@@ -473,6 +473,12 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 ### IL6063
 **Invalid `compression` option.** `createApp({ compression })` takes `true`, `false` or `{ threshold, encodings }`: `threshold` is the smallest answer in bytes that is compressed (a whole number from 0 to 1073741824, default 1024) and `encodings` lists `"gzip"` and/or `"deflate"` once each, in order of preference. See [Response compression](deploy.md#response-compression).
 
+### IL6064
+**Invalid `ioredisClient()` or `ioredisSubscriber()` argument.** `ioredisClient(connection)` from `@browserlessapi/inferlo/ioredis` needs an ioredis 5 (or later) connection without `keyPrefix` (Inferlo prefixes its own keys; use `connection.duplicate({ keyPrefix: "" })`), and `ioredisSubscriber(second)` needs a second ioredis connection (`connection.duplicate()`): one connection cannot be both, because a subscribed connection cannot send other commands. See [ioredis](redis.md#ioredis).
+
+### IL6065
+**An ioredis connection was passed to Inferlo directly.** ioredis's own `sendCommand` takes a `Command` object and its `subscribe` takes a callback, not Inferlo's arguments, so `createApp({ redis })` and `sockets: { subscriber }` would fail on the first command. Wrap the connections: `createApp({ redis: ioredisClient(connection), sockets: { transport: "redis", subscriber: ioredisSubscriber(connection.duplicate()) } })` with both from `@browserlessapi/inferlo/ioredis`. See [ioredis](redis.md#ioredis).
+
 ## Environment (7xxx)
 
 ### IL7001

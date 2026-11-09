@@ -174,6 +174,47 @@ jobs:
       - run: npm run typecheck
       - run: node --test --test-reporter=spec test/redis.test.ts test/rate-limit.test.ts test/cache.test.ts test/health.test.ts test/jobs-queue.test.ts test/events-transport.test.ts test/websocket-redis.test.ts
 
+  ioredis:
+    name: ioredis ${{ matrix.versions.ioredis }} on Redis ${{ matrix.versions.redis }}
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        versions:
+          # ioredis 5.3.0 = oldest supported (the first release that exports Redis by name; BullMQ 5 needs 5.3.2 or
+          # later, and ioredis 5 still gets releases next to 6), on Redis 6.2 (oldest version still supported
+          # upstream); latest = newest ioredis on the oldest supported and the latest Redis.
+          - { ioredis: "5.3.0", redis: "6.2" }
+          - { ioredis: "latest", redis: "6.2" }
+          - { ioredis: "latest", redis: "latest" }
+    services:
+      redis:
+        image: redis:${{ matrix.versions.redis }}
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      INFERLO_TEST_REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save ioredis@${{ matrix.versions.ioredis }}
+      - run: node -p "'ioredis ' + require('./node_modules/ioredis/package.json').version"
+      - run: npx tsc --noEmit
+      - run: node --test --test-reporter=spec test/ioredis.test.ts
+      - uses: ./.github/actions/setup-bun
+        with:
+          bun-version: latest
+      - run: bun test test/ioredis.test.ts
+
   bullmq:
     name: BullMQ ${{ matrix.versions.bullmq }} on Redis ${{ matrix.versions.redis }}
     runs-on: ubuntu-latest

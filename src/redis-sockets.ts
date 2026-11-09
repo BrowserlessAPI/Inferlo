@@ -9,13 +9,13 @@
  * when a broadcast is published does not get it, as with sockets that join a room after a broadcast.
  */
 import { InferloError } from "./errors.ts";
-import type { RedisClient } from "./redis.ts";
+import { ioredisDirect, isIoredis, type RedisClient } from "./redis.ts";
 import type { SocketRelay } from "./sockets.ts";
 
 /**
  * A second, connected Redis client for receiving broadcasts: a client in subscriber mode cannot send other
  * commands, so it cannot be the createApp({ redis }) client. With the redis package: await redis.duplicate().connect().
- * For ioredis, pass { subscribe: async (channel, listener) => { sub.on("message", (c, m) => c === channel && listener(m)); await sub.subscribe(channel); }, unsubscribe: (channel) => sub.unsubscribe(channel) }.
+ * For ioredis, wrap a second connection: ioredisSubscriber(connection.duplicate()) from "@browserlessapi/inferlo/ioredis".
  */
 export interface RedisSubscriber {
   subscribe(channel: string, listener: (message: string, channel: string) => void): Promise<unknown>;
@@ -54,6 +54,7 @@ export function checkSocketsConfig(config: unknown, redis: RedisClient | undefin
   if (!redis) throw invalid('sockets transport "redis" needs a Redis client, but createApp has no redis option.');
   // Instances find each other by the channel named after the app, so apps sharing one Redis must have names.
   if (!name) throw invalid('sockets transport "redis" needs createApp({ name }): the instances of an app share one channel, named after the app.');
+  if (typeof subscriber === "object" && subscriber !== null && isIoredis(subscriber)) throw ioredisDirect("sockets.subscriber", 'sockets: { transport: "redis", subscriber: ioredisSubscriber(connection.duplicate()) }');
   if (typeof subscriber !== "object" || subscriber === null || typeof subscriber.subscribe !== "function" || typeof subscriber.unsubscribe !== "function") {
     throw invalid('sockets transport "redis" needs a subscriber: a second connected Redis client with subscribe and unsubscribe.');
   }

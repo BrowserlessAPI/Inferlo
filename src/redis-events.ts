@@ -46,9 +46,13 @@ function fieldMap(fields: unknown): Map<string, string> | undefined {
   return map;
 }
 
-/** The entries of an XREADGROUP reply: [[key, entries], ...] (RESP2), or { key: entries } / Map (RESP3). */
+/**
+ * The entries of an XREADGROUP reply: [[key, entries], ...] (RESP2), { key: entries } / Map (RESP3), or
+ * [key, entries] for one stream (ioredis 6).
+ */
 function streamEntries(reply: unknown): Entry[] {
   if (reply === null || reply === undefined) return [];
+  if (Array.isArray(reply) && reply.length === 2 && !Array.isArray(reply[0]) && Array.isArray(reply[1])) return reply[1] as Entry[];
   const lists: unknown[] = Array.isArray(reply)
     ? reply.map((r) => (Array.isArray(r) ? r[1] : undefined))
     : reply instanceof Map

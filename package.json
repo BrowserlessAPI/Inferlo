@@ -127,6 +127,10 @@
       "types": "./dist/pino.d.ts",
       "default": "./dist/pino.js"
     },
+    "./ioredis": {
+      "types": "./dist/ioredis.d.ts",
+      "default": "./dist/ioredis.js"
+    },
     "./winston": {
       "types": "./dist/winston.d.ts",
       "default": "./dist/winston.js"
@@ -306,7 +310,7 @@
     "graphql-yoga": "^6.0.1",
     "h3": "^2.0.8",
     "hono": "^4.13.16",
-    "ioredis": "^5.11.1",
+    "ioredis": "^6.0.0",
     "knex": "^3.3.0",
     "koa": "^3.3.0",
     "kysely": "^0.29.8",

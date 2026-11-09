@@ -1562,6 +1562,18 @@ const app = createApp({ routes, logger: pinoLogger(fastify.log), logging: { requ
 
 Request ids, trace ids and the other fields are top-level properties of each entry, errors are `err`, and secrets are redacted before pino sees them. See [Pino](observability.md#pino); tested with pino 9.14.0 and the latest pino.
 
+## ioredis
+
+Apps whose Redis connection is an [ioredis](https://github.com/redis/ioredis) client (BullMQ's, and common in Express and NestJS apps) use it for Inferlo's Redis features with `ioredisClient` from `@browserlessapi/inferlo/ioredis`:
+
+```ts
+import { ioredisClient, ioredisSubscriber } from "@browserlessapi/inferlo/ioredis";
+const app = createApp({ name: "billing", redis: ioredisClient(connection), rateLimit: { store: "redis" }, jobQueue: { store: "redis" } });
+// WebSocket broadcasts across instances: sockets: { transport: "redis", subscriber: ioredisSubscriber(connection.duplicate()) }
+```
+
+Rate limits, the cache, idempotency keys, the job queue, events between services and readiness run on the app's connection. See [ioredis](redis.md#ioredis); tested with ioredis 5.3.0 and the latest ioredis.
+
 ## Winston
 
 Apps that log with [winston](https://github.com/winstonjs/winston) (common in Express apps, and in NestJS with `nest-winston`) send Inferlo's request, error, job and readiness logs to the same logger with `winstonLogger` from `@browserlessapi/inferlo/winston`:

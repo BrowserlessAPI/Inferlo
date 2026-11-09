@@ -25,7 +25,7 @@ export const app = createApp({
 ```
 
 - `redis` is a connected client from the official [`redis`](https://www.npmjs.com/package/redis) package (node-redis 5 or newer). Inferlo talks to it through `client.sendCommand([...])` only, with one key per command. Anything without `sendCommand` raises IL6031. A single Redis server (or a managed endpoint such as Azure Cache, ElastiCache or Upstash with a Redis URL) is supported; Redis Cluster clients (`createCluster`) are not yet.
-- ioredis has no `sendCommand` with this shape; wrap it: `redis: { sendCommand: (args) => ioredis.call(args[0]!, ...args.slice(1)) }`.
+- Apps that already use [ioredis](https://github.com/redis/ioredis) (BullMQ's client) pass their connection through `ioredisClient` instead; see [ioredis](#ioredis).
 - Inferlo never connects, reconnects or closes the client. Close it after the app: `await app.close(); await redis.close();`.
 - Keys start with `inferlo:<app name>:` (the `name` from `createApp`), so apps that share one Redis keep their keys apart. Give each app its own `name`.
 
@@ -73,9 +73,38 @@ As for the job queue, use a Redis that keeps its data, or events not yet receive
 `createApp({ name, redis, sockets: { transport: "redis", subscriber } })` sends every `sockets.broadcast(room, data)` to the sockets of every instance (see [Rooms and broadcast](websockets.md#rooms-and-broadcast)):
 
 - A broadcast goes to the sockets of the instance that sends it, then is published (`PUBLISH`) on one channel per app, `inferlo:<app name>:sockets`, with the room and its tenant. Each instance with open sockets subscribes to the channel and sends what the others published to its own sockets in that room; an instance does not get its own broadcasts back. Apps with other names on the same Redis never see each other's broadcasts.
-- `subscriber` is a second connected client, `await redis.duplicate().connect()`: a client that subscribes cannot send other commands, so it cannot be the `redis` client (IL6036 otherwise, and for a missing `name` or subscriber). For ioredis, pass `{ subscribe: async (channel, listener) => { sub.on("message", (c, m) => c === channel && listener(m)); await sub.subscribe(channel); }, unsubscribe: (channel) => sub.unsubscribe(channel) }`. Close it after the app, like the `redis` client.
+- `subscriber` is a second connected client, `await redis.duplicate().connect()`: a client that subscribes cannot send other commands, so it cannot be the `redis` client (IL6036 otherwise, and for a missing `name` or subscriber). With ioredis, pass `ioredisSubscriber(connection.duplicate())` (see [ioredis](#ioredis)). Close it after the app, like the `redis` client.
 - An instance subscribes when its first WebSocket connection opens, so `inferlo worker` and other processes without sockets only publish. `app.close()` unsubscribes.
 - Pub/Sub keeps nothing: an instance that is not connected to Redis while a broadcast is published does not get it. Clients that reconnect should load the current state over HTTP, then apply the broadcasts that follow.
+
+## ioredis
+
+Apps that already have an [ioredis](https://github.com/redis/ioredis) connection (BullMQ, and many Express and NestJS apps, use it) give it to Inferlo with `ioredisClient` and `ioredisSubscriber` from `@browserlessapi/inferlo/ioredis`. Every Redis feature above works the same:
+
+```ts
+import Redis from "ioredis";
+import { createApp } from "@browserlessapi/inferlo";
+import { ioredisClient, ioredisSubscriber } from "@browserlessapi/inferlo/ioredis";
+
+const connection = new Redis(settings.REDIS_URL);
+
+export const app = createApp({
+  name: "boards",
+  redis: ioredisClient(connection),
+  rateLimit: { store: "redis" },
+  cache: { store: "redis" },
+  jobQueue: { store: "redis" },
+  events: { transport: "redis" },
+  sockets: { transport: "redis", subscriber: ioredisSubscriber(connection.duplicate()) },
+  health: true,
+});
+```
+
+- `ioredisClient(connection)` sends Inferlo's commands with ioredis's `connection.call(command, ...args)` (ioredis 5 and later), so the connection's reconnects, TLS and Sentinel settings apply. Inferlo never connects or closes it: `await app.close(); connection.disconnect();`.
+- `ioredisSubscriber(second)` receives WebSocket broadcasts on a second connection (`connection.duplicate()`), because a subscribed connection cannot send other commands. One connection given to both raises IL6064.
+- A connection with ioredis's `keyPrefix` raises IL6064: Inferlo already prefixes its keys with `inferlo:<app name>:`, and ioredis does not prefix the `SCAN` patterns `cache.clear()` uses. Pass `connection.duplicate({ keyPrefix: "" })`.
+- An ioredis connection passed as `redis` or `sockets.subscriber` without the wrappers raises IL6065, because ioredis's own `sendCommand` and `subscribe` take other arguments. Anything else that is not an ioredis connection raises IL6064.
+- ioredis is not a dependency of Inferlo. Tested with ioredis 5.3.0 and the latest release, on Redis 6.2 and the latest Redis, with BullMQ's queues on the same server.
 
 ## Readiness
 
@@ -83,4 +112,4 @@ With `createApp({ redis, health: true })`, `GET /ready` has a built-in `redis` c
 
 ## Supported versions
 
-CI runs the Redis tests (rate limits, cache, job queue with cron ticks, events transport, and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
+CI runs the Redis tests (rate limits, cache, job queue with cron ticks, events transport, and readiness) against Redis 6.2 (the oldest version still supported upstream, until April 2027), 7.2 and the latest release, and against the `redis` package 5.0.0 and its latest release. The ioredis job runs the same features through `ioredisClient` on ioredis 5.3.0 and its latest release. Locally, set `INFERLO_TEST_REDIS_URL=redis://localhost:6379` to run them.
