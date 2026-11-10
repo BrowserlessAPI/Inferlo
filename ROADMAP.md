@@ -40,6 +40,8 @@ These can all be built and tested in the maintainer's environment. Work through 
 - [x] Drizzle and Prisma part 2b: Prisma Migrate next to `inferlo db migrate` in development (`prisma migrate dev` drift checks and Inferlo's tables, `tables.external` in prisma.config.ts), tested in CI with the Prisma schema engine on the oldest supported and latest Prisma
 - [x] Microservices part 4c: Kafka event transport as a separate entry point (`kafkajs` or `@confluentinc/kafka-javascript` peer dependency, a consumer group per service), tested on the oldest supported and latest Kafka
 - [ ] File uploads part 2b-2: `s3Storage()` tested in CI against real S3-compatible servers on their oldest supported and latest versions (MinIO, and a maintained alternative such as Garage, SeaweedFS or RustFS), plus streamed uploads and downloads for files larger than memory
+- [ ] Version policy: PostgreSQL 14 reaches end of life on 2026-11-12. From that day, make 15 the oldest tested PostgreSQL (CI matrix, the pgvector, Prisma, Drizzle, TypeORM, Kysely, Knex, MikroORM, postgres.js, Better Auth and Sequelize jobs that run on 14, the AGENTS.md table, docs/support.md, README and docs/getting-started.md) and note it under "Breaking"
+- [ ] Durable agents part 1: `agent(...)` runs as a resumable job (each step stored, resumed after a restart) with `pause()` for human approval and `app.agents.resume(id, decision)`, on the memory and database job stores
 
 ### Enterprise readiness (top priority, alongside integrations)
 
@@ -185,7 +187,7 @@ Inferlo's AI features should work inside every popular TypeScript backend framew
 
 ## AI depth
 
-- [ ] Durable agents: `agent(...)` runs as a resumable workflow with pause for human approval
+- [ ] Durable agents: `agent(...)` runs as a resumable workflow with pause for human approval (part 1 is in "Next up")
 - [ ] Evals: `inferlo test --evals` runs prompt test cases against real models and reports pass rate and cost
 - [ ] Audio: speech-to-text and text-to-speech through providers that support it
 
