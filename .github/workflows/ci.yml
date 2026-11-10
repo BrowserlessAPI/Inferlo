@@ -992,7 +992,7 @@ jobs:
       - run: bun test test/rabbitmq-events.test.ts
 
   kafka:
-    name: Kafka events (server ${{ matrix.versions.server }}, @confluentinc/kafka-javascript ${{ matrix.versions.client }})
+    name: Kafka events (server ${{ matrix.versions.server }}, @confluentinc/kafka-javascript ${{ matrix.versions.client }}, Node.js ${{ matrix.versions.node }})
     runs-on: ubuntu-latest
     # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
     timeout-minutes: 25
@@ -1003,16 +1003,18 @@ jobs:
           # Kafka 4.1 = oldest release line still supported upstream (4.0 and 3.9 ended 2026-07-03), with
           # @confluentinc/kafka-javascript 1.0.0 (its first stable release; kafkajs has had no release since
           # February 2023); 4.4.0 = newest release (the image's latest tag can lag behind it) and latest.
-          - { server: "4.1.2", client: "1.0.0" }
-          - { server: "4.4.0", client: "latest" }
-          - { server: "latest", client: "latest" }
+          # The client ships prebuilt binaries per Node.js version: 1.0.0 has them up to Node.js 22, so it runs on 22
+          # (the oldest Node.js Inferlo supports); the latest client runs on 24.
+          - { server: "4.1.2", client: "1.0.0", node: "22" }
+          - { server: "4.4.0", client: "latest", node: "24" }
+          - { server: "latest", client: "latest", node: "24" }
     env:
       INFERLO_TEST_KAFKA_BROKERS: localhost:9092
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: "24"
+          node-version: ${{ matrix.versions.node }}
           cache: npm
       # Docker Hub sometimes answers a layer download with 502: the pull is retried before the container starts.
       # apache/kafka runs one KRaft broker and controller, advertised as localhost:9092.
