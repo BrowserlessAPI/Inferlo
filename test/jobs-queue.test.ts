@@ -28,6 +28,43 @@ describe("job queue config", () => {
     assert.doesNotThrow(() => createApp({ jobQueue: { store: "memory" } }));
   });
 
+  test("MySQL store: a claim or write rolled back for a deadlock or lock wait timeout is run again", async () => {
+    const now = new Date();
+    const row = { id: "00000000-0000-4000-8000-000000000001", name: "deadlock", input: {}, status: "running", attempts: 1, max_attempts: 3, run_at: now, created_at: now, updated_at: now, last_error: null };
+    const mysqlError = (errno: number) => Object.assign(new Error(`MySQL error ${errno}`), { errno });
+    // Errors to throw, in order, for the claim's SELECT ... FOR UPDATE and for the status update.
+    const planned = { claim: [1213, 1205], update: [1213] };
+    const isolation: unknown[] = [];
+    let updates = 0;
+    const sql = async (text: string) => {
+      if (text.includes("FOR UPDATE SKIP LOCKED")) {
+        const errno = planned.claim.shift();
+        if (errno) throw mysqlError(errno);
+        return text.includes("'pending'") ? [{ id: row.id }] : [];
+      }
+      if (text.includes("SET `updated_at` = UTC_TIMESTAMP(3), `status` = ?")) {
+        updates++;
+        const errno = planned.update.shift();
+        if (errno) throw mysqlError(errno);
+        return [];
+      }
+      return text.startsWith("SELECT") ? [row] : [];
+    };
+    const transaction = async <T>(fn: (tx: Adapter) => Promise<T>, options?: { isolation?: string }) => {
+      isolation.push(options?.isolation);
+      return fn({ sql } as unknown as Adapter);
+    };
+    const store = databaseJobStore({ dialect: "mysql", sql, transaction } as unknown as Adapter);
+    assert.deepEqual((await store.claim(now, 1, ["deadlock"])).map((r) => r.id), [row.id]);
+    // Two rolled-back claims, then the one that worked, each at READ COMMITTED.
+    assert.deepEqual(isolation, ["read committed", "read committed", "read committed"]);
+    await store.update(row.id, { status: "done" });
+    assert.equal(updates, 2);
+    // Other errors are not retried.
+    const broken = databaseJobStore({ dialect: "mysql", sql: async () => Promise.reject(mysqlError(1064)), transaction } as unknown as Adapter);
+    await assert.rejects(broken.update(row.id, { status: "done" }), /MySQL error 1064/);
+  });
+
   test("a worker only claims jobs it has registered", async () => {
     const db = memory();
     const known = job(`known-${suffix}`, { input: t.object({}) }).handle(() => {});
@@ -102,6 +139,22 @@ for (const driver of [...(PG_URL ? ["pg", "postgres.js"] : []), ...(MYSQL_URL ? 
       const results = await Promise.all(apps.map((a) => a.jobs.runDue()));
       assert.equal(results.reduce((sum, r) => sum + r.done, 0), 20);
       assert.deepEqual([...ran].sort(), Array.from({ length: 20 }, (_, i) => `${100 + i}:1`).sort());
+    });
+
+    test("instances keep sharing the queue round after round, each job once (MySQL deadlocks are retried)", async () => {
+      // One round rarely shows a race; on MySQL the old claim deadlocked or left a job to one instance within 20 rounds.
+      const apps = [makeApp(pg()), makeApp(pg()), makeApp(pg())];
+      for (let round = 0; round < 20; round++) {
+        ran.length = 0;
+        for (let n = 200; n < 212; n++) await apps[n % 3]!.jobs.enqueue(record, { n });
+        const results = await Promise.all(apps.map((a) => a.jobs.runDue()));
+        assert.deepEqual(
+          results.reduce((sum, r) => ({ done: sum.done + r.done, retried: sum.retried + r.retried, failed: sum.failed + r.failed })),
+          { done: 12, retried: 0, failed: 0 },
+          `round ${round}`,
+        );
+        assert.deepEqual([...ran].sort(), Array.from({ length: 12 }, (_, i) => `${200 + i}:1`).sort(), `round ${round}`);
+      }
     });
 
     test("a job left running by a stopped worker is picked up again; without attempts left it is failed", async () => {

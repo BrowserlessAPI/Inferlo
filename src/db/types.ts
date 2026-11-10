@@ -41,8 +41,11 @@ export interface Adapter {
   search?(model: AnyModel, query: SearchQuery): Promise<{ row: DbRecord; distance: number }[]>;
   /** Create missing tables, columns and indexes. Returns the statements it ran (or would run). */
   sync(models: AnyModel[], options?: { dryRun?: boolean }): Promise<string[]>;
-  /** Run fn inside a transaction, passing an adapter bound to it. */
-  transaction?<T>(fn: (tx: Adapter) => Promise<T>): Promise<T>;
+  /**
+   * Run fn inside a transaction, passing an adapter bound to it. options.isolation "read committed" runs it at that
+   * isolation level where the database's default is stricter (MySQL); adapters without the setting ignore it.
+   */
+  transaction?<T>(fn: (tx: Adapter) => Promise<T>, options?: { isolation?: "read committed" }): Promise<T>;
   /** Raw parameterised SQL (Postgres only). */
   sql?(text: string, params?: unknown[]): Promise<DbRecord[]>;
   /** The pg client queries run on (Postgres only): the pool, or a transaction's connection. */

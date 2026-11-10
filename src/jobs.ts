@@ -431,12 +431,33 @@ export function databaseJobStore(adapter: Adapter, options: { staleAfterMs?: num
   };
 }
 
+/** MySQL errors a statement can be run again after: deadlock (1213, the transaction was rolled back) and lock wait timeout (1205). */
+function mysqlRetryable(error: unknown): boolean {
+  const e = error as { errno?: number } | null;
+  return e?.errno === 1213 || e?.errno === 1205;
+}
+
+/** Run fn again (up to 5 times, with a short random pause) when MySQL rolled it back for a deadlock or lock wait timeout. */
+async function mysqlRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= 5 || !mysqlRetryable(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5 + Math.random() * 20 * attempt));
+    }
+  }
+}
+
 /**
- * The inferlo_jobs table on MySQL (8.4 or newer). Due jobs are claimed in a transaction with FOR UPDATE SKIP LOCKED,
- * then marked running and read back by id (MySQL has no UPDATE ... RETURNING). Times are UTC.
+ * The inferlo_jobs table on MySQL (8.4 or newer). Due jobs are claimed in a READ COMMITTED transaction with
+ * FOR UPDATE SKIP LOCKED along the (status, run_at, created_at) index, so a claim locks only the rows it returns and
+ * other instances claim the next ones. They are then marked running and read back by id (MySQL has no UPDATE ...
+ * RETURNING). Statements MySQL rolls back for a deadlock or lock wait timeout are run again. Times are UTC.
  */
 function mysqlJobStore(adapter: Adapter, staleAfterMs: number): JobStore {
   const sql = adapter.sql!.bind(adapter);
+  const write = (text: string, params: unknown[]) => mysqlRetry(() => sql(text, params));
   const columns = JOB_COLUMNS.replace(/"/g, "`");
   let ready: Promise<unknown> | undefined;
   const table = async () => {
@@ -446,7 +467,7 @@ function mysqlJobStore(adapter: Adapter, staleAfterMs: number): JobStore {
         \`attempts\` INT NOT NULL, \`max_attempts\` INT NOT NULL, \`run_at\` DATETIME(3) NOT NULL,
         \`last_error\` MEDIUMTEXT, \`created_at\` DATETIME(3) NOT NULL, \`updated_at\` DATETIME(3) NOT NULL,
         \`traceparent\` TEXT, \`tracestate\` TEXT, \`tenant_id\` TEXT,
-        INDEX \`inferlo_jobs_due_idx\` (\`status\`, \`run_at\`)
+        INDEX \`inferlo_jobs_due_idx\` (\`status\`, \`run_at\`, \`created_at\`)
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
     ).catch((error) => {
       ready = undefined;
@@ -459,36 +480,51 @@ function mysqlJobStore(adapter: Adapter, staleAfterMs: number): JobStore {
   return {
     async add(r) {
       await table();
-      await sql(`INSERT INTO \`inferlo_jobs\` (${columns}) VALUES (?, ?, CAST(? AS JSON), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE \`id\` = \`id\``, [
+      await write(`INSERT INTO \`inferlo_jobs\` (${columns}) VALUES (?, ?, CAST(? AS JSON), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE \`id\` = \`id\``, [
         r.id, r.name, JSON.stringify(r.input), r.status, r.attempts, r.maxAttempts, r.runAt, r.lastError ?? null, r.createdAt, r.updatedAt, r.trace?.traceparent ?? null, r.trace?.tracestate ?? null, r.tenantId ?? null,
       ]);
     },
     async claim(now, limit, names) {
       await table();
-      if (!names.length) return [];
+      const max = Math.max(0, Math.floor(limit));
+      if (!names.length || !max) return [];
       // Stuck jobs without attempts left are failed, not run again.
-      await sql(`UPDATE \`inferlo_jobs\` SET \`status\` = 'failed', \`last_error\` = ?, \`updated_at\` = UTC_TIMESTAMP(3) WHERE ${stale} AND \`attempts\` >= \`max_attempts\` AND \`name\` IN (${marks(names)})`, [
+      await write(`UPDATE \`inferlo_jobs\` SET \`status\` = 'failed', \`last_error\` = ?, \`updated_at\` = UTC_TIMESTAMP(3) WHERE ${stale} AND \`attempts\` >= \`max_attempts\` AND \`name\` IN (${marks(names)})`, [
         STOPPED_MESSAGE, staleAfterMs, ...names,
       ]);
-      const rows = await adapter.transaction!(async (tx) => {
-        const txSql = tx.sql!.bind(tx);
-        const ids = (
-          await txSql(
-            `SELECT \`id\` FROM \`inferlo_jobs\`
-             WHERE \`name\` IN (${marks(names)}) AND ((\`status\` = 'pending' AND \`run_at\` <= ?) OR (${stale} AND \`attempts\` < \`max_attempts\`))
-             ORDER BY \`run_at\`, \`created_at\` LIMIT ${Math.max(0, Math.floor(limit))} FOR UPDATE SKIP LOCKED`,
-            [...names, now, staleAfterMs],
-          )
-        ).map((row) => String(row.id));
-        if (!ids.length) return [];
-        // last_error is assigned first, so it still sees the old status.
-        await txSql(
-          `UPDATE \`inferlo_jobs\` SET \`last_error\` = IF(\`status\` = 'running', ?, \`last_error\`), \`status\` = 'running', \`attempts\` = \`attempts\` + 1, \`updated_at\` = UTC_TIMESTAMP(3)
-           WHERE \`id\` IN (${marks(ids)})`,
-          [STOPPED_MESSAGE, ...ids],
+      const claimOnce = () =>
+        adapter.transaction!(
+          async (tx) => {
+            const txSql = tx.sql!.bind(tx);
+            // Two index range scans in index order, each stopping at its LIMIT: under READ COMMITTED only the rows
+            // returned stay locked, so concurrent instances skip just those. Jobs a stopped worker left come first
+            // (they were due before any pending job was claimed).
+            const pick = async (where: string, params: unknown[], count: number) =>
+              count <= 0
+                ? []
+                : (
+                    await txSql(
+                      `SELECT \`id\` FROM \`inferlo_jobs\` FORCE INDEX (\`inferlo_jobs_due_idx\`)
+                       WHERE ${where} AND \`name\` IN (${marks(names)})
+                       ORDER BY \`run_at\`, \`created_at\` LIMIT ${count} FOR UPDATE SKIP LOCKED`,
+                      [...params, ...names],
+                    )
+                  ).map((row) => String(row.id));
+            const ids = await pick(`${stale} AND \`attempts\` < \`max_attempts\``, [staleAfterMs], max);
+            ids.push(...(await pick("`status` = 'pending' AND `run_at` <= ?", [now], max - ids.length)));
+            if (!ids.length) return [];
+            // last_error is assigned first, so it still sees the old status.
+            await txSql(
+              `UPDATE \`inferlo_jobs\` SET \`last_error\` = IF(\`status\` = 'running', ?, \`last_error\`), \`status\` = 'running', \`attempts\` = \`attempts\` + 1, \`updated_at\` = UTC_TIMESTAMP(3)
+               WHERE \`id\` IN (${marks(ids)})`,
+              [STOPPED_MESSAGE, ...ids],
+            );
+            return txSql(`SELECT ${columns} FROM \`inferlo_jobs\` WHERE \`id\` IN (${marks(ids)})`, ids);
+          },
+          { isolation: "read committed" },
         );
-        return txSql(`SELECT ${columns} FROM \`inferlo_jobs\` WHERE \`id\` IN (${marks(ids)})`, ids);
-      });
+      // A deadlock rolls the whole claim back, so running it again cannot claim a job twice.
+      const rows = await mysqlRetry(claimOnce);
       return rows
         .map(fromRow)
         .sort((a, b) => a.runAt.getTime() - b.runAt.getTime() || a.createdAt.getTime() - b.createdAt.getTime());
@@ -502,7 +538,7 @@ function mysqlJobStore(adapter: Adapter, staleAfterMs: number): JobStore {
         sets.push(`\`${column}\` = ?`);
         params.push(value);
       }
-      await sql(`UPDATE \`inferlo_jobs\` SET ${sets.join(", ")} WHERE \`id\` = ?`, [...params, id]);
+      await write(`UPDATE \`inferlo_jobs\` SET ${sets.join(", ")} WHERE \`id\` = ?`, [...params, id]);
     },
     async get(id) {
       await table();
@@ -512,7 +548,7 @@ function mysqlJobStore(adapter: Adapter, staleAfterMs: number): JobStore {
     },
     async touch(id) {
       await table();
-      await sql("UPDATE `inferlo_jobs` SET `updated_at` = UTC_TIMESTAMP(3) WHERE `id` = ? AND `status` = 'running'", [id]);
+      await write("UPDATE `inferlo_jobs` SET `updated_at` = UTC_TIMESTAMP(3) WHERE `id` = ? AND `status` = 'running'", [id]);
     },
   };
 }

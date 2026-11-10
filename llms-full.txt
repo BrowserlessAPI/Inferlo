@@ -655,7 +655,7 @@ createApp({ db: mysql({ pool }) });                        // a mysql2/promise p
 - Strings that are `.unique()` or `.index()` need a length in MySQL: their `.max()`, else `VARCHAR(255)`. Give them a `.max()` when values can be longer. Other strings without `.max()` are `TEXT`, `t.text()` is `MEDIUMTEXT`.
 - MySQL has no `RETURNING`: inserts and updates read the rows back by id (an update locks and reads the matching ids first, in a transaction).
 - Tables are created and extended with `inferlo db push`, or with migration files: see [Migrations on MySQL](#migrations-on-mysql). `db.$pgClient()` is IL4028.
-- The `"database"` stores work on MySQL: `jobQueue: { store: "database" }` keeps jobs in `inferlo_jobs` (due jobs claimed with `FOR UPDATE SKIP LOCKED`, so each runs on one instance), `cache: { store: "database" }` entries in `inferlo_cache` (tags in a JSON array with a multi-valued index) and `rateLimit: { store: "database" }` counts in `inferlo_rate_limits`, each created on first use, with times in UTC. A `mysql({ pool })` you create needs `timezone: "Z"` for them too.
+- The `"database"` stores work on MySQL: `jobQueue: { store: "database" }` keeps jobs in `inferlo_jobs` (due jobs claimed with `FOR UPDATE SKIP LOCKED` in a `READ COMMITTED` transaction, so each runs on one instance and a claim locks only the jobs it takes; a claim or status update MySQL rolls back for a deadlock or lock wait timeout is run again), `cache: { store: "database" }` entries in `inferlo_cache` (tags in a JSON array with a multi-valued index) and `rateLimit: { store: "database" }` counts in `inferlo_rate_limits`, each created on first use, with times in UTC. A `mysql({ pool })` you create needs `timezone: "Z"` for them too.
 
 ### SQLite
 

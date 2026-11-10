@@ -421,11 +421,13 @@ function createMysqlAdapter(client: () => Promise<MysqlQueryable>, debug: boolea
       const result = await run(text, params);
       return Array.isArray(result) ? (result as DbRecord[]) : [];
     },
-    async transaction(fn) {
+    async transaction(fn, options) {
       if (inTransaction) return fn(adapter);
       const pool = (await client()) as MysqlPool;
       const conn = await pool.getConnection();
       try {
+        // SET TRANSACTION (without SESSION) applies to the next transaction only, so the pooled connection keeps its default.
+        if (options?.isolation === "read committed") await conn.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
         await conn.beginTransaction();
         const tx = createMysqlAdapter(async () => conn, debug, true);
         const result = await fn(tx);
