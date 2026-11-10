@@ -1,0 +1,4 @@
+{
+  "title": "Make a field required with a SQLite migration",
+  "prompt": "The app keeps its data in SQLite and deploys with migrations (see migrations/). Every note should now have a color: make the `color` field of notes required with the default \"gray\", so existing notes without a color get \"gray\". Update the model, and add the migration file migrations/0002_color_required.sql that `inferlo db migrate color_required --allow-change` would generate for this SQLite app (SQLite cannot change a column in place, so the table is rebuilt), and update migrations/snapshot.json the same way, so that running `inferlo db migrate` afterwards finds no changes. You cannot run commands."
+}

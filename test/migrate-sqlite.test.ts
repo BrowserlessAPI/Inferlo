@@ -108,13 +108,37 @@ describe("planMigration on SQLite", () => {
     assert.deepEqual(planMigration([Team, Memo], plan.snapshot, { dialect: "sqlite" }).statements, []);
   });
 
-  test("column changes need a table rebuild and are IL4013; snapshots of other databases are IL4037", () => {
-    const first = planMigration([Team, Note], undefined, { dialect: "sqlite" });
-    const changed = model("ms_notes", { ...Note.fields, title: t.int().default(0) });
+  test("column changes need allowChange (IL4019) and rebuild the table; other type changes are IL4013", () => {
+    const first = planMigration([Team, NoteV2], undefined, { dialect: "sqlite" });
+    const { tags: _tags, ...kept } = NoteV2.fields;
+    const Changed = model("ms_notes", { ...kept, status: t.enum(["open", "done", "archived"]).default("open"), slug: t.string().max(80).default("none").index(), rank: t.number().default(0) });
+    assert.throws(() => planMigration([Team, Changed], first.snapshot, { dialect: "sqlite", allowDrop: true }), (e: unknown) => isCode("IL4019")(e) && /change column ms_notes\.status \(enum values/.test((e as Error).message));
+    const plan = planMigration([Team, Changed], first.snapshot, { dialect: "sqlite", allowDrop: true, allowChange: true });
+    assert.match(plan.statements[0]!, /^CREATE TABLE "inferlo_new_ms_notes" \(/);
+    assert.ok(plan.statements[0]!.includes(`"status" TEXT DEFAULT 'open' NOT NULL CHECK ("status" IN ('open', 'done', 'archived'))`));
+    assert.deepEqual(plan.statements.slice(1), [
+      `INSERT INTO "inferlo_new_ms_notes" ("id", "created_at", "updated_at", "title", "body", "team_id", "status", "slug", "owner_id") SELECT "id", "created_at", "updated_at", "title", "body", "team_id", "status", COALESCE("slug", 'none'), "owner_id" FROM "ms_notes"`,
+      'DROP TABLE "ms_notes"',
+      'ALTER TABLE "inferlo_new_ms_notes" RENAME TO "ms_notes"',
+      'CREATE INDEX IF NOT EXISTS "ms_notes_team_id_idx" ON "ms_notes" ("team_id")',
+      'CREATE INDEX IF NOT EXISTS "ms_notes_slug_idx" ON "ms_notes" ("slug")',
+      'CREATE INDEX IF NOT EXISTS "ms_notes_owner_id_idx" ON "ms_notes" ("owner_id")',
+    ]);
+    assert.deepEqual(plan.drops, ["drop column ms_notes.tags"]);
+    assert.equal(plan.changes.length, 2);
+    assert.deepEqual(planMigration([Team, Changed], plan.snapshot, { dialect: "sqlite" }).statements, []);
+    const counted = model("ms_counts", { n: t.int().optional(), label: t.string() });
+    const countedFirst = planMigration([counted], undefined, { dialect: "sqlite" });
+    const widened = planMigration([model("ms_counts", { n: t.number().optional(), label: t.string() })], countedFirst.snapshot, { dialect: "sqlite", allowChange: true });
+    assert.ok(widened.statements[1]!.includes(`CAST("n" AS REAL)`));
     assert.throws(
-      () => planMigration([Team, changed], first.snapshot, { dialect: "sqlite", allowChange: true }),
-      (e: unknown) => isCode("IL4013")(e) && /change column ms_notes\.title \(type TEXT -> INTEGER/.test((e as Error).message) && /rebuilt/.test((e as InferloError).fix!),
+      () => planMigration([model("ms_counts", { n: t.int().optional(), label: t.int().default(0) })], countedFirst.snapshot, { dialect: "sqlite", allowChange: true }),
+      (e: unknown) => isCode("IL4013")(e) && /change column ms_counts\.label \(type TEXT -> INTEGER/.test((e as Error).message) && /integer to number/.test((e as InferloError).fix!),
     );
+  });
+
+  test("snapshots of other databases are IL4037", () => {
+    const first = planMigration([Team, Note], undefined, { dialect: "sqlite" });
     assert.throws(() => planMigration([Team], planMigration([Team]).snapshot, { dialect: "sqlite" }), (e: unknown) => isCode("IL4037")(e) && /PostgreSQL/.test((e as Error).message));
     assert.throws(() => planMigration([Team], planMigration([Team], undefined, { dialect: "mysql" }).snapshot, { dialect: "sqlite" }), (e: unknown) => isCode("IL4037")(e) && /MySQL/.test((e as Error).message));
     assert.throws(() => planMigration([Team], first.snapshot), (e: unknown) => isCode("IL4037")(e) && /SQLite/.test((e as Error).message));
@@ -161,6 +185,52 @@ describe("applyMigrations on SQLite", () => {
       let edited: string[] = [];
       await applyMigrations(db, [{ name: "0001_init", sql: "SELECT 1" }], { onEdited: (names) => (edited = names) });
       assert.deepEqual(edited, ["0001_init"]);
+    } finally {
+      await db.$close();
+    }
+  });
+
+  test("table rebuilds keep the data and the references to the table; rows that do not fit roll the file back", async () => {
+    const db = createDb([], sqlite({ path: path.join(tempDir(), "app.db") }));
+    try {
+      const Owner = model("mr_owners", { name: t.string().max(40) });
+      const Pet = model("mr_pets", { ownerId: t.ref("mr_owners", { onDelete: "cascade" }), kind: t.enum(["cat", "dog"]).default("cat"), age: t.int().optional(), nick: t.string().optional().unique() });
+      const v1 = planMigration([Owner, Pet], undefined, { dialect: "sqlite" });
+      await applyMigrations(db, [{ name: "0001_init", sql: file(v1.statements) }]);
+      const typed1 = createDb([Owner, Pet], db.$adapter);
+      const ann = await typed1.mr_owners.insert({ name: "Ann" });
+      const rex = await typed1.mr_pets.insert({ ownerId: ann.id, kind: "dog", age: 3, nick: "rex" });
+      await typed1.mr_pets.insert({ ownerId: ann.id });
+
+      // The referenced table is rebuilt too: mr_pets keeps pointing at it.
+      const OwnerV2 = model("mr_owners", { name: t.string().max(40), active: t.boolean().optional() });
+      const OwnerV3 = model("mr_owners", { name: t.string().max(40).optional(), active: t.boolean().default(true) });
+      const PetV2 = model("mr_pets", { ownerId: t.ref("mr_owners", { onDelete: "restrict" }), kind: t.enum(["cat", "dog", "bird"]).default("bird"), age: t.number().default(1), nick: t.string().optional().unique() });
+      const v2 = planMigration([OwnerV2, Pet], v1.snapshot, { dialect: "sqlite" });
+      const v3 = planMigration([OwnerV3, PetV2], v2.snapshot, { dialect: "sqlite", allowChange: true });
+      assert.deepEqual(await applyMigrations(db, [{ name: "0001_init", sql: file(v1.statements) }, { name: "0002_active", sql: file(v2.statements) }, { name: "0003_rebuild", sql: file(v3.statements) }]), ["0002_active", "0003_rebuild"]);
+      const typed = createDb([OwnerV3, PetV2], db.$adapter);
+      await matchesModels(typed, v3.snapshot);
+      const pets = await typed.mr_pets.findMany({ orderBy: { createdAt: "asc" } });
+      assert.deepEqual(pets.map((p) => [p.kind, p.age, p.nick ?? null]), [["dog", 3, "rex"], ["cat", 1, null]]);
+      assert.equal((await typed.mr_owners.find(ann.id))?.active, true, "NULL got the new default");
+      await assert.rejects(typed.mr_pets.insert({ ownerId: ann.id, nick: "rex" }), isCode("IL4004"), "the unique index was created again");
+      await assert.rejects(typed.mr_pets.insert({ ownerId: crypto.randomUUID() }), isCode("IL4011"), "foreign keys are enforced again");
+      await assert.rejects(typed.mr_owners.delete(ann.id), isCode("IL4011"), "ON DELETE RESTRICT now applies");
+      assert.equal((await typed.mr_pets.find(rex.id))?.kind, "dog");
+
+      // A removed enum value still in use fails the rebuild, and the file is rolled back.
+      const PetV3 = model("mr_pets", { ...PetV2.fields, kind: t.enum(["cat", "bird"]).default("bird") });
+      const bad = planMigration([OwnerV3, PetV3], v3.snapshot, { dialect: "sqlite", allowChange: true });
+      await assert.rejects(applyMigrations(db, [{ name: "0004_bad", sql: file(bad.statements) }]), (e: unknown) => isCode("IL4039")(e) && /CHECK constraint failed/.test((e as Error).message));
+      assert.equal(await typed.mr_pets.count(), 2, "the old table is still there");
+      // A reference pointed at another table whose ids the rows do not have fails the foreign key check.
+      const Vet = model("mr_vets", { name: t.string().max(40) });
+      const PetV4 = model("mr_pets", { ...PetV2.fields, ownerId: t.ref("mr_vets") });
+      const moved = planMigration([OwnerV3, Vet, PetV4], v3.snapshot, { dialect: "sqlite", allowChange: true });
+      await assert.rejects(applyMigrations(db, [{ name: "0004_vets", sql: file(moved.statements) }]), (e: unknown) => isCode("IL4039")(e) && /pointing at rows that do not exist/.test((e as Error).message));
+      assert.equal((await db.$sql(`SELECT count(*) AS n FROM sqlite_master WHERE name = 'mr_vets'`))[0]!.n, 0);
+      assert.equal(Number((await db.$sql("PRAGMA foreign_keys"))[0]!.foreign_keys), 1, "foreign keys are on again after a failure");
     } finally {
       await db.$close();
     }
