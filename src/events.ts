@@ -119,6 +119,8 @@ export interface EventTransport {
    * resolves; an event whose deliver() rejects is delivered again later. Returns how many events were delivered.
    */
   receive(names: readonly string[], deliver: (message: EventMessage) => Promise<void>): Promise<number>;
+  /** Called by app.close() after the job workers stopped: release what the transport opened itself (Kafka's consumer). */
+  close?(): Promise<void>;
 }
 
 export interface EventsConfig {

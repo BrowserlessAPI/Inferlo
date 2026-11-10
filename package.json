@@ -119,6 +119,10 @@
       "types": "./dist/sentry.d.ts",
       "default": "./dist/sentry.js"
     },
+    "./kafka": {
+      "types": "./dist/kafka.d.ts",
+      "default": "./dist/kafka.js"
+    },
     "./rabbitmq": {
       "types": "./dist/rabbitmq.d.ts",
       "default": "./dist/rabbitmq.js"

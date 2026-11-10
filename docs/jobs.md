@@ -152,7 +152,7 @@ export const app = createApp({
 - With `createApp({ tracing })`, the trace of the publishing request travels with the event, so the subscribed jobs in other services are part of the same trace.
 - `app.events.transport` is `"redis"` (or your transport's name), shown as `eventTransport` in `inferlo describe`. An unknown transport or option raises IL6033; `transport: "redis"` without `createApp({ redis })` raises IL6031.
 
-Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`). NATS JetStream and RabbitMQ have transports in their own entry points (below); a Kafka transport is planned.
+Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`, and optionally `close()`, which `app.close()` calls after the job workers stopped). NATS JetStream, RabbitMQ and Kafka have transports in their own entry points (below).
 
 ### NATS JetStream
 
@@ -200,6 +200,29 @@ export const app = createApp({
 - RabbitMQ 4 drops a message from a quorum queue after 20 deliveries by default (about 10 minutes of failed deliveries with the default `staleAfterMs`). To keep events longer while a dependency is down, set a policy for the queues, for example `rabbitmqctl set_policy inferlo-events "^inferlo\." '{"delivery-limit": -1}' --apply-to quorum_queues`, or a `dead-letter-exchange` to keep them aside.
 - Messages in the queues that are not Inferlo events are acknowledged and dropped. The rest works as with Redis: payloads are checked against the subscriber's schema (IL6034), the trace and the tenant travel with the event, and `app.events.transport` is `"rabbitmq"`. Invalid arguments raise IL6054.
 - Options: `service` (required), `exchange` (default `"inferlo.events"`, the same in every service), `queueType` (`"quorum"` or `"classic"`), `staleAfterMs`, `batch` (events read per event and poll, default 100). Close the connection after `app.close()`.
+
+### Kafka
+
+Services that already run Apache Kafka (4.1 or later) use `kafkaEventTransport` from `@browserlessapi/inferlo/kafka` with a client from Confluent's [`@confluentinc/kafka-javascript`](https://github.com/confluentinc/confluent-kafka-javascript) (1.0.0 or later, its KafkaJS API; a native Node.js addon, so on Node.js):
+
+```ts
+import { KafkaJS } from "@confluentinc/kafka-javascript";
+import { kafkaEventTransport } from "@browserlessapi/inferlo/kafka";
+
+const kafka = new KafkaJS.Kafka({ kafkaJS: { brokers: settings.KAFKA_BROKERS.split(",") } }); // plus ssl and sasl for a managed cluster
+
+export const app = createApp({
+  name: "billing",
+  jobs: [jobs],                        // on(orderPaid, createInvoice)
+  events: { transport: kafkaEventTransport(kafka, { service: "billing" }) },
+});
+```
+
+- Each event name has its own topic, `inferlo.events.<event name>`, created the first time it is published or read (with `partitions`, or the broker's default number of partitions and replicas; create the topics yourself to choose more). Events are produced as JSON with the event id as key, and `events.publish(...)` resolves when the brokers acknowledged the event (all in-sync replicas).
+- Each service reads the topics of the events it subscribes to as its own consumer group, `inferlo.<service>`, so each service gets each event once and its instances share the topics' partitions. Pass the app's name as `service`. A new group starts with the events published after it joined (it joins in the background on the first poll, which takes a few seconds), or with every event still in the topics with `fromBeginning: true`; afterwards it continues from its committed offsets.
+- An event's offset is committed after its jobs are queued. One whose delivery fails (its jobs could not be queued) is delivered again after `staleAfterMs` (default 30000), and the events behind it on the same partition wait, so they keep their order. Events an instance read but did not deliver before it stopped are delivered by another instance of the service. A repeated delivery queues nothing new.
+- `app.close()` disconnects the producer, consumer and admin client the transport created (there is no connection of yours to close). Messages in the topics that are not Inferlo events are skipped. The rest works as with Redis: payloads are checked against the subscriber's schema (IL6034), the trace and the tenant travel with the event, and `app.events.transport` is `"kafka"`. Invalid arguments raise IL6072.
+- Options: `service` (required), `topicPrefix` (default `"inferlo.events."`, the same in every service), `partitions` (for topics the transport creates), `fromBeginning` (default false), `staleAfterMs`, `batch` (events delivered per poll, default 100).
 
 ## Where jobs are kept
 

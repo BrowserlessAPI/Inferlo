@@ -991,6 +991,47 @@ jobs:
           bun-version: latest
       - run: bun test test/rabbitmq-events.test.ts
 
+  kafka:
+    name: Kafka events (server ${{ matrix.versions.server }}, @confluentinc/kafka-javascript ${{ matrix.versions.client }})
+    runs-on: ubuntu-latest
+    # Jobs take under 10 minutes; a stalled runner fails here instead of hanging for 6 hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        versions:
+          # Kafka 4.1 = oldest release line still supported upstream (4.0 and 3.9 ended 2026-07-03), with
+          # @confluentinc/kafka-javascript 1.0.0 (its first stable release; kafkajs has had no release since
+          # February 2023); 4.4.0 = newest release (the image's latest tag can lag behind it) and latest.
+          - { server: "4.1.2", client: "1.0.0" }
+          - { server: "4.4.0", client: "latest" }
+          - { server: "latest", client: "latest" }
+    env:
+      INFERLO_TEST_KAFKA_BROKERS: localhost:9092
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      # Docker Hub sometimes answers a layer download with 502: the pull is retried before the container starts.
+      # apache/kafka runs one KRaft broker and controller, advertised as localhost:9092.
+      - run: |
+          for attempt in 1 2 3 4; do docker pull -q apache/kafka:${{ matrix.versions.server }} && break; echo "docker pull attempt $attempt failed"; [ "$attempt" = 4 ] && exit 1; sleep 10; done
+          docker run -d --name kafka -p 9092:9092 apache/kafka:${{ matrix.versions.server }}
+      # npm ci takes about 25 seconds; an install that stalls on the registry is retried.
+      - name: npm ci
+        run: for attempt in 1 2 3; do timeout --kill-after=20 180 npm ci && exit 0; echo "npm ci attempt $attempt failed or stalled"; done; exit 1
+      - run: npm install --no-save @confluentinc/kafka-javascript@${{ matrix.versions.client }}
+      - run: node -p "'@confluentinc/kafka-javascript ' + require('./node_modules/@confluentinc/kafka-javascript/package.json').version"
+      - name: Wait for Kafka
+        run: for i in $(seq 1 60); do docker exec kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 && exit 0; sleep 2; done; docker logs kafka; exit 1
+      - run: docker exec kafka /opt/kafka/bin/kafka-topics.sh --version
+      - run: npx tsc --noEmit
+      # The client is a native Node.js addon (librdkafka), so the broker tests run on Node.js; Bun and Deno run the
+      # transport's tests with a stand-in client in their own jobs.
+      - run: node --test --test-reporter=spec test/kafka-events.test.ts
+
   drizzle:
     name: Drizzle ORM ${{ matrix.drizzle }} on PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest

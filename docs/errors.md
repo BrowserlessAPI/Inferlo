@@ -520,6 +520,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 
 ## Environment (7xxx)
 
+### IL6072
+**Invalid `kafkaEventTransport()` arguments.** `kafkaEventTransport(kafka, { service, topicPrefix, partitions, fromBeginning, staleAfterMs, batch })` from `@browserlessapi/inferlo/kafka` needs a Kafka client first (`new KafkaJS.Kafka({ kafkaJS: { brokers } })` with `KafkaJS` from `@confluentinc/kafka-javascript`, or any client with the same `producer()`, `consumer()` and `admin()`) and this service's name as `service` (1 to 100 letters, digits, `-` and `_`, usually the app's `name`), and takes only those options: `topicPrefix` is up to 100 letters, digits, `.`, `-` and `_` and cannot start with `__` (Kafka's internal topics), `partitions` 1 to 10000, `fromBeginning` true or false, `staleAfterMs` 1000 to 3600000 and `batch` 1 to 1000, all whole numbers. See [Kafka](jobs.md#kafka).
+
 ### IL7001
 **Environment variable not set.** Set it, or pass a default: `env("NAME", { default: "..." })`.
 

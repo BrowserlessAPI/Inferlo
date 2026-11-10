@@ -2347,7 +2347,7 @@ export const app = createApp({
 - With `createApp({ tracing })`, the trace of the publishing request travels with the event, so the subscribed jobs in other services are part of the same trace.
 - `app.events.transport` is `"redis"` (or your transport's name), shown as `eventTransport` in `inferlo describe`. An unknown transport or option raises IL6033; `transport: "redis"` without `createApp({ redis })` raises IL6031.
 
-Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`). NATS JetStream and RabbitMQ have transports in their own entry points (below); a Kafka transport is planned.
+Keys, trimming and the details of the Redis transport are in [Redis, "Events"](redis.md#events). Another broker can be used by passing an object that implements `EventTransport` (`{ name, send(message), receive(names, deliver) }`, and optionally `close()`, which `app.close()` calls after the job workers stopped). NATS JetStream, RabbitMQ and Kafka have transports in their own entry points (below).
 
 ### NATS JetStream
 
@@ -2395,6 +2395,29 @@ export const app = createApp({
 - RabbitMQ 4 drops a message from a quorum queue after 20 deliveries by default (about 10 minutes of failed deliveries with the default `staleAfterMs`). To keep events longer while a dependency is down, set a policy for the queues, for example `rabbitmqctl set_policy inferlo-events "^inferlo\." '{"delivery-limit": -1}' --apply-to quorum_queues`, or a `dead-letter-exchange` to keep them aside.
 - Messages in the queues that are not Inferlo events are acknowledged and dropped. The rest works as with Redis: payloads are checked against the subscriber's schema (IL6034), the trace and the tenant travel with the event, and `app.events.transport` is `"rabbitmq"`. Invalid arguments raise IL6054.
 - Options: `service` (required), `exchange` (default `"inferlo.events"`, the same in every service), `queueType` (`"quorum"` or `"classic"`), `staleAfterMs`, `batch` (events read per event and poll, default 100). Close the connection after `app.close()`.
+
+### Kafka
+
+Services that already run Apache Kafka (4.1 or later) use `kafkaEventTransport` from `@browserlessapi/inferlo/kafka` with a client from Confluent's [`@confluentinc/kafka-javascript`](https://github.com/confluentinc/confluent-kafka-javascript) (1.0.0 or later, its KafkaJS API; a native Node.js addon, so on Node.js):
+
+```ts
+import { KafkaJS } from "@confluentinc/kafka-javascript";
+import { kafkaEventTransport } from "@browserlessapi/inferlo/kafka";
+
+const kafka = new KafkaJS.Kafka({ kafkaJS: { brokers: settings.KAFKA_BROKERS.split(",") } }); // plus ssl and sasl for a managed cluster
+
+export const app = createApp({
+  name: "billing",
+  jobs: [jobs],                        // on(orderPaid, createInvoice)
+  events: { transport: kafkaEventTransport(kafka, { service: "billing" }) },
+});
+```
+
+- Each event name has its own topic, `inferlo.events.<event name>`, created the first time it is published or read (with `partitions`, or the broker's default number of partitions and replicas; create the topics yourself to choose more). Events are produced as JSON with the event id as key, and `events.publish(...)` resolves when the brokers acknowledged the event (all in-sync replicas).
+- Each service reads the topics of the events it subscribes to as its own consumer group, `inferlo.<service>`, so each service gets each event once and its instances share the topics' partitions. Pass the app's name as `service`. A new group starts with the events published after it joined (it joins in the background on the first poll, which takes a few seconds), or with every event still in the topics with `fromBeginning: true`; afterwards it continues from its committed offsets.
+- An event's offset is committed after its jobs are queued. One whose delivery fails (its jobs could not be queued) is delivered again after `staleAfterMs` (default 30000), and the events behind it on the same partition wait, so they keep their order. Events an instance read but did not deliver before it stopped are delivered by another instance of the service. A repeated delivery queues nothing new.
+- `app.close()` disconnects the producer, consumer and admin client the transport created (there is no connection of yours to close). Messages in the topics that are not Inferlo events are skipped. The rest works as with Redis: payloads are checked against the subscriber's schema (IL6034), the trace and the tenant travel with the event, and `app.events.transport` is `"kafka"`. Invalid arguments raise IL6072.
+- Options: `service` (required), `topicPrefix` (default `"inferlo.events."`, the same in every service), `partitions` (for topics the transport creates), `fromBeginning` (default false), `staleAfterMs`, `batch` (events delivered per poll, default 100).
 
 ## Where jobs are kept
 
@@ -3179,7 +3202,7 @@ import { app as ticketsApp } from "../../tickets/src/app.ts";
 const tickets = serviceClient({ baseUrl: "http://tickets.test", token: "test-token", fetch: ticketsApp.fetch });
 ```
 
-Events between services through message transports (Redis Streams, NATS, RabbitMQ, Kafka) are planned as later parts of this feature.
+Events between services travel through a message transport: Redis Streams, NATS JetStream, RabbitMQ or Kafka. See [Events between services](jobs.md) for each one.
 
 ---
 
@@ -7050,6 +7073,7 @@ Every version range below is tested in CI on its oldest supported and its latest
 | Zod, ArkType and Valibot schemas in the AI module (`ai.generate({ output })`, `tool()` input) | zod 4.2 and later, arktype 2.1.28 and later, `@valibot/to-json-schema` 1.5 and later |
 | NATS JetStream events (`/nats`: `natsEventTransport`) | nats-server 2.11 and newer with JetStream, `@nats-io/jetstream` 3.0.0 and newer |
 | RabbitMQ events (`/rabbitmq`: `rabbitmqEventTransport`) | RabbitMQ 4.3 and newer, `amqplib` 0.10.9 and newer |
+| Kafka events (`/kafka`: `kafkaEventTransport`) | Apache Kafka 4.1 and newer, `@confluentinc/kafka-javascript` 1.0.0 and newer (on Node.js) |
 | BullMQ job queue (`/bullmq`: `bullmqJobStore`) | `bullmq` 5.0.0 and newer, on Redis 6.2 and newer |
 | Vercel AI SDK providers (`aiSdk(provider)`) | `@ai-sdk/*` provider packages for `ai` 5 and newer (language model specifications v2, v3 and v4); tested with `@ai-sdk/openai-compatible` 1.0.0, 2 and the latest |
 | Drizzle ORM (next to Inferlo on one Postgres database, `db.$pgClient()`) | `drizzle-orm` 0.44.0 and newer |
@@ -7608,6 +7632,9 @@ Errors with status 500 or higher hide their message from API clients ("Internal 
 **Email could not be sent (502).** The SMTP server could not be reached, did not offer TLS (required except for servers on this machine), presented a certificate that could not be verified, refused the login, the sender or a recipient, or did not answer within `timeoutMs`. `details.stage` says where it stopped (`connect`, `greeting`, `ehlo`, `starttls`, `auth`, `sender`, `recipient`, `data`), `details.response` has the server's reply and `details.permanent` is true for 5xx replies. When a recipient is refused, the message is sent to nobody. Check the host and port (outgoing port 25 is blocked by most clouds; use 587 or 465), the credentials (many providers want an API key or app password), that `from` is a sender the account may use, and for a private CA pass `mail({ smtp: { ca } })`. Sent from a job, the attempt is retried. Also raised on runtimes without TCP sockets: use a `transport` there. See [Email](mail.md#smtp).
 
 ## Environment (7xxx)
+
+### IL6072
+**Invalid `kafkaEventTransport()` arguments.** `kafkaEventTransport(kafka, { service, topicPrefix, partitions, fromBeginning, staleAfterMs, batch })` from `@browserlessapi/inferlo/kafka` needs a Kafka client first (`new KafkaJS.Kafka({ kafkaJS: { brokers } })` with `KafkaJS` from `@confluentinc/kafka-javascript`, or any client with the same `producer()`, `consumer()` and `admin()`) and this service's name as `service` (1 to 100 letters, digits, `-` and `_`, usually the app's `name`), and takes only those options: `topicPrefix` is up to 100 letters, digits, `.`, `-` and `_` and cannot start with `__` (Kafka's internal topics), `partitions` 1 to 10000, `fromBeginning` true or false, `staleAfterMs` 1000 to 3600000 and `batch` 1 to 1000, all whole numbers. See [Kafka](jobs.md#kafka).
 
 ### IL7001
 **Environment variable not set.** Set it, or pass a default: `env("NAME", { default: "..." })`.

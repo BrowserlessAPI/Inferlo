@@ -1558,6 +1558,7 @@ export function createApp<const Models extends readonly AnyModel[] = [], const M
           if (!(await within(server.close(), Math.max(0, deadline - Date.now())))) forceClosers?.get(server)?.();
         }));
         await socketHub.stop().catch((error: unknown) => logger.error("WebSocket broadcasts: unsubscribing failed", error));
+        await eventTransport?.close?.().catch((error: unknown) => logger.error("events transport: closing failed", error));
         await db.$close();
       })();
       return closed;

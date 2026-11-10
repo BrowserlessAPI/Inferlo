@@ -38,7 +38,7 @@ These can all be built and tested in the maintainer's environment. Work through 
 
 - [x] Fix flaky test: "instances share the queue and each job runs exactly once" (test/jobs-queue.test.ts) on MySQL latest ran 19 of 20 jobs once (CI run 42726097917, attempt 1; green on re-run, not reproduced in 14 local runs on MySQL 26.10). Suspect: the claim's `ORDER BY ... LIMIT 1 FOR UPDATE SKIP LOCKED` under REPEATABLE READ locking rows it does not return, so an instance can see no claimable job and stop; check whether a job can be left unclaimed and make `runDue()` reliable (for example claim under READ COMMITTED or retry once when rows were skipped)
 - [x] Drizzle and Prisma part 2b: Prisma Migrate next to `inferlo db migrate` in development (`prisma migrate dev` drift checks and Inferlo's tables, `tables.external` in prisma.config.ts), tested in CI with the Prisma schema engine on the oldest supported and latest Prisma
-- [ ] Microservices part 4c: Kafka event transport as a separate entry point (`kafkajs` or `@confluentinc/kafka-javascript` peer dependency, a consumer group per service), tested on the oldest supported and latest Kafka
+- [x] Microservices part 4c: Kafka event transport as a separate entry point (`kafkajs` or `@confluentinc/kafka-javascript` peer dependency, a consumer group per service), tested on the oldest supported and latest Kafka
 - [ ] File uploads part 2b-2: `s3Storage()` tested in CI against real S3-compatible servers on their oldest supported and latest versions (MinIO, and a maintained alternative such as Garage, SeaweedFS or RustFS), plus streamed uploads and downloads for files larger than memory
 
 ### Enterprise readiness (top priority, alongside integrations)

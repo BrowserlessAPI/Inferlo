@@ -1,0 +1,4 @@
+{
+  "title": "Events between services over Kafka",
+  "prompt": "The services of this company exchange events over Apache Kafka. Create src/events-transport.ts with `export function eventsTransport(kafka: KafkaClient)` (KafkaClient from @browserlessapi/inferlo/kafka; the client is new KafkaJS.Kafka(...) from @confluentinc/kafka-javascript) that returns Inferlo's built-in Kafka event transport for this service, named \"bench-app\" like the app. Topics it creates need 6 partitions, and a failed delivery should be retried after 10 seconds. Do not write your own transport."
+}

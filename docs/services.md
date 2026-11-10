@@ -78,4 +78,4 @@ import { app as ticketsApp } from "../../tickets/src/app.ts";
 const tickets = serviceClient({ baseUrl: "http://tickets.test", token: "test-token", fetch: ticketsApp.fetch });
 ```
 
-Events between services through message transports (Redis Streams, NATS, RabbitMQ, Kafka) are planned as later parts of this feature.
+Events between services travel through a message transport: Redis Streams, NATS JetStream, RabbitMQ or Kafka. See [Events between services](jobs.md) for each one.
