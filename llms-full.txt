@@ -4904,11 +4904,41 @@ export const createInvoice = route
 - Do not call `prisma` inside `db.$transaction`, or `db` inside `prisma.$transaction`, expecting one transaction: each runs on its own connection and commits on its own.
 - Queue jobs that read the new rows with Prisma after `db.$transaction` returns, so they never run before the rows are committed or for rows that were rolled back.
 
-**Migrations.** Each tool manages its own tables. `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create, so Prisma's tables are safe. `prisma migrate deploy` applies only Prisma's own migration files, so it leaves Inferlo's tables alone. Give new Inferlo models names that Prisma does not use; Inferlo's built-in tables start with `inferlo_` (jobs, rate limits, cache, migrations) or are `audit_log`.
+**Migrations.** Each tool manages its own tables. `inferlo db migrate` only creates, changes and drops tables of Inferlo models, never tables it did not create, so Prisma's tables (and `_prisma_migrations`) are safe. `prisma migrate deploy` applies only Prisma's own migration files, so it leaves Inferlo's tables alone. Give new Inferlo models names that Prisma does not use; Inferlo's built-in tables start with `inferlo_` (jobs, rate limits, cache, migrations) or are `audit_log`.
+
+**Prisma Migrate in development.** `prisma migrate dev` compares the whole database with Prisma's migration files, so it reports Inferlo's tables as drift ("Added tables: reminders") and asks to reset the database, which would delete Inferlo's data. List Inferlo's tables as external tables in `prisma.config.ts`; Prisma then leaves them out of drift checks and of the migrations it writes:
+
+```ts
+// prisma.config.ts (Prisma 7)
+import { defineConfig } from "prisma/config";
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: { path: "prisma/migrations" },
+  datasource: { url: process.env.DATABASE_URL ?? "", shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL },
+  experimental: { externalTables: true },
+  tables: {
+    external: [
+      "public.reminders", // every Inferlo model: add new models here
+      "public.inferlo_migrations", // inferlo db migrate
+      "public.inferlo_jobs", // jobQueue: { store: "database" }
+      "public.inferlo_cache", // cache: { store: "database" } and idempotency keys
+      "public.inferlo_rate_limits", // rateLimit: { store: "database" }
+      // "public.audit_log",      // with createApp({ audit })
+    ],
+  },
+});
+```
+
+- Names are `schema.table` and must be exact (no patterns). Listing a table the app never creates does no harm.
+- External tables are an experimental Prisma feature (`experimental: { externalTables: true }`), available in Prisma 6 (newest 6.x) and 7. With Prisma 6, add `engine: "classic"` next to `datasource`.
+- Run both in development: `npx inferlo db migrate --apply` for Inferlo's models, `npx prisma migrate dev` for Prisma's. In production, `npx inferlo db migrate --apply` and `npx prisma migrate deploy`, in either order.
+- A Prisma model that references an Inferlo table (a foreign key to an external table) also needs `migrations: { initShadowDb: "CREATE TABLE ..." }`, so Prisma can create the referenced table in its shadow database. Keep references from Inferlo to Prisma's tables as plain id fields (above) and none is needed.
+- Without `tables.external`, `prisma migrate dev` stops and asks for `prisma migrate reset`. Do not reset a database that holds Inferlo's tables.
 
 **Shutting down.** Close in order: `await app.close()` (stops requests and jobs), then `await prisma.$disconnect()`, then `await pool.end()`. Neither Inferlo nor Prisma ends a pool you created.
 
-Tested with Prisma 6 (newest 6.x) on the oldest supported PostgreSQL and the latest Prisma on the newest PostgreSQL.
+Tested with Prisma 6 (newest 6.x) on the oldest supported PostgreSQL and the latest Prisma on the newest PostgreSQL, including `prisma migrate dev` and `prisma migrate status` with the external tables above on a database where Inferlo applied its migrations first.
 
 ## TypeORM
 

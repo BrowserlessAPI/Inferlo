@@ -39,4 +39,23 @@ export function ensurePrismaClient(): void {
   writeFileSync(stampPath, stamp);
 }
 
+/**
+ * The prisma.config.ts to run the Prisma CLI with. Prisma 7 reads this example's prisma.config.ts; for Prisma 6 the
+ * Prisma 6 form (the classic schema engine with the datasource in the config, and the Prisma 6 schema) is written to
+ * generated/prisma.config.ts, with the same migrations and external tables. Call ensurePrismaClient() first.
+ */
+export function prismaConfigPath(): string {
+  const config = join(here, "prisma.config.ts");
+  const pkg = JSON.parse(readFileSync(join(root, "node_modules", "prisma", "package.json"), "utf8")) as { version: string };
+  if (Number(pkg.version.split(".")[0]) >= 7) return config;
+  const source = readFileSync(config, "utf8");
+  const prisma6 = source
+    .replace('schema: "prisma/schema.prisma"', 'schema: "schema.prisma"')
+    .replace('migrations: { path: "prisma/migrations" }', 'migrations: { path: "../prisma/migrations" },\n  engine: "classic"');
+  if (prisma6 === source) throw new Error("prisma.config.ts changed: update prismaConfigPath() in generate.ts");
+  const path = join(here, "generated", "prisma.config.ts");
+  writeFileSync(path, prisma6);
+  return path;
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) ensurePrismaClient();

@@ -1,0 +1,4 @@
+{
+  "title": "Keep prisma migrate dev away from Inferlo's tables",
+  "prompt": "The app shares its Postgres database (schema public) with older code that uses Prisma 7, whose schema is prisma/schema.prisma and whose migrations are in prisma/migrations. The Inferlo part deploys with inferlo db migrate and keeps background jobs in the database (jobQueue store \"database\"). Running prisma migrate dev now reports the Inferlo tables as drift and asks to reset the database. Create prisma.config.ts in the project root (using defineConfig from \"prisma/config\", with the database URL from process.env.DATABASE_URL and the shadow database URL from process.env.SHADOW_DATABASE_URL) so that prisma migrate dev leaves every table of the Inferlo models and Inferlo's own tables for migrations and jobs alone."
+}
